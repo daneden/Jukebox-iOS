@@ -11,7 +11,7 @@ import SwiftUI
 struct JukeboxApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+          ContentView()
         }
     }
 }
