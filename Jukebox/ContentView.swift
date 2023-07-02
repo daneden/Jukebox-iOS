@@ -165,7 +165,9 @@ struct ContentView: View {
 	
 	func playRandom() async {
 		if let playlist = playlists.randomElement() {
-			self.chosenPlaylist = playlist
+			withAnimation {
+				self.chosenPlaylist = playlist
+			}
 			await playPlaylist(playlist: playlist)
 		}
 	}
@@ -174,6 +176,7 @@ struct ContentView: View {
 		do {
 			SystemMusicPlayer.shared.queue = [playlist]
 			try await SystemMusicPlayer.shared.play()
+			await updatePlaylists()
 		} catch {
 			print(error)
 		}
