@@ -16,6 +16,7 @@ struct NowPlayingView: View {
 			HStack {
 				if let artwork = playlist.artwork {
 					ArtworkImage(artwork, width: 40)
+						.clipShape(RoundedRectangle(cornerRadius: 4))
 				}
 				
 				VStack(alignment: .leading) {
