@@ -15,9 +15,10 @@ enum PlaylistSortProperty {
 struct ContentView: View {
 	private let player = SystemMusicPlayer.shared
 	
-	@State private var playlists: MusicItemCollection<Playlist> = []
 	@State private var sortBy: PlaylistSortProperty = .lastPlayedDate
 	@State private var sortAscending = true
+	
+	@State private var playlists: MusicItemCollection<Playlist> = []
 	@State private var chosenPlaylist: Playlist?
 	
 	var item: MusicPlayer.Queue.Entry? {
@@ -80,7 +81,7 @@ struct ContentView: View {
 					await updatePlaylists()
 				}
 				.safeAreaInset(edge: .bottom) {
-					if let playlist = chosenPlaylist {
+					if let playlist = chosenPlaylist ?? player.queue.currentEntry as? Playlist {
 						NowPlayingView(playlist: playlist)
 					}
 				}
@@ -122,7 +123,7 @@ struct ContentView: View {
 					await updatePlaylists()
 				}
 			}
-			.onChange(of: sortAscending) { 
+			.onChange(of: sortAscending) {
 				Task {
 					await updatePlaylists()
 				}
