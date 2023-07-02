@@ -8,10 +8,16 @@
 import SwiftUI
 import MusicKit
 
+enum PlaylistSortProperty {
+	case lastPlayedDate, libraryAddedDate, name
+}
+
 struct ContentView: View {
 	private let player = SystemMusicPlayer.shared
 	
 	@State private var playlists: MusicItemCollection<Playlist> = []
+	@State private var sortBy: PlaylistSortProperty = .lastPlayedDate
+	@State private var sortAscending = true
 	@State private var chosenPlaylist: Playlist?
 	
 	var item: MusicPlayer.Queue.Entry? {
@@ -80,12 +86,45 @@ struct ContentView: View {
 				}
 			}
 			.navigationTitle("Jukebox")
+			.toolbar {
+				Menu {
+					Picker("Sort by", selection: $sortBy) {
+						Text("Date Last Played")
+							.tag(PlaylistSortProperty.lastPlayedDate)
+						
+						Text("Date Added")
+							.tag(PlaylistSortProperty.libraryAddedDate)
+						
+						Text("Name")
+							.tag(PlaylistSortProperty.name)
+					}
+					
+					Picker("Sort order", selection: $sortAscending) {
+						Text("Ascending")
+							.tag(true)
+						Text("Descending")
+							.tag(false)
+					}
+				} label: {
+					Label("Sort Playlists", systemImage: "arrow.up.arrow.down.circle")
+				}
+			}
 			.symbolRenderingMode(.hierarchical)
 			.onChange(of: MusicAuthorization.currentStatus) { _, newValue in
 				if newValue == .authorized {
 					Task {
 						await updatePlaylists()
 					}
+				}
+			}
+			.onChange(of: sortBy) {
+				Task {
+					await updatePlaylists()
+				}
+			}
+			.onChange(of: sortAscending) { 
+				Task {
+					await updatePlaylists()
 				}
 			}
 		}
@@ -103,7 +142,16 @@ struct ContentView: View {
 	
 	func updatePlaylists() async {
 		var request = MusicLibraryRequest<Playlist>()
-		request.sort(by: \.libraryAddedDate, ascending: false)
+		
+		switch sortBy {
+		case .lastPlayedDate:
+			request.sort(by: \.lastPlayedDate, ascending: sortAscending)
+		case .libraryAddedDate:
+			request.sort(by: \.libraryAddedDate, ascending: sortAscending)
+		case .name:
+			request.sort(by: \.name, ascending: sortAscending)
+		}
+		
 		do {
 			let response = try await request.response()
 			self.playlists = try await fetchAllBatches(response.items)
