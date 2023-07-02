@@ -7,6 +7,7 @@
 
 import Foundation
 import AppIntents
+import MusicKit
 
 @available(iOS 16.0, macOS 13.0, watchOS 9.0, tvOS 16.0, *)
 struct PlayRandomPlaylist: AppIntent, CustomIntentMigratedAppIntent, PredictableIntent {
@@ -29,23 +30,21 @@ struct PlayRandomPlaylist: AppIntent, CustomIntentMigratedAppIntent, Predictable
     }
 
     func perform() async throws -> some IntentResult {
-			let libraryManager = LibraryManager.shared
-			await libraryManager.getPlaylists()
-			
-			if let playlist = libraryManager.playlists.randomElement() {
-				await libraryManager.playPlaylist(playlist: playlist)
-				return .result()
-			} else {
+			let request = MusicLibraryRequest<Playlist>()
+			let response = try await request.response()
+			guard let playlist = response.items.randomElement() else {
 				throw AppIntentError.restartPerform
 			}
+			SystemMusicPlayer.shared.queue = [playlist]
+			try await SystemMusicPlayer.shared.prepareToPlay()
+			try await SystemMusicPlayer.shared.play()
+			
+			return .result(dialog: IntentDialog.responseSuccess(playlistName: playlist.name))
     }
 }
 
 @available(iOS 16.0, macOS 13.0, watchOS 9.0, tvOS 16.0, *)
 fileprivate extension IntentDialog {
-    static var shuffleParameterPrompt: Self {
-        "Turn on song shuffle?"
-    }
     static func responseSuccess(playlistName: String) -> Self {
         "Ok, playing your playlist “\(playlistName)”"
     }

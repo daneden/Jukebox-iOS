@@ -122,9 +122,8 @@ struct ContentView: View {
 	
 	func playPlaylist(playlist: Playlist) async {
 		do {
+			player.queue = [playlist]
 			try await player.prepareToPlay()
-			try await player.queue.insert(playlist, position: .afterCurrentEntry)
-			try await player.skipToNextEntry()
 			try await player.play()
 		} catch {
 			print(error)
