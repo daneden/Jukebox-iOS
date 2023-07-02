@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		714C66882A51ED4B00789217 /* DataTaskModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 714C66872A51ED4B00789217 /* DataTaskModifier.swift */; };
+		714C668A2A51F43700789217 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 714C66892A51F43700789217 /* NowPlayingView.swift */; };
+		714C668C2A51F4CC00789217 /* PlaylistRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 714C668B2A51F4CC00789217 /* PlaylistRowView.swift */; };
 		715C823A2A503539009CE8E9 /* PlayRandomPlaylist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 715C82392A503539009CE8E9 /* PlayRandomPlaylist.swift */; };
 		71864DC52701C01D00DE03CB /* JukeboxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71864DC42701C01D00DE03CB /* JukeboxApp.swift */; };
 		71864DC72701C01D00DE03CB /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71864DC62701C01D00DE03CB /* ContentView.swift */; };
@@ -29,6 +32,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		714C66872A51ED4B00789217 /* DataTaskModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataTaskModifier.swift; sourceTree = "<group>"; };
+		714C66892A51F43700789217 /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
+		714C668B2A51F4CC00789217 /* PlaylistRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistRowView.swift; sourceTree = "<group>"; };
 		715C82392A503539009CE8E9 /* PlayRandomPlaylist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayRandomPlaylist.swift; sourceTree = "<group>"; };
 		71864DC12701C01D00DE03CB /* Jukebox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Jukebox.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		71864DC42701C01D00DE03CB /* JukeboxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JukeboxApp.swift; sourceTree = "<group>"; };
@@ -80,6 +86,9 @@
 				71864DC82701C01F00DE03CB /* Assets.xcassets */,
 				71864DCA2701C01F00DE03CB /* Preview Content */,
 				71864DD42701C17100DE03CB /* LibraryManager.swift */,
+				714C66872A51ED4B00789217 /* DataTaskModifier.swift */,
+				714C66892A51F43700789217 /* NowPlayingView.swift */,
+				714C668B2A51F4CC00789217 /* PlaylistRowView.swift */,
 			);
 			path = Jukebox;
 			sourceTree = "<group>";
@@ -179,6 +188,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				714C668A2A51F43700789217 /* NowPlayingView.swift in Sources */,
+				714C66882A51ED4B00789217 /* DataTaskModifier.swift in Sources */,
+				714C668C2A51F4CC00789217 /* PlaylistRowView.swift in Sources */,
 				71864DC72701C01D00DE03CB /* ContentView.swift in Sources */,
 				715C823A2A503539009CE8E9 /* PlayRandomPlaylist.swift in Sources */,
 				71864DC52701C01D00DE03CB /* JukeboxApp.swift in Sources */,

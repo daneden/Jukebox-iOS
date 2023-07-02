@@ -9,11 +9,10 @@ import SwiftUI
 import MusicKit
 
 struct ContentView: View {
-	private var libraryManager = LibraryManager.shared
 	private let player = SystemMusicPlayer.shared
 	
+	@State private var playlists: MusicItemCollection<Playlist> = []
 	@State private var chosenPlaylist: Playlist?
-	@State private var shuffle = true
 	
 	var item: MusicPlayer.Queue.Entry? {
 		player.queue.currentEntry
@@ -22,7 +21,7 @@ struct ContentView: View {
 	var body: some View {
 		NavigationView {
 			GeometryReader { geometry in
-				ZStack(alignment: .bottom) {
+				VStack {
 					ScrollView {
 						VStack {
 							switch MusicAuthorization.currentStatus {
@@ -34,10 +33,7 @@ struct ContentView: View {
 									Text("Jukebox needs access to your Apple Music library. Tap “Allow Access” to get started.")
 									Button("Allow Access") {
 										Task {
-											let authStatus = await MusicAuthorization.request()
-											if authStatus == .authorized {
-												await libraryManager.getPlaylists()
-											}
+											await MusicAuthorization.request()
 										}
 									}
 									.buttonStyle(.borderedProminent)
@@ -54,30 +50,17 @@ struct ContentView: View {
 									}
 									.buttonStyle(.borderedProminent)
 									.controlSize(.extraLarge)
-									.disabled(libraryManager.playlists.isEmpty)
+									.disabled(playlists.isEmpty)
 								}
 								
-								if libraryManager.playlists.isEmpty {
+								if playlists.isEmpty {
 									Spacer()
 									Text("No Playlists")
 										.foregroundStyle(.secondary)
 									Spacer()
 								} else {
-									ForEach(libraryManager.playlists) { playlist in
-										HStack {
-											if let artwork = playlist.artwork?.url(width: 80, height: 80) {
-												AsyncImage(url: artwork)
-													.frame(width: 40, height: 40)
-													.transition(.move(edge: .leading).combined(with: .opacity))
-											}
-											
-											VStack(alignment: .leading) {
-												Text(playlist.name)
-												Text("\(playlist.entries?.count ?? 0) songs")
-													.foregroundStyle(.secondary)
-											}
-										}
-										.frame(maxWidth: .infinity)
+									ForEach(playlists) { playlist in
+										PlaylistRowView(playlist: playlist)
 									}
 								}
 								
@@ -88,6 +71,9 @@ struct ContentView: View {
 						.scenePadding()
 						.frame(minHeight: geometry.size.height)
 					}
+					.dataTask {
+						await updatePlaylists()
+					}
 					
 					if let playlist = chosenPlaylist {
 						NowPlayingView(playlist: playlist)
@@ -96,25 +82,52 @@ struct ContentView: View {
 			}
 			.navigationTitle("Jukebox")
 			.symbolRenderingMode(.hierarchical)
-			.task {
-				await libraryManager.getPlaylists()
+			.onChange(of: MusicAuthorization.currentStatus) { _, newValue in
+				if newValue == .authorized {
+					Task {
+						await updatePlaylists()
+					}
+				}
 			}
 		}
 	}
 	
-	func playRandom() async {
-		if let playlist = libraryManager.playlists.randomElement() {
-			self.chosenPlaylist = playlist
-			playPlaylist(playlist: playlist)
+	func fetchAllBatches<T>(_ batch: MusicItemCollection<T>) async throws -> MusicItemCollection<T> where T: MusicItem {
+		var result = MusicItemCollection<T>()
+		
+		guard !batch.hasNextBatch else { return batch }
+		guard let nextBatch = try await batch.nextBatch() else { return batch }
+		result += batch
+		result += try await fetchAllBatches(nextBatch)
+		return result
+	}
+	
+	func updatePlaylists() async {
+		var request = MusicLibraryRequest<Playlist>()
+		request.sort(by: \.libraryAddedDate, ascending: false)
+		do {
+			let response = try await request.response()
+			self.playlists = try await fetchAllBatches(response.items)
+		} catch {
+			print(error)
 		}
 	}
 	
-	func playPlaylist(playlist: Playlist) {
-		Task {
-			try? await player.prepareToPlay()
-			try? await player.queue.insert(playlist, position: .afterCurrentEntry)
-			try? await player.skipToNextEntry()
-			try? await player.play()
+	func playRandom() async {
+		if let playlist = playlists.randomElement() {
+			self.chosenPlaylist = playlist
+			await playPlaylist(playlist: playlist)
+		}
+	}
+	
+	func playPlaylist(playlist: Playlist) async {
+		do {
+			try await player.prepareToPlay()
+			try await player.queue.insert(playlist, position: .afterCurrentEntry)
+			try await player.skipToNextEntry()
+			try await player.play()
+		} catch {
+			print(error)
 		}
 	}
 }
@@ -129,36 +142,5 @@ struct ContentView_Previews: PreviewProvider {
 extension Collection {
 	func randomElement() -> Element {
 		return self[Int.random(in: 0...self.count) as! Self.Index]
-	}
-}
-
-struct NowPlayingView: View {
-	@State var playlist: Playlist
-	
-	var body: some View {
-		HStack {
-			if let artwork = playlist.artwork?.url(width: 80, height: 80) {
-				AsyncImage(url: artwork)
-					.transition(.move(edge: .leading).combined(with: .opacity))
-					.frame(width: 40, height: 40)
-			}
-			
-			VStack(alignment: .leading) {
-				Text(playlist.name)
-					.font(.headline)
-				if let url = playlist.url {
-					Link(destination: url) {
-						Text("Open in Apple Music")
-					}
-					.foregroundStyle(.secondary)
-				}
-			}
-		}
-		.padding()
-		.background(.thinMaterial)
-		.clipShape(RoundedRectangle(cornerRadius: 20))
-		.scenePadding()
-		.transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale))
-		.frame(maxWidth: .infinity)
 	}
 }
