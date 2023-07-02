@@ -16,7 +16,7 @@ struct ContentView: View {
 	private let player = SystemMusicPlayer.shared
 	
 	@State private var sortBy: PlaylistSortProperty = .lastPlayedDate
-	@State private var sortAscending = true
+	@State private var sortAscending = false
 	
 	@State private var playlists: MusicItemCollection<Playlist> = []
 	@State private var chosenPlaylist: Playlist?
@@ -155,7 +155,9 @@ struct ContentView: View {
 		
 		do {
 			let response = try await request.response()
-			self.playlists = try await fetchAllBatches(response.items)
+			withAnimation {
+				self.playlists = try await fetchAllBatches(response.items)
+			}
 		} catch {
 			print(error)
 		}
@@ -170,9 +172,8 @@ struct ContentView: View {
 	
 	func playPlaylist(playlist: Playlist) async {
 		do {
-			player.queue = [playlist]
-			try await player.prepareToPlay()
-			try await player.play()
+			SystemMusicPlayer.shared.queue = [playlist]
+			try await SystemMusicPlayer.shared.play()
 		} catch {
 			print(error)
 		}
