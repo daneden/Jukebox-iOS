@@ -30,11 +30,11 @@ struct NowPlayingView: View {
 				}
 			}
 			.padding()
-			.background(.thinMaterial)
+			.frame(maxWidth: .infinity, alignment: .leading)
+			.background(.ultraThickMaterial)
 			.clipShape(RoundedRectangle(cornerRadius: 20))
 			.scenePadding()
 			.transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale))
-			.frame(maxWidth: .infinity, alignment: .leading)
 		}
 	}
 }
