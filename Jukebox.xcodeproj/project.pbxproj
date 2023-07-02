@@ -15,7 +15,6 @@
 		71864DC72701C01D00DE03CB /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71864DC62701C01D00DE03CB /* ContentView.swift */; };
 		71864DC92701C01F00DE03CB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 71864DC82701C01F00DE03CB /* Assets.xcassets */; };
 		71864DCC2701C01F00DE03CB /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 71864DCB2701C01F00DE03CB /* Preview Assets.xcassets */; };
-		71864DD52701C17100DE03CB /* LibraryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71864DD42701C17100DE03CB /* LibraryManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -41,7 +40,6 @@
 		71864DC62701C01D00DE03CB /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		71864DC82701C01F00DE03CB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		71864DCB2701C01F00DE03CB /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
-		71864DD42701C17100DE03CB /* LibraryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryManager.swift; sourceTree = "<group>"; };
 		71864DD62701C58C00DE03CB /* Jukebox.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Jukebox.entitlements; sourceTree = "<group>"; };
 		71864DDD27020ABC00DE03CB /* Intents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Intents.framework; path = System/Library/Frameworks/Intents.framework; sourceTree = SDKROOT; };
 		71864DEC27020BED00DE03CB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -79,16 +77,15 @@
 		71864DC32701C01D00DE03CB /* Jukebox */ = {
 			isa = PBXGroup;
 			children = (
-				71864DEC27020BED00DE03CB /* Info.plist */,
 				71864DD62701C58C00DE03CB /* Jukebox.entitlements */,
-				71864DC42701C01D00DE03CB /* JukeboxApp.swift */,
+				71864DEC27020BED00DE03CB /* Info.plist */,
 				71864DC62701C01D00DE03CB /* ContentView.swift */,
-				71864DC82701C01F00DE03CB /* Assets.xcassets */,
-				71864DCA2701C01F00DE03CB /* Preview Content */,
-				71864DD42701C17100DE03CB /* LibraryManager.swift */,
 				714C66872A51ED4B00789217 /* DataTaskModifier.swift */,
+				71864DC42701C01D00DE03CB /* JukeboxApp.swift */,
 				714C66892A51F43700789217 /* NowPlayingView.swift */,
 				714C668B2A51F4CC00789217 /* PlaylistRowView.swift */,
+				71864DC82701C01F00DE03CB /* Assets.xcassets */,
+				71864DCA2701C01F00DE03CB /* Preview Content */,
 			);
 			path = Jukebox;
 			sourceTree = "<group>";
@@ -194,7 +191,6 @@
 				71864DC72701C01D00DE03CB /* ContentView.swift in Sources */,
 				715C823A2A503539009CE8E9 /* PlayRandomPlaylist.swift in Sources */,
 				71864DC52701C01D00DE03CB /* JukeboxApp.swift in Sources */,
-				71864DD52701C17100DE03CB /* LibraryManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

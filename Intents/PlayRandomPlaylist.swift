@@ -33,7 +33,7 @@ struct PlayRandomPlaylist: AppIntent, CustomIntentMigratedAppIntent, Predictable
 			let request = MusicLibraryRequest<Playlist>()
 			let response = try await request.response()
 			guard let playlist = response.items.randomElement() else {
-				throw AppIntentError.restartPerform
+				return .result(dialog: IntentDialog("No playlists found"))
 			}
 			SystemMusicPlayer.shared.queue = [playlist]
 			try await SystemMusicPlayer.shared.prepareToPlay()
@@ -46,7 +46,7 @@ struct PlayRandomPlaylist: AppIntent, CustomIntentMigratedAppIntent, Predictable
 @available(iOS 16.0, macOS 13.0, watchOS 9.0, tvOS 16.0, *)
 fileprivate extension IntentDialog {
     static func responseSuccess(playlistName: String) -> Self {
-        "Ok, playing your playlist “\(playlistName)”"
+        "Playing your playlist “\(playlistName)”"
     }
 }
 
