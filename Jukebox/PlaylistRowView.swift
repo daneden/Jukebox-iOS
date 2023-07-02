@@ -19,7 +19,7 @@ struct PlaylistRowView: View {
 			
 			VStack(alignment: .leading) {
 				Text(playlist.name)
-				Text("\(playlist.entries?.count ?? 0) songs")
+				Text("\(playlist.tracks?.count ?? 0) songs")
 					.foregroundStyle(.secondary)
 			}
 		}
