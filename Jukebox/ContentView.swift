@@ -78,7 +78,7 @@ struct ContentView: View {
 							Task { await playRandom() }
 							} label: {
 									Label("Play Random Playlist", systemImage: "music.note.list")
-										.frame(maxWidth: .infinity)
+										.frame(maxWidth: chosenPlaylist == nil ? .infinity : nil)
 								}
 								.buttonStyle(.borderedProminent)
 								.controlSize(.extraLarge)
