@@ -14,7 +14,7 @@ struct PlaylistRowView: View {
 	var body: some View {
 		HStack {
 			if let artwork = playlist.artwork {
-				ArtworkImage(artwork, width: 40)
+				ArtworkImage(artwork, width: 60)
 						.clipShape(RoundedRectangle(cornerRadius: 4))
 			}
 			
