@@ -16,7 +16,7 @@ struct NowPlayingView: View {
 			HStack {
 				if let artwork = playlist.artwork {
 					ArtworkImage(artwork, width: 40)
-						.clipShape(ContainerRelativeShape())
+						.clipShape(RoundedRectangle(cornerRadius: 4))
 				}
 				
 				VStack(alignment: .leading) {
@@ -30,11 +30,11 @@ struct NowPlayingView: View {
 					}
 				}
 			}
-			.padding()
+			.padding(8)
 			.frame(maxWidth: .infinity, alignment: .leading)
 			.background(.ultraThickMaterial)
 			.clipShape(RoundedRectangle(cornerRadius: 20))
-			.scenePadding()
+			.scenePadding(8)
 			.transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale))
 		}
 	}
