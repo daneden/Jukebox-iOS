@@ -41,5 +41,5 @@ struct NowPlayingView: View {
 }
 
 #Preview {
-    NowPlayingView()
+	NowPlayingView()
 }
