@@ -156,7 +156,7 @@ struct ContentView: View {
 		do {
 			let response = try await request.response()
 			withAnimation {
-				self.playlists = try await fetchAllBatches(response.items)
+				Task { self.playlists = try await fetchAllBatches(response.items) }
 			}
 		} catch {
 			print(error)
