@@ -54,6 +54,7 @@ struct ContentView: View {
 					}
 				}
 			}
+			.listStyle(.plain)
 			.dataTask {
 				await updatePlaylists()
 			}
