@@ -27,20 +27,22 @@ struct ContentView: View {
 						VStack {
 							switch MusicAuthorization.currentStatus {
 							case .notDetermined:
-								Spacer()
-								Text("Get Started")
-									.font(.headline)
-								Text("Jukebox needs access to your Apple Music library. Tap “Allow Access” to get started.")
-								Button("Allow Access") {
-									Task {
-										let authStatus = await MusicAuthorization.request()
-										if authStatus == .authorized {
-											await libraryManager.getPlaylists()
+								Group {
+									Spacer()
+									Text("Get Started")
+										.font(.headline)
+									Text("Jukebox needs access to your Apple Music library. Tap “Allow Access” to get started.")
+									Button("Allow Access") {
+										Task {
+											let authStatus = await MusicAuthorization.request()
+											if authStatus == .authorized {
+												await libraryManager.getPlaylists()
+											}
 										}
 									}
+									.buttonStyle(.borderedProminent)
+									Spacer()
 								}
-								.buttonStyle(.borderedProminent)
-								Spacer()
 							case .authorized:
 								HStack {
 									Button {
@@ -91,9 +93,10 @@ struct ContentView: View {
 								}
 							}
 						}
+						.padding()
 						.background(.thinMaterial)
 						.clipShape(RoundedRectangle(cornerRadius: 20))
-						.padding()
+						.scenePadding()
 						.transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale))
 					}
 				}
