@@ -21,60 +21,59 @@ struct ContentView: View {
 	var body: some View {
 		NavigationView {
 			GeometryReader { geometry in
-				VStack {
-					ScrollView {
-						VStack {
-							switch MusicAuthorization.currentStatus {
-							case .notDetermined:
-								VStack {
-									Spacer()
-									Text("Get Started")
-										.font(.headline)
-									Text("Jukebox needs access to your Apple Music library. Tap “Allow Access” to get started.")
-									Button("Allow Access") {
-										Task {
-											await MusicAuthorization.request()
-										}
-									}
-									.buttonStyle(.borderedProminent)
-									Spacer()
-								}
-								.frame(maxWidth: .infinity)
-							case .authorized:
-								HStack {
-									Button {
-										Task { await playRandom() }
-									} label: {
-										Label("Play Random Playlist", systemImage: "music.note.list")
-											.frame(maxWidth: .infinity)
-									}
-									.buttonStyle(.borderedProminent)
-									.controlSize(.extraLarge)
-									.disabled(playlists.isEmpty)
-								}
-								
-								if playlists.isEmpty {
-									Spacer()
-									Text("No Playlists")
-										.foregroundStyle(.secondary)
-									Spacer()
-								} else {
-									ForEach(playlists) { playlist in
-										PlaylistRowView(playlist: playlist)
+				ScrollView {
+					VStack {
+						switch MusicAuthorization.currentStatus {
+						case .notDetermined:
+							VStack {
+								Spacer()
+								Text("Get Started")
+									.font(.headline)
+								Text("Jukebox needs access to your Apple Music library. Tap “Allow Access” to get started.")
+								Button("Allow Access") {
+									Task {
+										await MusicAuthorization.request()
 									}
 								}
-								
-							default:
-								Text("Something went wrong")
+								.buttonStyle(.borderedProminent)
+								Spacer()
 							}
+							.frame(maxWidth: .infinity)
+						case .authorized:
+							HStack {
+								Button {
+									Task { await playRandom() }
+								} label: {
+									Label("Play Random Playlist", systemImage: "music.note.list")
+										.frame(maxWidth: .infinity)
+								}
+								.buttonStyle(.borderedProminent)
+								.controlSize(.extraLarge)
+								.disabled(playlists.isEmpty)
+							}
+							
+							if playlists.isEmpty {
+								Spacer()
+								Text("No Playlists")
+									.foregroundStyle(.secondary)
+								Spacer()
+							} else {
+								ForEach(playlists) { playlist in
+									PlaylistRowView(playlist: playlist)
+								}
+							}
+							
+						default:
+							Text("Something went wrong")
 						}
-						.scenePadding()
-						.frame(minHeight: geometry.size.height)
 					}
-					.dataTask {
-						await updatePlaylists()
-					}
-					
+					.scenePadding()
+					.frame(minHeight: geometry.size.height)
+				}
+				.dataTask {
+					await updatePlaylists()
+				}
+				.safeAreaInset(edge: .bottom) {
 					if let playlist = chosenPlaylist {
 						NowPlayingView(playlist: playlist)
 					}
