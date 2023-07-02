@@ -6,34 +6,43 @@
 //
 
 import Foundation
-import Combine
+import SwiftUI
 import MediaPlayer
+import MusicKit
 
-class LibraryManager: ObservableObject {
+@Observable
+class LibraryManager {
   static let shared = LibraryManager()
   
-  let player = MPMusicPlayerController.systemMusicPlayer
+	let player = SystemMusicPlayer.shared
   
-  @Published var authorizationStatus: MPMediaLibraryAuthorizationStatus = .notDetermined
-  @Published var playlists: [MPMediaPlaylist]?
+	var authorizationStatus: MusicAuthorization.Status = .notDetermined
+  var playlists: MusicItemCollection<Playlist> = []
   
   init() {
-    authorizationStatus = MPMediaLibrary.authorizationStatus()
+    authorizationStatus = MusicAuthorization.currentStatus
   }
   
   func requestAuthorization() async {
-    authorizationStatus = await MPMediaLibrary.requestAuthorization()
+		authorizationStatus = await MusicAuthorization.request()
   }
   
-  func getPlaylists() {
-    if let playlists = MPMediaQuery.playlists().collections as? [MPMediaPlaylist] {
-      self.playlists = playlists.filter { $0.count > 0 }
-    }
+  func getPlaylists() async {
+		let request = MusicLibraryRequest<Playlist>()
+		guard let playlists = try? await request.response() else {
+			return
+		}
+		
+		self.playlists = playlists.items
   }
+	
+	// TODO
+	func getPlaylistsContainingSong(_ song: Song) async {
+		var request = MusicLibraryRequest<Playlist>()
+	}
   
-  func playPlaylist(playlist: MPMediaPlaylist, shuffle: Bool = true) {
-    player.setQueue(with: playlist)
-    player.shuffleMode = shuffle ? .songs : .off
-    player.play()
+  func playPlaylist(playlist: Playlist, shuffle: Bool = true) async {
+		try? await player.queue.insert(playlist, position: MusicPlayer.Queue.EntryInsertionPosition.afterCurrentEntry)
+		try? await player.skipToNextEntry()
   }
 }

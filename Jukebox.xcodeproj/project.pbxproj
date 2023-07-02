@@ -7,45 +7,29 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		715C823A2A503539009CE8E9 /* PlayRandomPlaylist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 715C82392A503539009CE8E9 /* PlayRandomPlaylist.swift */; };
 		71864DC52701C01D00DE03CB /* JukeboxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71864DC42701C01D00DE03CB /* JukeboxApp.swift */; };
 		71864DC72701C01D00DE03CB /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71864DC62701C01D00DE03CB /* ContentView.swift */; };
 		71864DC92701C01F00DE03CB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 71864DC82701C01F00DE03CB /* Assets.xcassets */; };
 		71864DCC2701C01F00DE03CB /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 71864DCB2701C01F00DE03CB /* Preview Assets.xcassets */; };
 		71864DD52701C17100DE03CB /* LibraryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71864DD42701C17100DE03CB /* LibraryManager.swift */; };
-		71864E0527020F6400DE03CB /* Intents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 71864DDD27020ABC00DE03CB /* Intents.framework */; };
-		71864E0827020F6400DE03CB /* IntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71864E0727020F6400DE03CB /* IntentHandler.swift */; };
-		71864E0C27020F6400DE03CB /* RandomPlaylistIntent.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 71864E0427020F6400DE03CB /* RandomPlaylistIntent.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		71864E1227020F8800DE03CB /* Intents.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = 71864DEA27020B2F00DE03CB /* Intents.intentdefinition */; };
-		71B0AD4F2702128B0095EBB8 /* LibraryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71864DD42701C17100DE03CB /* LibraryManager.swift */; };
-		71B0AD502702168E0095EBB8 /* Intents.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = 71864DEA27020B2F00DE03CB /* Intents.intentdefinition */; };
-		71B0AD51270216960095EBB8 /* IntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71864E0727020F6400DE03CB /* IntentHandler.swift */; };
 /* End PBXBuildFile section */
 
-/* Begin PBXContainerItemProxy section */
-		71864E0A27020F6400DE03CB /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 71864DB92701C01D00DE03CB /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 71864E0327020F6400DE03CB;
-			remoteInfo = RandomPlaylistIntent;
-		};
-/* End PBXContainerItemProxy section */
-
 /* Begin PBXCopyFilesBuildPhase section */
-		71864DE927020ABC00DE03CB /* Embed App Extensions */ = {
+		71864DE927020ABC00DE03CB /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				71864E0C27020F6400DE03CB /* RandomPlaylistIntent.appex in Embed App Extensions */,
 			);
-			name = "Embed App Extensions";
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		715C82392A503539009CE8E9 /* PlayRandomPlaylist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayRandomPlaylist.swift; sourceTree = "<group>"; };
 		71864DC12701C01D00DE03CB /* Jukebox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Jukebox.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		71864DC42701C01D00DE03CB /* JukeboxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JukeboxApp.swift; sourceTree = "<group>"; };
 		71864DC62701C01D00DE03CB /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -54,11 +38,7 @@
 		71864DD42701C17100DE03CB /* LibraryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryManager.swift; sourceTree = "<group>"; };
 		71864DD62701C58C00DE03CB /* Jukebox.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Jukebox.entitlements; sourceTree = "<group>"; };
 		71864DDD27020ABC00DE03CB /* Intents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Intents.framework; path = System/Library/Frameworks/Intents.framework; sourceTree = SDKROOT; };
-		71864DEA27020B2F00DE03CB /* Intents.intentdefinition */ = {isa = PBXFileReference; lastKnownFileType = file.intentdefinition; path = Intents.intentdefinition; sourceTree = "<group>"; };
 		71864DEC27020BED00DE03CB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		71864E0427020F6400DE03CB /* RandomPlaylistIntent.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RandomPlaylistIntent.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		71864E0727020F6400DE03CB /* IntentHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentHandler.swift; sourceTree = "<group>"; };
-		71864E0927020F6400DE03CB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -69,14 +49,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		71864E0127020F6400DE03CB /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				71864E0527020F6400DE03CB /* Intents.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -84,7 +56,7 @@
 			isa = PBXGroup;
 			children = (
 				71864DC32701C01D00DE03CB /* Jukebox */,
-				71864E0627020F6400DE03CB /* RandomPlaylistIntent */,
+				71864E0627020F6400DE03CB /* Intents */,
 				71864DDC27020ABC00DE03CB /* Frameworks */,
 				71864DC22701C01D00DE03CB /* Products */,
 			);
@@ -94,7 +66,6 @@
 			isa = PBXGroup;
 			children = (
 				71864DC12701C01D00DE03CB /* Jukebox.app */,
-				71864E0427020F6400DE03CB /* RandomPlaylistIntent.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -102,7 +73,6 @@
 		71864DC32701C01D00DE03CB /* Jukebox */ = {
 			isa = PBXGroup;
 			children = (
-				71864DEA27020B2F00DE03CB /* Intents.intentdefinition */,
 				71864DEC27020BED00DE03CB /* Info.plist */,
 				71864DD62701C58C00DE03CB /* Jukebox.entitlements */,
 				71864DC42701C01D00DE03CB /* JukeboxApp.swift */,
@@ -130,13 +100,12 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		71864E0627020F6400DE03CB /* RandomPlaylistIntent */ = {
+		71864E0627020F6400DE03CB /* Intents */ = {
 			isa = PBXGroup;
 			children = (
-				71864E0727020F6400DE03CB /* IntentHandler.swift */,
-				71864E0927020F6400DE03CB /* Info.plist */,
+				715C82392A503539009CE8E9 /* PlayRandomPlaylist.swift */,
 			);
-			path = RandomPlaylistIntent;
+			path = Intents;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -149,34 +118,16 @@
 				71864DBD2701C01D00DE03CB /* Sources */,
 				71864DBE2701C01D00DE03CB /* Frameworks */,
 				71864DBF2701C01D00DE03CB /* Resources */,
-				71864DE927020ABC00DE03CB /* Embed App Extensions */,
+				71864DE927020ABC00DE03CB /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				71864E0B27020F6400DE03CB /* PBXTargetDependency */,
 			);
 			name = Jukebox;
 			productName = Jukebox;
 			productReference = 71864DC12701C01D00DE03CB /* Jukebox.app */;
 			productType = "com.apple.product-type.application";
-		};
-		71864E0327020F6400DE03CB /* RandomPlaylistIntent */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 71864E0D27020F6400DE03CB /* Build configuration list for PBXNativeTarget "RandomPlaylistIntent" */;
-			buildPhases = (
-				71864E0027020F6400DE03CB /* Sources */,
-				71864E0127020F6400DE03CB /* Frameworks */,
-				71864E0227020F6400DE03CB /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = RandomPlaylistIntent;
-			productName = RandomPlaylistIntent;
-			productReference = 71864E0427020F6400DE03CB /* RandomPlaylistIntent.appex */;
-			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -186,12 +137,9 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1300;
-				LastUpgradeCheck = 1300;
+				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					71864DC02701C01D00DE03CB = {
-						CreatedOnToolsVersion = 13.0;
-					};
-					71864E0327020F6400DE03CB = {
 						CreatedOnToolsVersion = 13.0;
 					};
 				};
@@ -210,7 +158,6 @@
 			projectRoot = "";
 			targets = (
 				71864DC02701C01D00DE03CB /* Jukebox */,
-				71864E0327020F6400DE03CB /* RandomPlaylistIntent */,
 			);
 		};
 /* End PBXProject section */
@@ -225,13 +172,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		71864E0227020F6400DE03CB /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -240,38 +180,20 @@
 			buildActionMask = 2147483647;
 			files = (
 				71864DC72701C01D00DE03CB /* ContentView.swift in Sources */,
-				71B0AD51270216960095EBB8 /* IntentHandler.swift in Sources */,
+				715C823A2A503539009CE8E9 /* PlayRandomPlaylist.swift in Sources */,
 				71864DC52701C01D00DE03CB /* JukeboxApp.swift in Sources */,
-				71B0AD502702168E0095EBB8 /* Intents.intentdefinition in Sources */,
 				71864DD52701C17100DE03CB /* LibraryManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		71864E0027020F6400DE03CB /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				71864E1227020F8800DE03CB /* Intents.intentdefinition in Sources */,
-				71864E0827020F6400DE03CB /* IntentHandler.swift in Sources */,
-				71B0AD4F2702128B0095EBB8 /* LibraryManager.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		71864E0B27020F6400DE03CB /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 71864E0327020F6400DE03CB /* RandomPlaylistIntent */;
-			targetProxy = 71864E0A27020F6400DE03CB /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		71864DCD2701C01F00DE03CB /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
@@ -305,6 +227,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -319,7 +242,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -333,6 +256,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
@@ -366,6 +290,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -374,7 +299,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
@@ -389,6 +314,7 @@
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Jukebox/Jukebox.entitlements;
 				CODE_SIGN_STYLE = Automatic;
@@ -404,7 +330,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -423,6 +349,7 @@
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Jukebox/Jukebox.entitlements;
 				CODE_SIGN_STYLE = Automatic;
@@ -438,7 +365,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -446,56 +373,6 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = me.daneden.Jukebox;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
-		71864E0E27020F6400DE03CB /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = YC249PY26F;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = RandomPlaylistIntent/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = RandomPlaylistIntent;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.daneden.Jukebox.RandomPlaylistIntent;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		71864E0F27020F6400DE03CB /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = YC249PY26F;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = RandomPlaylistIntent/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = RandomPlaylistIntent;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.daneden.Jukebox.RandomPlaylistIntent;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -519,15 +396,6 @@
 			buildConfigurations = (
 				71864DD02701C01F00DE03CB /* Debug */,
 				71864DD12701C01F00DE03CB /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		71864E0D27020F6400DE03CB /* Build configuration list for PBXNativeTarget "RandomPlaylistIntent" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				71864E0E27020F6400DE03CB /* Debug */,
-				71864E0F27020F6400DE03CB /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

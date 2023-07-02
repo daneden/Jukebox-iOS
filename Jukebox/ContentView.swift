@@ -6,96 +6,131 @@
 //
 
 import SwiftUI
-import MediaPlayer
+import MusicKit
 
 struct ContentView: View {
-  @ObservedObject private var libraryManager = LibraryManager.shared
-  private let player = LibraryManager.shared.player
-  
-  @State private var chosenPlaylist: MPMediaPlaylist?
-  @State private var shuffle = true
-  
-  var item: MPMediaItem? {
-    player.nowPlayingItem
-  }
-  
-  var body: some View {
-    NavigationView {
-      List {
-        Section {
-          VStack(alignment: .leading) {
-            Text("Jukebox is a utility app that does one thing: pick a random playlist from your Apple Music library and play it.")
-              .padding(.bottom)
-              .fixedSize(horizontal: false, vertical: true)
-            
-            Text("Jukebox is designed to be used with Siri and/or Shortcuts, but can also be used as a standalone app to simply play a random playlist.")
-              .fixedSize(horizontal: false, vertical: true)
-          }
-          .padding(.vertical)
-        } header: {
-          Text("About Jukebox")
-        }
-        
-        Section {
-          Button(action: { playRandom() }) {
-            Label("Play Random Playlist", systemImage: "music.note.list")
-          }
-          
-          Toggle(isOn: $shuffle) {
-            Label("Shuffle Songs \(shuffle ? "On" : "Off")", systemImage: "shuffle")
-          }
-        }
-        
-        if let playlist = chosenPlaylist {
-          Section {
-            HStack(alignment: .top) {
-              Text(playlist.name ?? "Unnamed Playlist").font(.headline)
-              Spacer()
-              Text("\(playlist.count) songs").foregroundColor(.secondary)
-            }
-            
-            Link(destination: URL(string: "music://music.apple.com/playlist/id\(playlist.cloudGlobalID!)")!) {
-              Label("Open in Music", systemImage: "music.note")
-            }
-          } header: {
-            Text("Chosen playlist")
-          }
-        }
-      }
-      .navigationTitle("Jukebox")
-      .transition(.slide)
-      .symbolRenderingMode(.hierarchical)
-      .onAppear {
-        libraryManager.getPlaylists()
-      }
-    }
-  }
-  
-  func playRandom() {
-    DispatchQueue.main.async {
-      if let playlist = libraryManager.playlists?.randomElement() {
-        self.chosenPlaylist = playlist
-        playPlaylist(playlist: playlist)
-      }
-    }
-  }
-  
-  func playPlaylist(playlist: MPMediaPlaylist) {
-    player.setQueue(with: playlist)
-    player.shuffleMode = shuffle ? .songs : .off
-    player.play()
-  }
+	private var libraryManager = LibraryManager.shared
+	private let player = SystemMusicPlayer.shared
+	
+	@State private var chosenPlaylist: Playlist?
+	@State private var shuffle = true
+	
+	var item: MusicPlayer.Queue.Entry? {
+		player.queue.currentEntry
+	}
+	
+	var body: some View {
+		NavigationView {
+			GeometryReader { geometry in
+				ZStack(alignment: .bottom) {
+					ScrollView {
+						VStack {
+							switch MusicAuthorization.currentStatus {
+							case .notDetermined:
+								Spacer()
+								Text("Get Started")
+									.font(.headline)
+								Text("Jukebox needs access to your Apple Music library. Tap “Allow Access” to get started.")
+								Button("Allow Access") {
+									Task {
+										let authStatus = await MusicAuthorization.request()
+										if authStatus == .authorized {
+											await libraryManager.getPlaylists()
+										}
+									}
+								}
+								.buttonStyle(.borderedProminent)
+								Spacer()
+							case .authorized:
+								HStack {
+									Button {
+										Task { await playRandom() }
+									} label: {
+										Label("Play Random Playlist", systemImage: "music.note.list")
+											.frame(maxWidth: .infinity)
+									}
+									.buttonStyle(.borderedProminent)
+									.controlSize(.extraLarge)
+									.disabled(libraryManager.playlists.isEmpty)
+								}
+								
+								if libraryManager.playlists.isEmpty {
+									Spacer()
+									Text("No Playlists")
+										.foregroundStyle(.secondary)
+									Spacer()
+								} else {
+									ForEach(libraryManager.playlists) { playlist in
+										Text(playlist.name)
+									}
+								}
+								
+							default:
+								Text("Something went wrong")
+							}
+						}
+						.scenePadding()
+						.frame(minHeight: geometry.size.height)
+					}
+					
+					if let playlist = chosenPlaylist {
+						HStack {
+							if let artwork = playlist.artwork?.url(width: 80, height: 80) {
+								AsyncImage(url: artwork)
+									.transition(.move(edge: .leading).combined(with: .opacity))
+							}
+							
+							VStack(alignment: .leading) {
+								Text(playlist.name)
+									.font(.headline)
+								if let url = playlist.url {
+									Link(destination: url) {
+										Text("Open in Apple Music")
+									}
+									.foregroundStyle(.secondary)
+								}
+							}
+						}
+						.background(.thinMaterial)
+						.clipShape(RoundedRectangle(cornerRadius: 20))
+						.padding()
+						.transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale))
+					}
+				}
+			}
+			.navigationTitle("Jukebox")
+			.symbolRenderingMode(.hierarchical)
+			.task {
+				await libraryManager.getPlaylists()
+			}
+		}
+	}
+	
+	func playRandom() async {
+		if let playlist = libraryManager.playlists.randomElement() {
+			self.chosenPlaylist = playlist
+			playPlaylist(playlist: playlist)
+		}
+	}
+	
+	func playPlaylist(playlist: Playlist) {
+		Task {
+			try? await player.queue.insert(playlist, position: .afterCurrentEntry)
+			try? await player.skipToNextEntry()
+			try? await player.play()
+		}
+	}
 }
 
 struct ContentView_Previews: PreviewProvider {
-  static var previews: some View {
-    ContentView()
-  }
+	static var previews: some View {
+		ContentView()
+	}
 }
 
 
 extension Collection {
-  func randomElement() -> Element {
-    return self[Int.random(in: 0...self.count) as! Self.Index]
-  }
+	func randomElement() -> Element {
+		return self[Int.random(in: 0...self.count) as! Self.Index]
+	}
 }
