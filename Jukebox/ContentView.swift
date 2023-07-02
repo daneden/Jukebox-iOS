@@ -47,18 +47,6 @@ struct ContentView: View {
 							}
 							.frame(maxWidth: .infinity)
 						case .authorized:
-							HStack {
-								Button {
-									Task { await playRandom() }
-								} label: {
-									Label("Play Random Playlist", systemImage: "music.note.list")
-										.frame(maxWidth: .infinity)
-								}
-								.buttonStyle(.borderedProminent)
-								.controlSize(.extraLarge)
-								.disabled(playlists.isEmpty)
-							}
-							
 							if playlists.isEmpty {
 								Spacer()
 								Text("No Playlists")
@@ -81,8 +69,21 @@ struct ContentView: View {
 					await updatePlaylists()
 				}
 				.safeAreaInset(edge: .bottom) {
-					if let playlist = chosenPlaylist ?? player.queue.currentEntry as? Playlist {
-						NowPlayingView(playlist: playlist)
+					HStack {
+						if let playlist = chosenPlaylist ?? player.queue.currentEntry as? Playlist {
+							NowPlayingView(playlist: playlist)
+						}
+						
+						Button {
+							Task { await playRandom() }
+							} label: {
+									Label("Play Random Playlist", systemImage: "music.note.list")
+										.frame(maxWidth: .infinity)
+								}
+								.buttonStyle(.borderedProminent)
+								.controlSize(.extraLarge)
+								.disabled(playlists.isEmpty)
+								.buttonBorderShape(chosenPlaylist == nil ? .automatic : .circle)
 					}
 				}
 			}
