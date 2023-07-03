@@ -31,7 +31,7 @@ struct NowPlayingView: View {
 				VStack(alignment: .leading) {
 					Text(playlist.name)
 						.font(.headline)
-					if let url = playlist.url {
+					if let url = playlist.url ?? URL(string: "music://music.apple.com/library/playlist/\(playlist.id)") {
 						Link(destination: url) {
 							Label("Open in Apple Music", systemImage: "music.note")
 								.imageScale(.small)
