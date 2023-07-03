@@ -44,11 +44,10 @@ struct NowPlayingView: View {
 			.frame(maxWidth: .infinity, alignment: .leading)
 			.background(.quaternary)
 			.foregroundStyle(.tint)
-			.background(.ultraThinMaterial)
+			.background(.ultraThickMaterial)
 			.clipShape(RoundedRectangle(cornerRadius: 16))
 			.transition(
-				.move(edge: .bottom)
-				.combined(with: .opacity)
+				.move(edge: .leading)
 				.combined(with: .scale)
 			)
 		}
