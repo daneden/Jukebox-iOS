@@ -37,16 +37,22 @@ struct ContentView: View {
 	var body: some View {
 		NavigationView {
 			List {
-				Section("\(eligiblePlaylists.count) Playlists") {
-					ForEach(eligiblePlaylists) { playlist in
-						PlaylistRowView(playlist: playlist)
+				if !eligiblePlaylists.isEmpty {
+					Section("\(eligiblePlaylists.count) Playlists") {
+						ForEach(eligiblePlaylists) { playlist in
+							PlaylistRowView(playlist: playlist)
+						}
 					}
+					.transition(.slide)
 				}
 				
-				Section("Playlists Excluded from Shuffle") {
-					ForEach(ineligiblePlaylists) { playlist in
-						PlaylistRowView(playlist: playlist)
+				if !ineligiblePlaylists.isEmpty {
+					Section("Playlists Excluded from Shuffle") {
+						ForEach(ineligiblePlaylists) { playlist in
+							PlaylistRowView(playlist: playlist)
+						}
 					}
+					.transition(.slide)
 				}
 			}
 			.listStyle(.plain)
