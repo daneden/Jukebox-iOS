@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 import MusicKit
 
 struct NowPlayingView: View {
@@ -16,7 +17,15 @@ struct NowPlayingView: View {
 			HStack {
 				if let artwork = playlist.artwork {
 					ArtworkImage(artwork, width: 40)
-						.clipShape(RoundedRectangle(cornerRadius: 4))
+						.clipShape(RoundedRectangle(cornerRadius: 6))
+						#if DEBUG
+						.onTapGesture(count: 3) {
+							if let encoded = try? JSONEncoder().encode(playlist),
+								 let string = String(data: encoded, encoding: .utf8) {
+								UIPasteboard.general.string = string
+							}
+						}
+						#endif
 				}
 				
 				VStack(alignment: .leading) {
@@ -24,7 +33,8 @@ struct NowPlayingView: View {
 						.font(.headline)
 					if let url = playlist.url {
 						Link(destination: url) {
-							Text("Open in Apple Music")
+							Label("Open in Apple Music", systemImage: "music.note")
+								.imageScale(.small)
 						}
 						.foregroundStyle(.secondary)
 					}
@@ -32,9 +42,15 @@ struct NowPlayingView: View {
 			}
 			.padding(8)
 			.frame(maxWidth: .infinity, alignment: .leading)
-			.background(.ultraThickMaterial)
+			.background(.quaternary)
+			.foregroundStyle(.tint)
+			.background(.ultraThinMaterial)
 			.clipShape(RoundedRectangle(cornerRadius: 16))
-			.transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale))
+			.transition(
+				.move(edge: .bottom)
+				.combined(with: .opacity)
+				.combined(with: .scale)
+			)
 		}
 	}
 }

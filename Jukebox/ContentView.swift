@@ -7,6 +7,7 @@
 
 import SwiftUI
 import MusicKit
+import MediaPlayer
 
 enum PlaylistSortProperty {
 	case lastPlayedDate, libraryAddedDate, name
@@ -21,36 +22,16 @@ struct ContentView: View {
 	@State private var playlists: MusicItemCollection<Playlist> = []
 	@State private var chosenPlaylist: Playlist?
 	
-	var item: MusicPlayer.Queue.Entry? {
+	var item: MusicKit.MusicPlayer.Queue.Entry? {
 		player.queue.currentEntry
 	}
 	
 	var body: some View {
 		NavigationView {
 			List {
-					switch MusicAuthorization.currentStatus {
-					case .notDetermined:
-						VStack {
-							Spacer()
-							Text("Get Started")
-								.font(.headline)
-							Text("Jukebox needs access to your Apple Music library. Tap “Allow Access” to get started.")
-							Button("Allow Access") {
-								Task {
-									await MusicAuthorization.request()
-								}
-							}
-							.buttonStyle(.borderedProminent)
-							Spacer()
-						}
-						.frame(maxWidth: .infinity)
-					case .authorized:
-						ForEach(playlists) { playlist in
-							PlaylistRowView(playlist: playlist)
-						}
-					default:
-						Text("Something went wrong")
-					}
+				ForEach(playlists) { playlist in
+					PlaylistRowView(playlist: playlist)
+				}
 			}
 			.listStyle(.plain)
 			.dataTask {
@@ -66,14 +47,12 @@ struct ContentView: View {
 						Task { await playRandom() }
 					} label: {
 						Label("Play Random Playlist", systemImage: "shuffle")
-							.frame(maxWidth: chosenPlaylist == nil ? .infinity : nil)
-							.transition(.scale)
 							.fontWeight(.bold)
+							.labelStyle(ShrinkingLabelStyle(compact: chosenPlaylist != nil))
 					}
 					.buttonStyle(.borderedProminent)
 					.controlSize(.extraLarge)
 					.disabled(playlists.isEmpty)
-					.buttonBorderShape(chosenPlaylist == nil ? .automatic : .circle)
 				}
 				.scenePadding()
 			}
@@ -120,14 +99,35 @@ struct ContentView: View {
 				}
 			}
 			.overlay {
-				if playlists.isEmpty && MusicAuthorization.currentStatus == .authorized {
+				switch MusicAuthorization.currentStatus {
+				case .notDetermined:
 					VStack {
 						Spacer()
-						Text("No Playlists")
-							.foregroundStyle(.secondary)
+						Text("Get Started")
+							.font(.headline)
+						Text("Jukebox needs access to your Apple Music library. Tap “Allow Access” to get started.")
+						Button("Allow Access") {
+							Task {
+								await MusicAuthorization.request()
+							}
+						}
+						.buttonStyle(.borderedProminent)
 						Spacer()
 					}
-					.transition(.opacity.combined(with: .scale))
+					.scenePadding()
+				case .authorized:
+					if playlists.isEmpty {
+						VStack {
+							Spacer()
+							Text("No Playlists")
+								.foregroundStyle(.secondary)
+							Spacer()
+						}
+						.transition(.opacity.combined(with: .scale))
+						.scenePadding()
+					}
+				default:
+					EmptyView()
 				}
 			}
 		}
@@ -167,7 +167,7 @@ struct ContentView: View {
 	
 	func playRandom() async {
 		if let playlist = playlists.randomElement(),
-			 let detailedPlaylist = try? await playlist.with([.entries]) {
+			 let detailedPlaylist = try? await playlist.with([.entries, .tracks]) {
 			withAnimation {
 				self.chosenPlaylist = detailedPlaylist
 			}
