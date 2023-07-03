@@ -8,9 +8,12 @@
 import Foundation
 import AppIntents
 import MusicKit
+import SwiftUI
 
 @available(iOS 16.0, macOS 13.0, watchOS 9.0, tvOS 16.0, *)
 struct PlayRandomPlaylist: AppIntent, CustomIntentMigratedAppIntent, PredictableIntent {
+	@AppStorage("excludedPlaylistIds") private var excludedPlaylistIds: Array<Playlist.ID> = []
+	
     static let intentClassName = "PlayRandomPlaylistIntent"
 
     static var title: LocalizedStringResource = "Play Random Playlist"
@@ -32,15 +35,22 @@ struct PlayRandomPlaylist: AppIntent, CustomIntentMigratedAppIntent, Predictable
     func perform() async throws -> some IntentResult {
 			let request = MusicLibraryRequest<Playlist>()
 			let response = try await request.response()
-			guard let playlist = response.items.randomElement() else {
+			
+			let eligiblePlaylists = response.items.filter { playlist in
+				excludedPlaylistIds.firstIndex(of: playlist.id) == nil
+			}
+			
+			guard let playlist = eligiblePlaylists.randomElement() else {
 				return .result(dialog: IntentDialog("No playlists found"))
 			}
+			
+			let detailedPlaylist = try await playlist.with([.entries])
             
-            guard let firstEntry = playlist.entries?.first else {
+			guard let firstEntry = detailedPlaylist.entries?.first else {
 				return .result(dialog: IntentDialog("Unable to play"))
 			}
             
-			SystemMusicPlayer.shared.queue = .init(playlist: playlist, startingAt: firstEntry)
+			SystemMusicPlayer.shared.queue = .init(playlist: detailedPlaylist, startingAt: firstEntry)
 			try await SystemMusicPlayer.shared.play()
 			
 			return .result(dialog: IntentDialog.responseSuccess(playlistName: playlist.name))

@@ -14,7 +14,7 @@ enum PlaylistSortProperty {
 }
 
 struct ContentView: View {
-	private let player = SystemMusicPlayer.shared
+	@AppStorage("excludedPlaylistIds") private var excludedPlaylistIds: Array<Playlist.ID> = []
 	
 	@State private var sortBy: PlaylistSortProperty = .lastPlayedDate
 	@State private var sortAscending = false
@@ -22,15 +22,31 @@ struct ContentView: View {
 	@State private var playlists: MusicItemCollection<Playlist> = []
 	@State private var chosenPlaylist: Playlist?
 	
-	var item: MusicKit.MusicPlayer.Queue.Entry? {
-		player.queue.currentEntry
+	var eligiblePlaylists: Array<Playlist> {
+		playlists.filter { playlist in
+			excludedPlaylistIds.firstIndex(of: playlist.id) == nil
+		}
+	}
+	
+	var ineligiblePlaylists: Array<Playlist> {
+		playlists.filter { playlist in
+			excludedPlaylistIds.firstIndex(of: playlist.id) != nil
+		}
 	}
 	
 	var body: some View {
 		NavigationView {
 			List {
-				ForEach(playlists) { playlist in
-					PlaylistRowView(playlist: playlist)
+				Section("\(eligiblePlaylists.count) Playlists") {
+					ForEach(eligiblePlaylists) { playlist in
+						PlaylistRowView(playlist: playlist)
+					}
+				}
+				
+				Section("Playlists Excluded from Shuffle") {
+					ForEach(ineligiblePlaylists) { playlist in
+						PlaylistRowView(playlist: playlist)
+					}
 				}
 			}
 			.listStyle(.plain)
@@ -39,9 +55,7 @@ struct ContentView: View {
 			}
 			.safeAreaInset(edge: .bottom) {
 				HStack(spacing: 8) {
-					if let playlist = chosenPlaylist {
-						NowPlayingView(playlist: playlist)
-					}
+					NowPlayingView(playlist: $chosenPlaylist)
 					
 					AsyncButton {
 						await playRandom()
@@ -83,20 +97,17 @@ struct ContentView: View {
 			.symbolRenderingMode(.hierarchical)
 			.onChange(of: MusicAuthorization.currentStatus) { _, newValue in
 				if newValue == .authorized {
-					Task {
-						await updatePlaylists()
-					}
+					Task { await updatePlaylists() }
 				}
 			}
 			.onChange(of: sortBy) {
-				Task {
-					await updatePlaylists()
-				}
+				Task { await updatePlaylists() }
 			}
 			.onChange(of: sortAscending) {
-				Task {
-					await updatePlaylists()
-				}
+				Task { await updatePlaylists() }
+			}
+			.onChange(of: chosenPlaylist) {
+				Task { await updatePlaylists() }
 			}
 			.overlay {
 				switch MusicAuthorization.currentStatus {
@@ -155,18 +166,16 @@ struct ContentView: View {
 			request.sort(by: \.name, ascending: sortAscending)
 		}
 		
-		do {
-			let response = try await request.response()
+		if let response = try? await request.response(),
+			 let allPlaylists = try? await fetchAllBatches(response.items) {
 			withAnimation {
-				Task { self.playlists = try await fetchAllBatches(response.items) }
+				self.playlists = allPlaylists
 			}
-		} catch {
-			print(error)
 		}
 	}
 	
 	func playRandom() async {
-		if let playlist = playlists.randomElement(),
+		if let playlist = eligiblePlaylists.randomElement(),
 			 let detailedPlaylist = try? await playlist.with([.entries]) {
 			withAnimation {
 				self.chosenPlaylist = detailedPlaylist
@@ -182,7 +191,6 @@ struct ContentView: View {
 			}
 			SystemMusicPlayer.shared.queue = .init(playlist: playlist, startingAt: firstEntry)
 			try await SystemMusicPlayer.shared.play()
-			await updatePlaylists()
 		} catch {
 			print(error)
 		}

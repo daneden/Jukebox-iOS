@@ -10,7 +10,8 @@ import UIKit
 import MusicKit
 
 struct NowPlayingView: View {
-	var playlist: Playlist?
+	@Binding var playlist: Playlist?
+	var autoDismissAfter: TimeInterval? = 5
 	
 	var body: some View {
 		if let playlist {
@@ -49,10 +50,20 @@ struct NowPlayingView: View {
 				.move(edge: .leading)
 				.combined(with: .scale)
 			)
+			.task {
+				print(playlist.id)
+				print(playlist.url)
+				if let autoDismissAfter {
+					try? await Task.sleep(nanoseconds: UInt64(autoDismissAfter) * 1_000_000_000)
+					withAnimation {
+						self.playlist = nil
+					}
+				}
+			}
 		}
 	}
 }
 
 #Preview {
-	NowPlayingView()
+	NowPlayingView(playlist: .constant(nil))
 }

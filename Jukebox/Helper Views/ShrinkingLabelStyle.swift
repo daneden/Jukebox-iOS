@@ -15,7 +15,7 @@ struct ShrinkingLabelStyle: LabelStyle {
 				configuration.title
 					.lineLimit(1)
 					.transition(
-						.scale
+						.opacity
 						.combined(with: .move(edge: .trailing))
 					)
 			}
