@@ -34,7 +34,6 @@ struct NowPlayingView: View {
 			.frame(maxWidth: .infinity, alignment: .leading)
 			.background(.ultraThickMaterial)
 			.clipShape(RoundedRectangle(cornerRadius: 20))
-			.padding(8)
 			.transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale))
 		}
 	}
