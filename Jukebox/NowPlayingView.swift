@@ -42,10 +42,9 @@ struct NowPlayingView: View {
 			}
 			.padding(8)
 			.frame(maxWidth: .infinity, alignment: .leading)
-			.background(.quaternary)
-			.foregroundStyle(.tint)
 			.background(.regularMaterial)
 			.clipShape(RoundedRectangle(cornerRadius: 16))
+			.padding(.leading, -8)
 			.transition(
 				.move(edge: .leading)
 				.combined(with: .scale)
