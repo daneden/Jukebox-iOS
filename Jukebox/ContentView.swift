@@ -38,13 +38,13 @@ struct ContentView: View {
 				await updatePlaylists()
 			}
 			.safeAreaInset(edge: .bottom) {
-				HStack(spacing: 4) {
+				HStack(spacing: 8) {
 					if let playlist = chosenPlaylist {
 						NowPlayingView(playlist: playlist)
 					}
 					
 					AsyncButton {
-						Task { await playRandom() }
+						await playRandom()
 					} label: {
 						Label("Play Random Playlist", systemImage: "shuffle")
 							.fontWeight(.bold)
