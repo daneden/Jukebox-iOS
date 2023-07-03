@@ -67,6 +67,8 @@ struct ContentView: View {
 					} label: {
 						Label("Play Random Playlist", systemImage: "shuffle")
 							.frame(maxWidth: chosenPlaylist == nil ? .infinity : nil)
+							.transition(.scale)
+							.fontWeight(.bold)
 					}
 					.buttonStyle(.borderedProminent)
 					.controlSize(.extraLarge)
