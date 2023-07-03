@@ -27,6 +27,7 @@ struct AsyncButton<T>: View where T: View {
 		.overlay {
 			if isBusy {
 				ProgressView()
+					.controlSize(.regular)
 			}
 		}
 	}
