@@ -167,7 +167,7 @@ struct ContentView: View {
 	
 	func playRandom() async {
 		if let playlist = playlists.randomElement(),
-			 let detailedPlaylist = try? await playlist.with([.tracks]) {
+			 let detailedPlaylist = try? await playlist.with([.entries]) {
 			withAnimation {
 				self.chosenPlaylist = detailedPlaylist
 			}
