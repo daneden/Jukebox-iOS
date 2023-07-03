@@ -75,6 +75,7 @@ struct ContentView: View {
 					.disabled(playlists.isEmpty)
 					.buttonBorderShape(chosenPlaylist == nil ? .automatic : .circle)
 				}
+				.scenePadding()
 			}
 			.navigationTitle("Jukebox")
 			.toolbar {
