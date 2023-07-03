@@ -177,7 +177,10 @@ struct ContentView: View {
 	
 	func playPlaylist(playlist: Playlist) async {
 		do {
-			SystemMusicPlayer.shared.queue = [playlist]
+			guard let firstEntry = playlist.entries?.first else {
+				return
+			}
+			SystemMusicPlayer.shared.queue = .init(playlist: playlist, startingAt: firstEntry)
 			try await SystemMusicPlayer.shared.play()
 			await updatePlaylists()
 		} catch {
