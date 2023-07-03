@@ -14,7 +14,10 @@ struct ShrinkingLabelStyle: LabelStyle {
 			if !compact {
 				configuration.title
 					.lineLimit(1)
-					.transition(.scale.combined(with: .opacity).combined(with: .move(edge: .trailing)))
+					.transition(
+						.scale
+						.combined(with: .move(edge: .trailing))
+					)
 			}
 		} icon: {
 			configuration.icon
