@@ -43,7 +43,7 @@ struct ContentView: View {
 						NowPlayingView(playlist: playlist)
 					}
 					
-					Button {
+					AsyncButton {
 						Task { await playRandom() }
 					} label: {
 						Label("Play Random Playlist", systemImage: "shuffle")
