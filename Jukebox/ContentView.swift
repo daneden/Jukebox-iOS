@@ -28,7 +28,6 @@ struct ContentView: View {
 	var body: some View {
 		NavigationView {
 			List {
-				VStack {
 					switch MusicAuthorization.currentStatus {
 					case .notDetermined:
 						VStack {
@@ -52,7 +51,6 @@ struct ContentView: View {
 					default:
 						Text("Something went wrong")
 					}
-				}
 			}
 			.listStyle(.plain)
 			.dataTask {
