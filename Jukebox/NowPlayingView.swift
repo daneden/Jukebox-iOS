@@ -44,7 +44,7 @@ struct NowPlayingView: View {
 			.frame(maxWidth: .infinity, alignment: .leading)
 			.background(.quaternary)
 			.foregroundStyle(.tint)
-			.background(.ultraThickMaterial)
+			.background(.regularMaterial)
 			.clipShape(RoundedRectangle(cornerRadius: 16))
 			.transition(
 				.move(edge: .leading)
