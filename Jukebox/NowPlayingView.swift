@@ -5,65 +5,82 @@
 //  Created by Daniel Eden on 02/07/2023.
 //
 
-import SwiftUI
-import UIKit
 import MusicKit
+import SwiftUI
 
 struct NowPlayingView: View {
 	@Binding var playlist: Playlist?
-	var autoDismissAfter: TimeInterval? = 5
-	
+	@Environment(\.openURL) private var openURL
+
 	var body: some View {
-		if let playlist {
-			HStack {
-				if let artwork = playlist.artwork {
-					ArtworkImage(artwork, width: 40)
-						.clipShape(RoundedRectangle(cornerRadius: 6))
-						#if DEBUG
-						.onTapGesture(count: 3) {
-							if let encoded = try? JSONEncoder().encode(playlist),
-								 let string = String(data: encoded, encoding: .utf8) {
-								UIPasteboard.general.string = string
-							}
-						}
-						#endif
-				}
-				
-				VStack(alignment: .leading) {
-					Text(playlist.name)
-						.font(.headline)
-					if let url = playlist.url ?? URL(string: "music://music.apple.com/library/playlist/\(playlist.id)") {
-						Link(destination: url) {
-							Label("Open in Apple Music", systemImage: "music.note")
-								.imageScale(.small)
-						}
-						.foregroundStyle(.secondary)
-					}
-				}
+		HStack(spacing: 12) {
+			cover
+				.frame(width: 36, height: 36)
+
+			VStack(alignment: .leading, spacing: 1) {
+				Text(playlist?.name ?? "Nothing playing")
+					.fontWeight(.semibold)
+					.contentTransition(.numericText())
+
+				Text(subtitle)
+					.foregroundStyle(.secondary)
+					.contentTransition(.numericText())
 			}
-			.padding(8)
-			.frame(maxWidth: .infinity, alignment: .leading)
-			.background(.regularMaterial)
-			.clipShape(RoundedRectangle(cornerRadius: 16))
-			.padding(.leading, -8)
-			.transition(
-				.move(edge: .leading)
-				.combined(with: .scale)
-			)
-			.task {
-				print(playlist.id)
-				print(playlist.url)
-				if let autoDismissAfter {
-					try? await Task.sleep(nanoseconds: UInt64(autoDismissAfter) * 1_000_000_000)
-					withAnimation {
-						self.playlist = nil
-					}
-				}
+			.font(.footnote)
+			.lineLimit(1)
+
+			Spacer(minLength: 0)
+
+			if playlist != nil {
+				Image(systemName: "arrow.up.forward.app")
+					.foregroundStyle(.tertiary)
+					.imageScale(.large)
+					.transition(.blurReplace)
 			}
 		}
+		.padding(.vertical, 8)
+		.padding(.horizontal)
+		.frame(maxWidth: .infinity, alignment: .leading)
+		.glassEffect(in: .capsule)
+		.foregroundStyle(.primary)
+		.contentShape(.capsule)
+		.onTapGesture(perform: openCurrent)
+		.animation(.smooth(duration: 0.35), value: playlist?.id)
+	}
+
+	private var subtitle: String {
+		playlist == nil ? "Tap shuffle to play a random playlist" : "Open in Apple Music"
+	}
+
+	@ViewBuilder
+	private var cover: some View {
+		if let playlist, let artwork = playlist.artwork {
+			ArtworkImage(artwork, width: 36)
+				.clipShape(.rect(cornerRadius: 6, style: .continuous))
+				.id(playlist.id)
+				.transition(.blurReplace)
+		} else {
+			RoundedRectangle(cornerRadius: 6, style: .continuous)
+				.fill(.thinMaterial)
+				.overlay {
+					Image(systemName: "music.note")
+						.foregroundStyle(.tertiary)
+						.font(.footnote)
+				}
+				.id("empty-cover")
+				.transition(.blurReplace)
+		}
+	}
+
+	private func openCurrent() {
+		guard let playlist,
+		      let url = playlist.url ?? URL(string: "music://music.apple.com/library/playlist/\(playlist.id)")
+		else { return }
+		openURL(url)
 	}
 }
 
 #Preview {
 	NowPlayingView(playlist: .constant(nil))
+		.padding()
 }

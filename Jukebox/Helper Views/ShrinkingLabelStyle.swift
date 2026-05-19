@@ -16,7 +16,7 @@ struct ShrinkingLabelStyle: LabelStyle {
 					.lineLimit(1)
 					.transition(
 						.opacity
-						.combined(with: .move(edge: .trailing))
+							.combined(with: .move(edge: .trailing))
 					)
 			}
 		} icon: {
@@ -25,16 +25,15 @@ struct ShrinkingLabelStyle: LabelStyle {
 	}
 }
 
-fileprivate struct ShrinkingLabelStylePreview: View {
+private struct ShrinkingLabelStylePreview: View {
 	@State var leadingContentVisible = false
 	var body: some View {
 		HStack {
 			if leadingContentVisible {
 				Text("This content should cause the button to shrink")
 					.transition(.move(edge: .leading).combined(with: .scale))
-					
 			}
-			
+
 			Button {
 				withAnimation {
 					leadingContentVisible.toggle()
@@ -51,5 +50,5 @@ fileprivate struct ShrinkingLabelStylePreview: View {
 }
 
 #Preview {
-    ShrinkingLabelStylePreview()
+	ShrinkingLabelStylePreview()
 }

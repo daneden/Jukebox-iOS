@@ -7,11 +7,11 @@
 
 import SwiftUI
 
-struct AsyncButton<T>: View where T: View {
+struct AsyncButton<T: View>: View {
 	@State private var isBusy = false
 	var action: () async -> Void
 	var label: () -> T
-	
+
 	var body: some View {
 		Button {
 			Task {
