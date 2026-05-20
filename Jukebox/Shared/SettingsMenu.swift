@@ -13,6 +13,7 @@ import SwiftUI
 struct SettingsMenu: View {
 	@AppStorage(SettingsKeys.autoplay) private var autoplay: Bool = true
 	@State private var showingProbe = false
+	@State private var showingEmbeddingSpike = false
 
 	var body: some View {
 		Menu {
@@ -23,11 +24,19 @@ struct SettingsMenu: View {
 			} label: {
 				Label("Audio Metadata Probe", systemImage: "waveform.path.ecg")
 			}
+			Button {
+				showingEmbeddingSpike = true
+			} label: {
+				Label("Embedding Spike", systemImage: "waveform.and.magnifyingglass")
+			}
 		} label: {
 			Label("Settings", systemImage: "gearshape")
 		}
 		.sheet(isPresented: $showingProbe) {
 			AudioMetadataProbeView()
+		}
+		.sheet(isPresented: $showingEmbeddingSpike) {
+			EmbeddingSpikeView()
 		}
 	}
 }
