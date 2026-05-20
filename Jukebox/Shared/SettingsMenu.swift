@@ -14,10 +14,17 @@ struct SettingsMenu: View {
 	@AppStorage(SettingsKeys.autoplay) private var autoplay: Bool = true
 	@State private var showingProbe = false
 	@State private var showingEmbeddingSpike = false
+	@State private var showingHowItWorks = false
 
 	var body: some View {
 		Menu {
 			Toggle("Autoplay on Shuffle", isOn: $autoplay)
+			Divider()
+			Button {
+				showingHowItWorks = true
+			} label: {
+				Label("How It Works", systemImage: "info.circle")
+			}
 			Divider()
 			Button {
 				showingProbe = true
@@ -37,6 +44,9 @@ struct SettingsMenu: View {
 		}
 		.sheet(isPresented: $showingEmbeddingSpike) {
 			EmbeddingSpikeView()
+		}
+		.sheet(isPresented: $showingHowItWorks) {
+			HowItWorksView()
 		}
 	}
 }

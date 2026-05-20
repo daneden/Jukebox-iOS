@@ -32,6 +32,10 @@ enum SongDeckWalk {
 	static let artistLookback = 2
 	/// Lookback for the same-album rule.
 	static let albumLookback = 3
+	/// How many of the top-scored songs the walk picks its seed from.
+	/// Wider = more per-session variety at cold start; the same 10 high-
+	/// scorers were cycling too predictably at 10.
+	static let seedTier = 20
 
 	static func walk(
 		songs: [Song],
@@ -46,9 +50,9 @@ enum SongDeckWalk {
 
 		// Seed from the top of the score-ranked input but offset by the
 		// session seed so different launches start the walk in different
-		// places. Top-10 window keeps the seed reasonably high-quality.
-		let seedTier = min(10, remaining.count)
-		let seedIdx = Int(seed % UInt64(seedTier))
+		// places.
+		let tier = min(Self.seedTier, remaining.count)
+		let seedIdx = Int(seed % UInt64(tier))
 		ordered.append(remaining.remove(at: seedIdx))
 
 		while !remaining.isEmpty {
