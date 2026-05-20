@@ -156,13 +156,18 @@ struct PlaylistsView: View {
 		let preservedID = dial.focusedItemID
 		let newIdx = preservedID.flatMap { id in new.firstIndex(where: { $0.id == id }) }
 
-		// Most foreground refetches return the same order the user already
-		// sees — skip the animation in that case so a quiet tab-back doesn't
-		// trigger a visible swap.
-		let unchanged = playlists.count == new.count
-			&& zip(playlists, new).allSatisfy { $0.id == $1.id }
+		// Animate only when items actually reordered (background → foreground
+		// after playing something, deletes, etc.). Skip animation when:
+		//   - The new collection has the same prefix as the old — covers
+		//     either no change (counts equal) or pure append at the tail
+		//     (counts grew). Append happens on every nextBatch() during
+		//     initial streaming; animating each batch spring-thrashes the
+		//     wrap-around edge of the dial for nothing.
+		//   - The dial is empty (no prior visual state to lift from).
+		let prefixUnchanged = new.count >= playlists.count
+			&& zip(playlists, new.prefix(playlists.count)).allSatisfy { $0.id == $1.id }
 
-		if unchanged {
+		if prefixUnchanged {
 			playlists = new
 		} else {
 			withAnimation(.smooth(duration: 0.5)) { playlists = new }
