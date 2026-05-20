@@ -273,7 +273,16 @@ struct SongsView: View {
 			print("Songs: skipping \(song.title) — \(song.artistName); nil playParameters")
 		}
 
-		let runway = Array(deck.drop(while: { $0.id != song.id }).prefix(20))
+		// Wrap modularly around the deck. The dial is a cylinder, so
+		// landing near the tail (e.g. position 296 after randomLandingIndex
+		// picks a negative offset) should still produce a 20-song runway —
+		// continue from the start of the deck once we fall off the end,
+		// not truncate to whatever happens to be ahead.
+		guard let startIdx = deck.firstIndex(where: { $0.id == song.id }) else { return }
+		let runwayLength = min(20, deck.count)
+		let runway = (0 ..< runwayLength).map { offset in
+			deck[(startIdx + offset) % deck.count]
+		}
 		guard !runway.isEmpty else { return }
 		do {
 			SystemMusicPlayer.shared.queue = .init(for: runway)
