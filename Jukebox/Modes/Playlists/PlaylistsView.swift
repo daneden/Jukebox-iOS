@@ -73,7 +73,11 @@ struct PlaylistsView: View {
 				ToolbarItem(placement: .principal) { ToolbarLogo() }
 			}
 			.sensoryFeedback(.impact(weight: .medium), trigger: dial.spinLandTick)
-			.sensoryFeedback(.selection, trigger: dial.focusedIndex)
+			// Trigger on the focused song's *id*, not its index — a
+			// reanchor (e.g. partial → final deck swap during streaming)
+			// changes the index while keeping the same song focused, and
+			// the user shouldn't feel a haptic for that.
+			.sensoryFeedback(.selection, trigger: dial.focusedItemID)
 			.sensoryFeedback(.start, trigger: dial.playbackTick)
 			.onChange(of: MusicAuthorization.currentStatus) { _, newValue in
 				if newValue == .authorized {

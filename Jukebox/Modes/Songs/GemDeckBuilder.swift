@@ -61,16 +61,22 @@ enum GemDeckBuilder {
 			let task = Task {
 				do {
 					let scorer = GemScorer(now: now)
+					// Session-stable seed: partial and final share it so any
+					// song present in both decks lands at the same dial index
+					// in both yields. Reduces lift-out churn during the
+					// partial → final swap to just the genuinely new entries.
+					// Across cold starts, fresh seed → fresh ordering.
+					let seed = UInt64.random(in: 0 ... UInt64.max)
 
 					async let nostalgiaTask = fetchPool(sort: .playCount, ascending: false)
 					async let discoveryTask = fetchPool(sort: .libraryAddedDate, ascending: true)
 
 					let nostalgia = try await nostalgiaTask
-					continuation.yield(rank(songs: nostalgia, scorer: scorer))
+					continuation.yield(rank(songs: nostalgia, scorer: scorer, seed: seed))
 
 					let discovery = try await discoveryTask
 					let union = dedupeUnion(nostalgia: nostalgia, discovery: discovery)
-					continuation.yield(rank(songs: union, scorer: scorer))
+					continuation.yield(rank(songs: union, scorer: scorer, seed: seed))
 
 					continuation.finish()
 				} catch {
@@ -81,13 +87,24 @@ enum GemDeckBuilder {
 		}
 	}
 
-	private static func rank(songs: [Song], scorer: GemScorer) -> BuildResult {
+	private static func rank(songs: [Song], scorer: GemScorer, seed: UInt64) -> BuildResult {
 		let ranked = scorer.scoreAndRank(songs)
 		let top = ranked.prefix(deckSize).map(\.song)
-		// Shuffle within the top-N — top-ranked deterministic order would
-		// hand the same song to the user every time they open the tab.
-		let deck = top.shuffled()
+		// Sort by hash(songID, seed) — each song has a stable per-session
+		// "shuffle position" determined solely by its id, not by other
+		// songs in the list. Same song lands at the same relative position
+		// in partial and final.
+		let deck = top.sorted { lhs, rhs in
+			seededHash(lhs.id.rawValue, seed: seed) < seededHash(rhs.id.rawValue, seed: seed)
+		}
 		return BuildResult(deck: deck, scannedCount: songs.count)
+	}
+
+	private static func seededHash(_ key: String, seed: UInt64) -> UInt64 {
+		var hasher = Hasher()
+		hasher.combine(seed)
+		hasher.combine(key)
+		return UInt64(bitPattern: Int64(hasher.finalize()))
 	}
 
 	private static func dedupeUnion(nostalgia: [Song], discovery: [Song]) -> [Song] {
