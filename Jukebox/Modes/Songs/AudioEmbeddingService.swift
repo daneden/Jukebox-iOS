@@ -39,16 +39,24 @@ enum AudioEmbeddingService {
 		}
 	}
 
-	/// Resolve a `MusicKit.Song` to a 30s preview URL, then embed it.
+	/// Resolve a `MusicKit.Song` to its embedding, hitting the persistent
+	/// cache first and falling through to the full compute pipeline (catalog
+	/// preview lookup → download → AudioFeaturePrint → mean-pool) on miss.
+	/// Computed embeddings are written back to the cache automatically.
 	///
 	/// Library-fetched songs almost never have `previewAssets` populated —
 	/// that field lives on Apple Music catalog metadata, not the library
 	/// record, and isn't in `Song.PartialMusicProperty` so we can't lazy-
-	/// hydrate it via `.with(...)`. We try a cascade of bridges, ordered
-	/// most-accurate to most-permissive.
+	/// hydrate it via `.with(...)`. The `previewURL(for:)` helper handles
+	/// a cascade of bridges, ordered most-accurate to most-permissive.
 	static func embed(song: Song) async throws -> [Float] {
+		if let cached = await EmbeddingStore.shared.embedding(for: song.id) {
+			return cached
+		}
 		let url = try await previewURL(for: song)
-		return try await embed(previewURL: url)
+		let computed = try await embed(previewURL: url)
+		await EmbeddingStore.shared.store(computed, for: song.id)
+		return computed
 	}
 
 	private static func previewURL(for song: Song) async throws -> URL {
