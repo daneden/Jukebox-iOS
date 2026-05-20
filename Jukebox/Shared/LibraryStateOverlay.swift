@@ -9,13 +9,13 @@ import MusicKit
 import SwiftUI
 
 /// Overlay shown when the library is unavailable, still loading, or empty.
-/// Both tabs share the same shape; only the copy varies, so the shape lives
-/// here and each mode passes its own strings.
+/// Both tabs share the same shape; the loading state uses a shared
+/// cycling phrase pool (CyclingLoadingText) so the copy stays consistent
+/// across surfaces. Empty/error/auth copy is still passed per-mode.
 struct LibraryStateOverlay: View {
 	let isEmpty: Bool
 	let isLoading: Bool
 	let loadError: String?
-	let loadingMessage: String
 	let emptyMessage: String
 	let emptyHint: String?
 	let authMessage: String
@@ -24,7 +24,6 @@ struct LibraryStateOverlay: View {
 		isEmpty: Bool,
 		isLoading: Bool,
 		loadError: String? = nil,
-		loadingMessage: String,
 		emptyMessage: String,
 		emptyHint: String? = nil,
 		authMessage: String
@@ -32,7 +31,6 @@ struct LibraryStateOverlay: View {
 		self.isEmpty = isEmpty
 		self.isLoading = isLoading
 		self.loadError = loadError
-		self.loadingMessage = loadingMessage
 		self.emptyMessage = emptyMessage
 		self.emptyHint = emptyHint
 		self.authMessage = authMessage
@@ -61,7 +59,7 @@ struct LibraryStateOverlay: View {
 					if isLoading {
 						ProgressView()
 							.controlSize(.large)
-						Text(loadingMessage)
+						CyclingLoadingText()
 							.font(.subheadline)
 							.foregroundStyle(.secondary)
 					} else if let loadError {

@@ -102,7 +102,6 @@ struct PlaylistsView: View {
 				LibraryStateOverlay(
 					isEmpty: playlists.isEmpty,
 					isLoading: isLoading,
-					loadingMessage: "Loading your playlists…",
 					emptyMessage: "No Playlists",
 					authMessage: "Jukebox needs access to your Apple Music library. Tap “Allow Access” to get started."
 				)

@@ -14,7 +14,7 @@ struct ToolbarLogo: View {
 		Image(.playback)
 			.resizable()
 			.aspectRatio(contentMode: .fit)
-			.frame(height: 64)
+			.frame(height: 56)
 			.foregroundStyle(.primary)
 	}
 }

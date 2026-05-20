@@ -24,6 +24,11 @@ struct SongsView: View {
 	@State private var isLoading: Bool = true
 	@State private var loadError: String?
 	@State private var hasBuiltDeck = false
+	@State private var showingHistory = false
+	/// True while a shuffle-driven rebuild is in flight. The dial is
+	/// pulled offscreen for the duration so partial/final deck swaps
+	/// don't visibly thrash; a loading view sits in its place.
+	@State private var isReshuffling = false
 
 	private var focusedSong: Song? {
 		guard !deck.isEmpty,
@@ -37,21 +42,30 @@ struct SongsView: View {
 			VStack(spacing: 0) {
 				Spacer(minLength: 0)
 
-				DialView(
-					items: deck,
-					rotation: $dial.rotation,
-					focusedIndex: $dial.focusedIndex,
-					rippleCounters: dial.rippleCounters,
-					placeholderSymbol: "music.note"
-				) {
-					if let song = focusedSong {
-						Task { await play(from: song) }
+				ZStack {
+					if isReshuffling {
+						reshuffleLoadingView
+							.transition(.blurReplace)
+					} else {
+						DialView(
+							items: deck,
+							rotation: $dial.rotation,
+							focusedIndex: $dial.focusedIndex,
+							rippleCounters: dial.rippleCounters,
+							placeholderSymbol: "music.note"
+						) {
+							if let song = focusedSong {
+								Task { await play(from: song) }
+							}
+						}
+						.allowsHitTesting(!dial.isSpinning)
+						.transition(.blurReplace)
 					}
 				}
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
-				.allowsHitTesting(!dial.isSpinning)
+				.animation(.smooth(duration: 0.45), value: isReshuffling)
 
-				if let song = focusedSong, !dial.isSpinning {
+				if let song = focusedSong, !dial.isSpinning, !isReshuffling {
 					titleBlock(song)
 				}
 
@@ -64,10 +78,9 @@ struct SongsView: View {
 			.refreshable { await buildDeck() }
 			.safeAreaBar(edge: .bottom, alignment: .trailing) {
 				PlaybackControls(
-					disabled: dial.isSpinning || deck.isEmpty,
+					disabled: dial.isSpinning || deck.isEmpty || isReshuffling,
 					onPlay: { if let s = focusedSong { await play(from: s) } },
-					onShuffle: { await shuffle() },
-					onSuperShuffle: { await superShuffle() }
+					onShuffle: { await shuffle() }
 				)
 			}
 			.toolbar {
@@ -76,6 +89,16 @@ struct SongsView: View {
 				ToolbarItem(placement: .topBarTrailing) {
 					EmbeddingProgressIndicator(progress: .shared)
 				}
+				ToolbarItem(placement: .topBarTrailing) {
+					Button {
+						showingHistory = true
+					} label: {
+						Label("History", systemImage: "clock.arrow.circlepath")
+					}
+				}
+			}
+			.sheet(isPresented: $showingHistory) {
+				HistoryView()
 			}
 			.sensoryFeedback(.impact(weight: .medium), trigger: dial.spinLandTick)
 			// Trigger on the focused song's *id*, not its index — a
@@ -98,12 +121,21 @@ struct SongsView: View {
 					isEmpty: deck.isEmpty,
 					isLoading: isLoading,
 					loadError: loadError,
-					loadingMessage: "Searching your library for gems…",
 					emptyMessage: "No gems yet",
 					emptyHint: "Pull to refresh once your library has more history.",
 					authMessage: "Jukebox needs access to your Apple Music library to find your hidden gems."
 				)
 			}
+		}
+	}
+
+	private var reshuffleLoadingView: some View {
+		VStack(spacing: 16) {
+			ProgressView()
+				.controlSize(.large)
+			CyclingLoadingText()
+				.font(.callout)
+				.foregroundStyle(.secondary)
 		}
 	}
 
@@ -135,17 +167,6 @@ struct SongsView: View {
 		loadError = nil
 		defer { isLoading = false }
 		await runBuild(wideSample: false)
-	}
-
-	/// Force a fresh deck by widening the candidate slice and resampling.
-	/// Same songs in the same library produce a different deck each time,
-	/// so the dial genuinely turns over rather than just re-walking the
-	/// same top-300 in a new order. Doesn't toggle `isLoading` — the
-	/// current deck stays visible until the new one lifts in via the
-	/// existing partial/final transitions.
-	private func superShuffle() async {
-		guard !dial.isSpinning else { return }
-		await runBuild(wideSample: true)
 	}
 
 	private func runBuild(wideSample: Bool) async {
@@ -200,32 +221,19 @@ struct SongsView: View {
 
 	// MARK: - Shuffle
 
+	/// Songs-mode shuffle = full deck rebuild. Spinning the wheel within
+	/// the current deck just re-walks the same 300 songs in roughly the
+	/// same neighborhood; rebuilding actually turns over the candidate
+	/// pool. The dial blurs out to a loading view, the new deck is
+	/// fetched and walked, and the dial blurs back in.
 	private func shuffle() async {
-		guard let target = DialMechanics.shuffleTarget(
-			currentFocus: dial.focusedIndex,
-			itemCount: deck.count
-		) else { return }
-
-		let destination = DialMechanics.spinDestination(
-			current: dial.rotation,
-			target: target,
-			count: deck.count
-		)
-		let duration = DialTunables.shuffleDuration(
-			degrees: destination.degrees - dial.rotation.degrees
-		)
-
-		dial.isSpinning = true
-		withAnimation(.spring(duration: duration, bounce: DialTunables.shuffleSpringBounce)) {
-			dial.rotation = destination
+		guard !dial.isSpinning, !isReshuffling else { return }
+		withAnimation(.smooth(duration: 0.45)) { isReshuffling = true }
+		await runBuild(wideSample: true)
+		withAnimation(.smooth(duration: 0.45)) { isReshuffling = false }
+		if autoplay, let song = focusedSong {
+			await play(from: song)
 		}
-		try? await Task.sleep(for: .seconds(duration))
-		dial.isSpinning = false
-
-		let chosen = deck[target]
-		dial.recordLanding(at: target, id: chosen.id)
-
-		if autoplay { await play(from: chosen) }
 	}
 
 	// MARK: - Playback
@@ -234,12 +242,33 @@ struct SongsView: View {
 	/// so playback keeps flowing without us having to babysit `queue.insert`
 	/// on every track end.
 	private func play(from song: Song) async {
+		// Diagnostic: songs with nil playParameters get silently skipped
+		// by SystemMusicPlayer (rights lapsed, lost cloud match, region-
+		// locked, etc). GemScorer filters these out of the candidate
+		// pool already, so reaching this log means a song landed in the
+		// deck that shouldn't have — worth checking the song in Apple
+		// Music to understand why.
+		if song.playParameters == nil {
+			print("Songs: skipping \(song.title) — \(song.artistName); nil playParameters")
+		}
+
 		let runway = Array(deck.drop(while: { $0.id != song.id }).prefix(20))
 		guard !runway.isEmpty else { return }
 		do {
 			SystemMusicPlayer.shared.queue = .init(for: runway)
 			try await SystemMusicPlayer.shared.play()
 			dial.markPlaying(id: song.id)
+
+			// Log the runway after playback actually starts — no point
+			// remembering a "playlist" that errored on the way out the door.
+			let seedSnapshot = SongSnapshot(song: song)
+			let runwaySnapshots = runway.map(SongSnapshot.init(song:))
+			let name = PlaylistNamer.suggestedName(seedArtist: song.artistName)
+			await HistoryStore.shared.record(
+				name: name,
+				seed: seedSnapshot,
+				runway: runwaySnapshots
+			)
 		} catch {
 			print("Songs playback error: \(error)")
 		}

@@ -31,7 +31,13 @@ actor EmbeddingStore {
 	private func ensureLoaded() throws {
 		if container != nil { return }
 		let schema = Schema([SongEmbedding.self])
-		let config = ModelConfiguration(schema: schema, cloudKitDatabase: .none)
+		// Named so this store gets its own sqlite file rather than
+		// fighting `HistoryStore` and `TransitionFeedbackStore` over
+		// the default unnamed `default.store`. Three actors opening
+		// the same file with three different schemas leaves whichever
+		// container initialised first holding the tables; the others
+		// surface "no such table: ZSONGEMBEDDING" errors at fetch time.
+		let config = ModelConfiguration("embeddings", schema: schema, cloudKitDatabase: .none)
 		let c = try ModelContainer(for: schema, configurations: [config])
 		container = c
 		context = ModelContext(c)

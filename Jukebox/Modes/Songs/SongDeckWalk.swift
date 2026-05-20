@@ -40,6 +40,7 @@ enum SongDeckWalk {
 	static func walk(
 		songs: [Song],
 		embeddings: [MusicItemID: [Float]],
+		blockedPairs: Set<String> = [],
 		seed: UInt64
 	) -> [Song] {
 		guard songs.count > 1 else { return songs }
@@ -62,9 +63,15 @@ enum SongDeckWalk {
 			// Try strict rules first; relax in two steps if no candidates
 			// survive. relaxLevel=0 enforces both artist and album; =1
 			// drops album; =2 drops both (pure similarity pick).
+			//
+			// User-blocked pairs are checked at every relax level — they
+			// represent an explicit "never again" signal, so we'd rather
+			// violate artist/album smoothing than recreate a pairing the
+			// user already rejected.
 			var picked: (index: Int, similarity: Float)?
 			for relaxLevel in 0 ... 2 {
 				for (i, candidate) in remaining.enumerated() {
+					if isBlocked(previous, candidate, in: blockedPairs) { continue }
 					if !isEligible(candidate: candidate, history: history, relaxLevel: relaxLevel) {
 						continue
 					}
@@ -76,13 +83,27 @@ enum SongDeckWalk {
 				if picked != nil { break }
 			}
 
-			// `picked` is guaranteed at relaxLevel=2 (no rules); the force-
-			// unwrap is safe as long as `remaining.isEmpty` was false on
-			// the loop guard.
-			ordered.append(remaining.remove(at: picked!.index))
+			// Fallback: the blocked-pair filter is strict, so it's
+			// theoretically possible for every remaining candidate to be
+			// blocked against `previous`. Rather than deadlocking the
+			// walk, accept the first remaining song — blocked pairs are
+			// a soft preference, not a hard contract, and an N=300 deck
+			// would have to be extraordinarily blocked for this branch
+			// to fire in practice.
+			let index = picked?.index ?? 0
+			ordered.append(remaining.remove(at: index))
 		}
 
 		return ordered
+	}
+
+	private static func isBlocked(
+		_ a: Song,
+		_ b: Song,
+		in pairs: Set<String>
+	) -> Bool {
+		guard !pairs.isEmpty else { return false }
+		return pairs.contains(TransitionFeedbackStore.pairKey(a.id.rawValue, b.id.rawValue))
 	}
 
 	private static func isEligible(
@@ -125,10 +146,13 @@ enum SongDeckWalk {
 	///
 	/// We compensate by blending the cosine with metadata signals we have
 	/// at near-total coverage (genre 99.9%, releaseDate close to 100%).
-	/// Weights chosen to give the embedding the largest single share
-	/// while leaving enough room for metadata to break ties when the
-	/// embedding can't (e.g. classic R&B vs modern electronic that both
-	/// have "vocals + rhythm" texture).
+	///
+	/// Era is weighted heavily because the embedding flattens decades —
+	/// without it, the walk happily pairs e.g. 1940s vocal-jazz with
+	/// modern electronic that happens to share "vocals + rhythm"
+	/// texture. Combined with the exponential decay in `eraProximity`,
+	/// a 50+ year gap is penalised hard enough that the walk needs an
+	/// unusually strong cosine + genre case to bridge it.
 	///
 	/// Tunable; revisit after the walk's been used in anger.
 	static func similarity(
@@ -141,10 +165,10 @@ enum SongDeckWalk {
 
 		if let eA = embeddings[a.id], let eB = embeddings[b.id] {
 			let cosine = AudioEmbeddingService.cosineSimilarity(eA, eB)
-			return 0.5 * cosine + 0.3 * genre + 0.2 * era
+			return 0.4 * cosine + 0.25 * genre + 0.35 * era
 		}
 		// No cached embedding for at least one side — metadata only.
-		return 0.6 * genre + 0.4 * era
+		return 0.5 * genre + 0.5 * era
 	}
 
 	private static func genreJaccard(_ a: Song, _ b: Song) -> Float {
@@ -155,18 +179,30 @@ enum SongDeckWalk {
 		return Float(aGenres.intersection(bGenres).count) / Float(union.count)
 	}
 
-	/// Linear decay from 1.0 at zero years apart to 0.0 at ≥30 years.
+	/// Exponential decay with a ~20-year halflife. Linear clamping at 30
+	/// years stopped distinguishing between "kind of distant" (e.g. 30y)
+	/// and "wildly distant" (80y) — both produced an era score of 0.0,
+	/// which let cosine-bunched cross-era pairs (1940s vocal-jazz vs
+	/// 2020s electronic) sneak adjacent in the walk. Exponential keeps
+	/// dropping past 30y so a half-century gap is meaningfully worse
+	/// than a generation gap.
+	///
+	/// Sample values: 0y → 1.00, 10y → 0.61, 20y → 0.37, 30y → 0.22,
+	/// 50y → 0.08, 80y → 0.02.
+	///
 	/// Songs without a release date get a neutral 0.5 — we don't punish
 	/// missing data, just don't reward it.
 	///
 	/// Known limitation: remasters (e.g. "Sgt Pepper 2017 Mix") inherit
-	/// the remaster's release date, not the original recording's. The
-	/// 0.2 weight on era keeps that mistake from dominating the blend.
+	/// the remaster's release date, not the original recording's. Era's
+	/// 0.35 weight keeps that mistake from dominating the blend on its
+	/// own, but back-to-back remasters of decades-apart originals will
+	/// still register as same-era.
 	private static func eraProximity(_ a: Song, _ b: Song) -> Float {
 		guard let aDate = a.releaseDate, let bDate = b.releaseDate else {
 			return 0.5
 		}
 		let yearsApart = abs(aDate.timeIntervalSince(bDate)) / (365.25 * 86400)
-		return max(0, 1 - Float(yearsApart) / 30)
+		return Float(exp(-yearsApart / 20))
 	}
 }

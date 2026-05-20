@@ -176,13 +176,14 @@ private struct DialContent<Item: MusicItem & DialItem>: View, Animatable {
 				) {
 					onTap(entry.index)
 				}
-				// Covers leaving the visible window (because the library
-				// reordered while we were backgrounded, or focus jumped)
-				// should read as "lifted out," not just popped. Pair with
-				// the .smooth curve in the mode's applyPlaylists/applyDeck
-				// so the slide of stayers and the scale-fade of movers
-				// share the same transaction.
-				.transition(.scale(scale: 0.6).combined(with: .opacity))
+				// Covers entering or leaving the visible window (because
+				// the library reordered while we were backgrounded, the
+				// deck was reshuffled, or focus jumped) blur-replace
+				// rather than scale-fade. Pair with the .smooth curve
+				// in the mode's applyPlaylists/applyDeck so the slide
+				// of stayers and the blur of movers share the same
+				// transaction.
+				.transition(.blurReplace)
 			}
 		}
 	}
@@ -244,6 +245,40 @@ private struct DialItemView: View {
 
 	@State private var rippleOrigin: CGPoint = .zero
 	@State private var rippleTriggerCount: Int = 0
+	/// Eased 0→1 ramp that follows `isFocused`. SwiftUI can't smooth
+	/// the wobble's `sin(t*omega)` directly — it's a function of time,
+	/// not a value SwiftUI animates between — so we multiply by this
+	/// state instead. Wobble amplitude grows in (and dies out) over
+	/// the focus transition, and the shadow size rides the same ramp,
+	/// so a cover landing at center doesn't pop straight into full
+	/// oscillation + heavy shadow.
+	@State private var focusStrength: Double
+
+	init(
+		artwork: Artwork?,
+		coverSize: Double,
+		requestSize: Double,
+		radius: Double,
+		screenAngle: Angle,
+		isFocused: Bool,
+		rippleTrigger: Int,
+		placeholderSymbol: String,
+		onTap: @escaping () -> Void
+	) {
+		self.artwork = artwork
+		self.coverSize = coverSize
+		self.requestSize = requestSize
+		self.radius = radius
+		self.screenAngle = screenAngle
+		self.isFocused = isFocused
+		self.rippleTrigger = rippleTrigger
+		self.placeholderSymbol = placeholderSymbol
+		self.onTap = onTap
+		// Initialise to match isFocused so the first render isn't a
+		// one-frame snap (state default would be 0, then onAppear
+		// would jump to 1 for a freshly-focused cover).
+		_focusStrength = State(initialValue: isFocused ? 1.0 : 0.0)
+	}
 
 	var body: some View {
 		let radians = screenAngle.radians
@@ -256,7 +291,12 @@ private struct DialItemView: View {
 		let opacity = normalized
 		let blur = (1 - normalized) * 3
 
-		TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isFocused)) { context in
+		// Keep ticking through the focus-out fade so the wobble can
+		// decay smoothly. Once the ramp settles at ~0 and the cover
+		// isn't focused, pause to save energy.
+		TimelineView(
+			.animation(minimumInterval: 1.0 / 30.0, paused: !isFocused && focusStrength < 0.01)
+		) { context in
 			wobblingCover(at: context.date)
 		}
 		.rotation3DEffect(
@@ -269,7 +309,11 @@ private struct DialItemView: View {
 		.opacity(opacity)
 		.blur(radius: blur)
 		.zIndex(normalized)
-		.animation(DialTunables.wheelSpring, value: isFocused)
+		.onChange(of: isFocused) { _, focused in
+			withAnimation(.smooth(duration: 0.35)) {
+				focusStrength = focused ? 1.0 : 0.0
+			}
+		}
 		.onChange(of: rippleTrigger) { _, _ in
 			rippleOrigin = CGPoint(x: coverSize / 2, y: coverSize * 0.9)
 			rippleTriggerCount &+= 1
@@ -280,8 +324,10 @@ private struct DialItemView: View {
 	private func wobblingCover(at date: Date) -> some View {
 		let t = date.timeIntervalSinceReferenceDate
 		let omega: Double = 2 * .pi / DialTunables.wobblePeriod
-		let wobbleX: Double = isFocused ? sin(t * omega) * DialTunables.wobbleAmplitude : 0
-		let wobbleY: Double = isFocused ? cos(t * omega) * DialTunables.wobbleAmplitude : 0
+		// Envelope the oscillation with the eased focus ramp so a
+		// newly-focused cover doesn't snap straight into ±amplitude.
+		let wobbleX: Double = sin(t * omega) * DialTunables.wobbleAmplitude * focusStrength
+		let wobbleY: Double = cos(t * omega) * DialTunables.wobbleAmplitude * focusStrength
 
 		// DragGesture-with-slop-threshold instead of .onTapGesture or
 		// Button. Button's gesture eats the parent's DragGesture until a
@@ -325,7 +371,11 @@ private struct DialItemView: View {
 					onTap()
 				}
 		)
-		.shadow(color: .black.opacity(0.35), radius: isFocused ? 28 : 10, y: isFocused ? 16 : 6)
+		.shadow(
+			color: .black.opacity(0.35),
+			radius: 10 + 18 * focusStrength,
+			y: 6 + 10 * focusStrength
+		)
 		.rotation3DEffect(.degrees(wobbleX), axis: (x: 1, y: 0, z: 0))
 		.rotation3DEffect(.degrees(wobbleY), axis: (x: 0, y: 1, z: 0))
 	}

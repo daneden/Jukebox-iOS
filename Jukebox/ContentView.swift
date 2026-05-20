@@ -15,21 +15,21 @@ import SwiftUI
 ///
 /// Selection persists across launches so the user lands back where they were.
 struct ContentView: View {
-	@AppStorage("selectedTab") private var selectedTab: AppTab = .playlists
+	@AppStorage("selectedTab") private var selectedTab: AppTab = .songs
 
 	var body: some View {
 		TabView(selection: $selectedTab) {
-			PlaylistsView()
-				.tabItem {
-					Label("Playlists", systemImage: "music.note.list")
-				}
-				.tag(AppTab.playlists)
-
 			SongsView()
 				.tabItem {
 					Label("Songs", systemImage: "sparkles")
 				}
 				.tag(AppTab.songs)
+
+			PlaylistsView()
+				.tabItem {
+					Label("Playlists", systemImage: "music.note.list")
+				}
+				.tag(AppTab.playlists)
 		}
 	}
 }

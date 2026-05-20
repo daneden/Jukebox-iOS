@@ -23,7 +23,6 @@ struct HowItWorksView: View {
 		NavigationStack {
 			ScrollView {
 				VStack(alignment: .leading, spacing: 32) {
-					intro
 					gemDeckSection
 					walkSection
 					embeddingSection
@@ -35,7 +34,7 @@ struct HowItWorksView: View {
 			.navigationBarTitleDisplayMode(.inline)
 			.toolbar {
 				ToolbarItem(placement: .topBarTrailing) {
-					Button("Done") { dismiss() }
+					Button(role: .close) { dismiss() }
 				}
 			}
 		}
@@ -44,29 +43,28 @@ struct HowItWorksView: View {
 	// MARK: - Intro
 
 	private var intro: some View {
-		Text("Jukebox surfaces songs you've forgotten you love. Here's the path from your library to what's on the dial.")
+		Text("Playback surfaces songs you’ve forgotten you love. Here’s how it works.")
 			.font(.callout)
 			.fontDesign(.serif)
-			.foregroundStyle(.secondary)
 	}
 
 	// MARK: - Gem deck section
 
 	private var gemDeckSection: some View {
 		VStack(alignment: .leading, spacing: 16) {
-			sectionHeading("Finding the gems")
+			intro
 
 			GemDeckFunnel()
 				.frame(maxWidth: .infinity)
 				.padding(.vertical, 8)
 
-			body("Two complementary pools — songs you used to play a lot, and songs you saved long ago but barely touched. Together they cover both \"lost favorites\" and \"never quite gave them a chance.\"")
+			body(Text("Two complementary pools — songs you used to play a lot, and songs you saved long ago but barely touched. Together they cover both “lost favorites” and “never quite gave them a chance.”"))
 
 			VStack(alignment: .leading, spacing: 6) {
-				bullet("Nostalgia score: `log(plays + 1) × monthsDormant`")
-				bullet("Discovery score: `monthsInLibrary / (plays + 1)`")
-				bullet("Gem score = `0.7 × nostalgia + 0.3 × discovery`")
-				bullet("Songs played in the last `14 days` are filtered out")
+				bullet(Text("Nostalgia score: `log(plays + 1) × monthsDormant`"))
+				bullet(Text("Discovery score: `monthsInLibrary / (plays + 1)`"))
+				bullet(Text("Gem score = `0.7 × nostalgia + 0.3 × discovery`"))
+				bullet(Text("Songs played in the last `14 days` are filtered out"))
 			}
 			.font(.footnote)
 			.fontDesign(.serif)
@@ -80,17 +78,17 @@ struct HowItWorksView: View {
 		VStack(alignment: .leading, spacing: 12) {
 			sectionHeading("Walking the dial")
 
-			body("The 300 deck songs are ordered into a path where consecutive entries share sonic mood. Each step picks the next song with highest similarity to the previous, subject to:")
+			body(Text("The 300 deck songs are ordered into a path where consecutive entries share sonic mood. Each step picks the next song with highest similarity to the previous, subject to:"))
 
 			VStack(alignment: .leading, spacing: 6) {
-				bullet("No same artist within the previous `2` songs")
-				bullet("No same album within the previous `3` songs")
+				bullet(Text("No same artist within the previous 2 songs"))
+				bullet(Text("No same album within the previous 3 songs"))
 			}
 			.font(.footnote)
 			.fontDesign(.serif)
 			.foregroundStyle(.secondary)
 
-			body("The starting song is picked from the top `\(SongDeckWalk.seedTier)` by gem score, rotated per session so different cold starts feel different.")
+			body(Text("The starting song is picked from the top `\(SongDeckWalk.seedTier)` by gem score, rotated per session so different cold starts feel different."))
 		}
 	}
 
@@ -100,14 +98,14 @@ struct HowItWorksView: View {
 		VStack(alignment: .leading, spacing: 12) {
 			sectionHeading("Audio fingerprints")
 
-			body("Each song's audio is fingerprinted from its 30-second preview using Apple's built-in audio analyzer. The resulting 512-number vector captures the song's sonic character and is cached locally on your device.")
+			body(Text("Each song’s audio is fingerprinted from its 30-second preview using Apple’s built-in audio analyzer. The resulting 512-number vector captures the song’s sonic character and is cached locally on your device."))
 
-			body("Cosine similarity between two vectors tells the walk how alike two songs sound. That signal is blended with genre overlap and release-date proximity:")
+			body(Text("Cosine similarity between two vectors tells the walk how alike two songs sound. That signal is blended with genre overlap and release-date proximity:"))
 
 			VStack(alignment: .leading, spacing: 6) {
-				bullet("`50%` audio fingerprint similarity")
-				bullet("`30%` genre overlap")
-				bullet("`20%` release date proximity")
+				bullet(Text("`50%` audio fingerprint similarity"))
+				bullet(Text("`30%` genre overlap"))
+				bullet(Text("`20%` release date proximity"))
 			}
 			.font(.footnote)
 			.fontDesign(.serif)
@@ -124,16 +122,17 @@ struct HowItWorksView: View {
 	}
 
 	/// Serif body text — markdown-aware so inline backticks render as code.
-	private func body(_ text: LocalizedStringKey) -> some View {
-		Text(text)
+	private func body(_ text: Text) -> some View {
+		text
 			.fontDesign(.serif)
 	}
 
-	private func bullet(_ text: LocalizedStringKey) -> some View {
+	private func bullet(_ text: Text) -> some View {
 		HStack(alignment: .firstTextBaseline, spacing: 8) {
-			Text("·")
-			Text(text)
+			Text("•")
+			text
 		}
+		.fontDesign(.default)
 	}
 }
 
@@ -156,7 +155,7 @@ private struct GemDeckFunnel: View {
 			connector("union + dedupe")
 			stage("Candidates", count: "~2,500", width: 200, tint: .accentColor.opacity(0.4))
 			connector("score + recency filter")
-			stage("Deck", count: "300", width: 100, tint: .accentColor)
+			stage("Deck", count: "300", width: 100, tint: .black)
 		}
 	}
 
@@ -169,7 +168,7 @@ private struct GemDeckFunnel: View {
 					Text(count)
 						.font(.system(.footnote, design: .monospaced))
 						.fontWeight(.semibold)
-						.foregroundStyle(.white)
+						.foregroundStyle(.primary)
 				}
 			Text(name)
 				.font(.caption2)

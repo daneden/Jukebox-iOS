@@ -68,7 +68,19 @@ enum GemDeckBuilder {
 		AsyncThrowingStream { continuation in
 			let task = Task {
 				do {
-					let scorer = GemScorer(now: now)
+					// Our own recent-play log supplements MusicKit's
+					// `Song.lastPlayedDate` for the recency downrank —
+					// that field lags or outright fails to update for
+					// `SystemMusicPlayer` plays on library-only items,
+					// so songs we know we just queued would otherwise
+					// resurface as high-ranked seeds. Soft penalty (not
+					// hard exclude) so smaller libraries don't run out
+					// of candidates inside the 14-day window.
+					let recentPlays = await HistoryStore.shared.recentPlays(within: 14)
+					let scorer = GemScorer(
+						now: now,
+						recentPlays: recentPlays
+					)
 					// Session-stable seed: partial and final share it so the
 					// walk starts in the same neighborhood for both yields,
 					// reducing churn across the partial → final swap.
@@ -137,7 +149,15 @@ enum GemDeckBuilder {
 		// available and falls back to genre Jaccard for songs that
 		// haven't been embedded yet.
 		let embeddings = await EmbeddingStore.shared.embeddings(for: top.map(\.id))
-		let deck = SongDeckWalk.walk(songs: top, embeddings: embeddings, seed: seed)
+		// Pull the user's blocked-pair feedback so the walk avoids
+		// recreating transitions they've explicitly rejected.
+		let blockedPairs = await TransitionFeedbackStore.shared.allBlockedPairs()
+		let deck = SongDeckWalk.walk(
+			songs: top,
+			embeddings: embeddings,
+			blockedPairs: blockedPairs,
+			seed: seed
+		)
 		return BuildResult(deck: deck, scannedCount: songs.count)
 	}
 

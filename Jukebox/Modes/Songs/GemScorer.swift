@@ -17,24 +17,42 @@ import MusicKit
 ///   touched since. `libraryAgeMonths / (playCount + 1)`.
 ///
 /// Each is scored raw; the caller normalises to [0,1] across the candidate
-/// pool and blends them. Recency is a hard filter — anything played in
-/// the last `recencyCutoffDays` is excluded entirely.
+/// pool and blends them. Recency is now a soft multiplier — songs played
+/// today get `recencyFloor` (default 0.1, i.e. 10× downranked but still
+/// reachable), recovering linearly to no penalty at `recencyCutoffDays`.
+/// Hard exclusion was too aggressive for small libraries where the user
+/// could play through a meaningful fraction of the candidate pool inside
+/// a 14-day window. Unplayable songs (nil playParameters) are still hard-
+/// excluded because there's no point ranking something we can't play.
 struct GemScorer {
 	let now: Date
 	let recencyCutoffDays: Int
 	let nostalgiaWeight: Double
 	let discoveryWeight: Double
+	/// Score multiplier at "played right now." 0.1 means recently-
+	/// played songs score at 10% of what they'd otherwise score —
+	/// strongly deprioritised but not impossible. Anything between
+	/// 0 and 1; 0 would replicate the old hard-exclusion behaviour.
+	let recencyFloor: Double
+	/// Per-song most-recent play date from our own log. Combined with
+	/// MusicKit's `Song.lastPlayedDate` via max() inside
+	/// `recencyPenalty` — we use whichever signal is more recent.
+	let recentPlays: [String: Date]
 
 	init(
 		now: Date = Date(),
 		recencyCutoffDays: Int = 14,
 		nostalgiaWeight: Double = 0.70,
-		discoveryWeight: Double = 0.30
+		discoveryWeight: Double = 0.30,
+		recencyFloor: Double = 0.1,
+		recentPlays: [String: Date] = [:]
 	) {
 		self.now = now
 		self.recencyCutoffDays = recencyCutoffDays
 		self.nostalgiaWeight = nostalgiaWeight
 		self.discoveryWeight = discoveryWeight
+		self.recencyFloor = recencyFloor
+		self.recentPlays = recentPlays
 	}
 
 	struct RawScores {
@@ -42,18 +60,36 @@ struct GemScorer {
 		let discovery: Double
 	}
 
-	/// Returns nil if the song should be excluded outright (played too
-	/// recently). Otherwise yields the raw nostalgia + discovery scores.
+	/// Returns nil only when the song can't be played at all. Recency is
+	/// folded into the scores via a multiplier rather than gating
+	/// eligibility outright.
 	func rawScores(for song: Song) -> RawScores? {
-		if let last = song.lastPlayedDate,
-		   now.timeIntervalSince(last) < TimeInterval(recencyCutoffDays * 86400)
-		{
-			return nil
-		}
+		// `playParameters == nil` means SystemMusicPlayer will silently
+		// skip past this song when it lands in the queue (rights lapsed,
+		// non-catalog library item with no cloud match, region-locked,
+		// etc). Filter outright so it never reaches the deck.
+		if song.playParameters == nil { return nil }
+
+		let penalty = recencyPenalty(for: song)
 		return RawScores(
-			nostalgia: nostalgia(song),
-			discovery: discovery(song)
+			nostalgia: nostalgia(song) * penalty,
+			discovery: discovery(song) * penalty
 		)
+	}
+
+	/// Linear ramp from `recencyFloor` at days-since-play=0 up to 1.0 at
+	/// `recencyCutoffDays`. Uses the max of MusicKit's lastPlayedDate
+	/// and our own HistoryStore-derived date because MusicKit's lags
+	/// (or never updates) for SystemMusicPlayer plays.
+	private func recencyPenalty(for song: Song) -> Double {
+		let candidate = max(
+			song.lastPlayedDate ?? .distantPast,
+			recentPlays[song.id.rawValue] ?? .distantPast
+		)
+		let daysSince = now.timeIntervalSince(candidate) / 86400.0
+		if daysSince <= 0 { return recencyFloor }
+		if daysSince >= Double(recencyCutoffDays) { return 1.0 }
+		return recencyFloor + (1.0 - recencyFloor) * (daysSince / Double(recencyCutoffDays))
 	}
 
 	/// log(plays + 1) × min(dormantMonths, 60).
