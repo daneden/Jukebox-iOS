@@ -24,7 +24,6 @@ import MusicKit
 
 enum AudioEmbeddingService {
 	enum EmbedError: Error, LocalizedError {
-		case noISRC
 		case noCatalogMatch
 		case noPreview
 		case downloadFailed(any Error)
@@ -32,8 +31,7 @@ enum AudioEmbeddingService {
 
 		var errorDescription: String? {
 			switch self {
-			case .noISRC: "Song has no ISRC — can't bridge to catalog for a preview."
-			case .noCatalogMatch: "No catalog match found for this song's ISRC."
+			case .noCatalogMatch: "Couldn't find a catalog match for this song (tried ISRC and title/artist search)."
 			case .noPreview: "Catalog song has no preview asset."
 			case let .downloadFailed(e): "Preview download failed: \(e.localizedDescription)"
 			case .emptyOutput: "Feature extractor produced no windows."
@@ -44,31 +42,54 @@ enum AudioEmbeddingService {
 	/// Resolve a `MusicKit.Song` to a 30s preview URL, then embed it.
 	///
 	/// Library-fetched songs almost never have `previewAssets` populated —
-	/// that field lives on the Apple Music catalog metadata, not the local
-	/// library record, and isn't in `Song.PartialMusicProperty` so we can't
-	/// hydrate it via `.with(...)`. We bridge via ISRC: catalog-search by
-	/// the library song's ISRC, take the matched catalog song's preview.
+	/// that field lives on Apple Music catalog metadata, not the library
+	/// record, and isn't in `Song.PartialMusicProperty` so we can't lazy-
+	/// hydrate it via `.with(...)`. We try a cascade of bridges, ordered
+	/// most-accurate to most-permissive.
 	static func embed(song: Song) async throws -> [Float] {
 		let url = try await previewURL(for: song)
 		return try await embed(previewURL: url)
 	}
 
 	private static func previewURL(for song: Song) async throws -> URL {
+		// 1. Already populated (rare for library songs, common for catalog).
 		if let url = song.previewAssets?.first?.url {
 			return url
 		}
-		guard let isrc = song.isrc, !isrc.isEmpty else {
-			throw EmbedError.noISRC
+
+		// 2. ISRC bridge — exact catalog match when ISRC is populated.
+		//    Many library songs come back with nil ISRC, so this often
+		//    misses; that's why we have step 3.
+		if let isrc = song.isrc, !isrc.isEmpty {
+			let req = MusicCatalogResourceRequest<Song>(matching: \.isrc, equalTo: isrc)
+			if let match = try? await req.response().items.first,
+			   let url = match.previewAssets?.first?.url
+			{
+				return url
+			}
 		}
-		let request = MusicCatalogResourceRequest<Song>(matching: \.isrc, equalTo: isrc)
-		let response = try await request.response()
-		guard let catalogSong = response.items.first else {
-			throw EmbedError.noCatalogMatch
+
+		// 3. Free-text catalog search by "title artist". The catalog search
+		//    is relevance-ranked, so the intended match is usually at the
+		//    top — but for songs with very common titles ("Hold On") it can
+		//    surface the wrong artist's version. Sanity-check the candidate
+		//    by requiring its artist name to overlap with ours before
+		//    accepting it.
+		let term = "\(song.title) \(song.artistName)"
+		let searchReq = MusicCatalogSearchRequest(term: term, types: [Song.self])
+		let response = try await searchReq.response()
+
+		let needle = song.artistName.lowercased()
+		for candidate in response.songs.prefix(5) {
+			let candidateArtist = candidate.artistName.lowercased()
+			let artistMatches = candidateArtist.contains(needle) || needle.contains(candidateArtist)
+			guard artistMatches else { continue }
+			if let url = candidate.previewAssets?.first?.url {
+				return url
+			}
 		}
-		guard let url = catalogSong.previewAssets?.first?.url else {
-			throw EmbedError.noPreview
-		}
-		return url
+
+		throw EmbedError.noCatalogMatch
 	}
 
 	/// Download → decode → AudioFeaturePrint → mean-pool. Returns a 512-d
