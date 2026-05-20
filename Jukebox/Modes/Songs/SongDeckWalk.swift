@@ -111,20 +111,36 @@ enum SongDeckWalk {
 		return s
 	}
 
-	/// Cosine similarity when both songs have cached embeddings;
-	/// genre Jaccard when at least one doesn't. The two scales aren't
-	/// identical (cosine ~0.5–1.0 on AudioFeaturePrint vectors, Jaccard
-	/// 0.0–1.0) but the walk only cares about *relative* ordering at
-	/// each step, so the scale mismatch is tolerable.
+	/// Blended similarity score. AudioFeaturePrint is a general-purpose
+	/// sound classifier — it clusters strongly by coarse acoustic texture
+	/// (timbre/instrumentation/"is this a song with vocals + rhythm")
+	/// but discriminates weakly between genres and eras *within* that
+	/// broad cluster. Empirically, on diverse-but-vocal samples it bunches
+	/// pairwise cosine into a narrow 0.80–0.94 band that the walk can't
+	/// use to make meaningful next-song decisions.
+	///
+	/// We compensate by blending the cosine with metadata signals we have
+	/// at near-total coverage (genre 99.9%, releaseDate close to 100%).
+	/// Weights chosen to give the embedding the largest single share
+	/// while leaving enough room for metadata to break ties when the
+	/// embedding can't (e.g. classic R&B vs modern electronic that both
+	/// have "vocals + rhythm" texture).
+	///
+	/// Tunable; revisit after the walk's been used in anger.
 	static func similarity(
 		_ a: Song,
 		_ b: Song,
 		embeddings: [MusicItemID: [Float]]
 	) -> Float {
+		let genre = genreJaccard(a, b)
+		let era = eraProximity(a, b)
+
 		if let eA = embeddings[a.id], let eB = embeddings[b.id] {
-			return AudioEmbeddingService.cosineSimilarity(eA, eB)
+			let cosine = AudioEmbeddingService.cosineSimilarity(eA, eB)
+			return 0.5 * cosine + 0.3 * genre + 0.2 * era
 		}
-		return genreJaccard(a, b)
+		// No cached embedding for at least one side — metadata only.
+		return 0.6 * genre + 0.4 * era
 	}
 
 	private static func genreJaccard(_ a: Song, _ b: Song) -> Float {
@@ -133,5 +149,20 @@ enum SongDeckWalk {
 		let union = aGenres.union(bGenres)
 		guard !union.isEmpty else { return 0.5 }
 		return Float(aGenres.intersection(bGenres).count) / Float(union.count)
+	}
+
+	/// Linear decay from 1.0 at zero years apart to 0.0 at ≥30 years.
+	/// Songs without a release date get a neutral 0.5 — we don't punish
+	/// missing data, just don't reward it.
+	///
+	/// Known limitation: remasters (e.g. "Sgt Pepper 2017 Mix") inherit
+	/// the remaster's release date, not the original recording's. The
+	/// 0.2 weight on era keeps that mistake from dominating the blend.
+	private static func eraProximity(_ a: Song, _ b: Song) -> Float {
+		guard let aDate = a.releaseDate, let bDate = b.releaseDate else {
+			return 0.5
+		}
+		let yearsApart = abs(aDate.timeIntervalSince(bDate)) / (365.25 * 86400)
+		return max(0, 1 - Float(yearsApart) / 30)
 	}
 }
