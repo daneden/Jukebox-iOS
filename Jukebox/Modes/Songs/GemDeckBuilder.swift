@@ -61,24 +61,32 @@ enum GemDeckBuilder {
 			let task = Task {
 				do {
 					let scorer = GemScorer(now: now)
-					// Session-stable seed: partial and final share it so any
-					// song present in both decks lands at the same dial index
-					// in both yields. Reduces lift-out churn during the
-					// partial → final swap to just the genuinely new entries.
-					// Across cold starts, fresh seed → fresh ordering.
+					// Session-stable seed: partial and final share it so the
+					// walk starts in the same neighborhood for both yields,
+					// reducing churn across the partial → final swap.
 					let seed = UInt64.random(in: 0 ... UInt64.max)
 
 					async let nostalgiaTask = fetchPool(sort: .playCount, ascending: false)
 					async let discoveryTask = fetchPool(sort: .libraryAddedDate, ascending: true)
 
 					let nostalgia = try await nostalgiaTask
-					continuation.yield(rank(songs: nostalgia, scorer: scorer, seed: seed))
+					continuation.yield(await rank(songs: nostalgia, scorer: scorer, seed: seed))
 
 					let discovery = try await discoveryTask
 					let union = dedupeUnion(nostalgia: nostalgia, discovery: discovery)
-					continuation.yield(rank(songs: union, scorer: scorer, seed: seed))
+					let final = await rank(songs: union, scorer: scorer, seed: seed)
+					continuation.yield(final)
 
 					continuation.finish()
+
+					// After the final deck lands, kick off background
+					// embedding work for any songs in it that don't have a
+					// cached embedding yet. This converges the next
+					// session's walk on real audio similarity rather than
+					// the genre-Jaccard fallback. Fire-and-forget — survives
+					// or doesn't survive the buildStreaming task's lifetime
+					// independently.
+					warmEmbeddings(for: final.deck)
 				} catch {
 					continuation.finish(throwing: error)
 				}
@@ -87,24 +95,29 @@ enum GemDeckBuilder {
 		}
 	}
 
-	private static func rank(songs: [Song], scorer: GemScorer, seed: UInt64) -> BuildResult {
+	private static func rank(songs: [Song], scorer: GemScorer, seed: UInt64) async -> BuildResult {
 		let ranked = scorer.scoreAndRank(songs)
 		let top = ranked.prefix(deckSize).map(\.song)
-		// Sort by hash(songID, seed) — each song has a stable per-session
-		// "shuffle position" determined solely by its id, not by other
-		// songs in the list. Same song lands at the same relative position
-		// in partial and final.
-		let deck = top.sorted { lhs, rhs in
-			seededHash(lhs.id.rawValue, seed: seed) < seededHash(rhs.id.rawValue, seed: seed)
-		}
+		// Bulk-load embeddings for the top-N; the walk uses them where
+		// available and falls back to genre Jaccard for songs that
+		// haven't been embedded yet.
+		let embeddings = await EmbeddingStore.shared.embeddings(for: top.map(\.id))
+		let deck = SongDeckWalk.walk(songs: top, embeddings: embeddings, seed: seed)
 		return BuildResult(deck: deck, scannedCount: songs.count)
 	}
 
-	private static func seededHash(_ key: String, seed: UInt64) -> UInt64 {
-		var hasher = Hasher()
-		hasher.combine(seed)
-		hasher.combine(key)
-		return UInt64(bitPattern: Int64(hasher.finalize()))
+	private static func warmEmbeddings(for deck: [Song]) {
+		Task.detached(priority: .background) {
+			for song in deck {
+				if await EmbeddingStore.shared.embedding(for: song.id) != nil {
+					continue
+				}
+				_ = try? await AudioEmbeddingService.embed(song: song)
+				// Small breath between requests so we don't hammer the
+				// network or the user's battery in one burst.
+				try? await Task.sleep(for: .milliseconds(200))
+			}
+		}
 	}
 
 	private static func dedupeUnion(nostalgia: [Song], discovery: [Song]) -> [Song] {

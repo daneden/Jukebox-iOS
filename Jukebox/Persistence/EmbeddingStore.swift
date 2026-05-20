@@ -50,6 +50,28 @@ actor EmbeddingStore {
 		return Self.decode(stored.vector)
 	}
 
+	/// Bulk lookup — single SwiftData fetch for all matching rows. The walk
+	/// uses this so it doesn't do N actor hops + N fetches to assemble the
+	/// embedding dict it needs.
+	func embeddings(for songIDs: [MusicItemID]) -> [MusicItemID: [Float]] {
+		do { try ensureLoaded() } catch { return [:] }
+		guard let context else { return [:] }
+
+		let rawIDs = Set(songIDs.map(\.rawValue))
+		let version = Self.currentModelVersion
+		let descriptor = FetchDescriptor<SongEmbedding>(
+			predicate: #Predicate { rawIDs.contains($0.songID) && $0.modelVersion == version }
+		)
+		guard let rows = try? context.fetch(descriptor) else { return [:] }
+
+		var result: [MusicItemID: [Float]] = [:]
+		result.reserveCapacity(rows.count)
+		for row in rows {
+			result[MusicItemID(row.songID)] = Self.decode(row.vector)
+		}
+		return result
+	}
+
 	func store(_ embedding: [Float], for songID: MusicItemID) {
 		do { try ensureLoaded() } catch { return }
 		guard let context else { return }
