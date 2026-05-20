@@ -77,7 +77,7 @@ private struct EmbeddingProgressPopover: View {
 			}
 
 			Text(blurb)
-				.font(.callout)
+				.font(.footnote)
 				.foregroundStyle(.secondary)
 				.fixedSize(horizontal: false, vertical: true)
 		}
@@ -98,17 +98,17 @@ private struct EmbeddingProgressPopover: View {
 
 	private var subtitle: String {
 		if progress.isComplete {
-			"All \(progress.totalCount) songs analyzed"
+			"All \(progress.totalCount) deck songs analyzed"
 		} else {
-			"\(progress.embeddedCount) of \(progress.totalCount) songs analyzed"
+			"\(progress.embeddedCount) of \(progress.totalCount) deck songs analyzed"
 		}
 	}
 
 	private var blurb: String {
 		if progress.isComplete {
-			"Every song in your current deck has been analyzed. The dial uses these fingerprints to order songs by sonic similarity. New songs are analyzed automatically when they land in the deck."
+			"New songs are analyzed automatically as they enter the deck."
 		} else {
-			"Each song's audio is fingerprinted from its 30-second preview and cached locally. The dial uses these fingerprints to order songs by sonic similarity. The first run takes a few minutes; after that, lookups are instant."
+			"Audio fingerprints from 30-second previews, cached locally. The dial uses them to order songs by sonic similarity."
 		}
 	}
 }
