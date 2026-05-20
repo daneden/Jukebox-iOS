@@ -17,7 +17,7 @@ import UIKit
 enum DialTunables {
 	/// Layout ------------------------------------------------------------
 	/// Degrees of visual rotation per cover transition. Decoupled from
-	/// playlist count — neighbors always sit at this angular spacing.
+	/// item count — neighbors always sit at this angular spacing.
 	static let stepVisual: Double = 20.0
 	/// Cover diameter as a fraction of the dial container's smallest
 	/// dimension (`min(width, height)`). Equivalent to a square
@@ -61,9 +61,9 @@ enum DialTunables {
 	static let artworkRequestRatio: Double = 1.0
 
 	/// Shuffle -----------------------------------------------------------
-	/// Maximum number of playlists the shuffle button is allowed to jump
+	/// Maximum number of items the shuffle button is allowed to jump
 	/// over in a single spin. Keeps random picks within a bounded
-	/// neighborhood so the wheel doesn't have to traverse half the library
+	/// neighborhood so the wheel doesn't have to traverse half the deck
 	/// (and load all those covers) on every press.
 	static let maxShuffleJump: Int = 24
 
@@ -100,25 +100,31 @@ private enum DialHapticEngine {
 
 // MARK: - Dial
 
-struct PlaylistDialView: View {
-	let playlists: MusicItemCollection<Playlist>
+/// Generic over any `MusicItem` that conforms to `DialItem` (i.e. has artwork).
+/// Both Playlists and Songs ride the same component — one set of physics,
+/// haptics, and bounded-rendering rules.
+struct DialView<Item: MusicItem & DialItem>: View {
+	let items: MusicItemCollection<Item>
 	@Binding var rotation: Angle
 	@Binding var focusedIndex: Int
-	/// Per-playlist ripple trigger counter. Each cover reads its own entry as
-	/// the RippleEffect trigger, so a shuffle landing on playlist X bumps only
+	/// Per-item ripple trigger counter. Each cover reads its own entry as
+	/// the RippleEffect trigger, so a shuffle landing on item X bumps only
 	/// X's counter and only X ripples.
 	var rippleCounters: [MusicItemID: Int] = [:]
+	var placeholderSymbol: String = "music.note.list"
 	var onTapFocused: () -> Void = {}
 
 	@State private var dragStartRotation: Angle?
 
-	/// Re-exported so other files (e.g. ContentView's reanchor logic) can
+	/// Re-exported so other files (e.g. the reanchor logic in each mode) can
 	/// convert between rotation and continuous position without reaching
 	/// into the tunables enum.
-	static let stepVisual: Double = DialTunables.stepVisual
+	static var stepVisual: Double {
+		DialTunables.stepVisual
+	}
 
 	private var continuousPosition: Double {
-		guard !playlists.isEmpty else { return 0 }
+		guard !items.isEmpty else { return 0 }
 		return -rotation.degrees / DialTunables.stepVisual
 	}
 
@@ -136,11 +142,12 @@ struct PlaylistDialView: View {
 
 			DialContent(
 				rotation: rotation.degrees,
-				playlists: playlists,
+				items: items,
 				coverSize: coverSize,
 				requestSize: requestSize,
 				radius: radius,
 				rippleCounters: rippleCounters,
+				placeholderSymbol: placeholderSymbol,
 				onTap: handleTap
 			)
 			.frame(width: proxy.size.width, height: proxy.size.height)
@@ -182,7 +189,7 @@ struct PlaylistDialView: View {
 	}
 
 	private func updateFocus() {
-		let count = playlists.count
+		let count = items.count
 		guard count > 0 else { return }
 		let idx = ((Int(continuousPosition.rounded()) % count) + count) % count
 		if idx != focusedIndex {
@@ -195,7 +202,7 @@ struct PlaylistDialView: View {
 			onTapFocused()
 			return
 		}
-		let count = playlists.count
+		let count = items.count
 		guard count > 0 else { return }
 		let newRot = Self.spinDestination(current: rotation, target: index, count: count)
 		withAnimation(DialTunables.wheelSpring) {
@@ -230,16 +237,17 @@ struct PlaylistDialView: View {
 /// frame during any `withAnimation` transition — that's what lets covers
 /// actually fly past during a long-distance snap instead of cross-fading at
 /// the destination. The setter is also the per-detent haptic site for
-/// animation-driven motion (drag haptics still flow through ContentView's
+/// animation-driven motion (drag haptics still flow through the parent's
 /// `.sensoryFeedback(trigger: focusedIndex)`, which fires on real-time
 /// gesture-driven state updates that don't go through Animatable).
-private struct DialContent: View, Animatable {
+private struct DialContent<Item: MusicItem & DialItem>: View, Animatable {
 	var rotation: Double
-	let playlists: MusicItemCollection<Playlist>
+	let items: MusicItemCollection<Item>
 	let coverSize: Double
 	let requestSize: Double
 	let radius: Double
 	let rippleCounters: [MusicItemID: Int]
+	let placeholderSymbol: String
 	let onTap: (Int) -> Void
 
 	var animatableData: Double {
@@ -255,7 +263,7 @@ private struct DialContent: View, Animatable {
 	}
 
 	private var continuousPosition: Double {
-		guard !playlists.isEmpty else { return 0 }
+		guard !items.isEmpty else { return 0 }
 		return -rotation / DialTunables.stepVisual
 	}
 
@@ -263,13 +271,14 @@ private struct DialContent: View, Animatable {
 		ZStack {
 			ForEach(visibleEntries(), id: \.id) { entry in
 				DialItemView(
-					playlist: entry.playlist,
+					artwork: entry.item.artwork,
 					coverSize: coverSize,
 					requestSize: requestSize,
 					radius: radius,
 					screenAngle: entry.screenAngle,
 					isFocused: entry.isFocused,
-					rippleTrigger: entry.rippleTrigger
+					rippleTrigger: entry.rippleTrigger,
+					placeholderSymbol: placeholderSymbol
 				) {
 					onTap(entry.index)
 				}
@@ -280,14 +289,14 @@ private struct DialContent: View, Animatable {
 	private struct DialEntry: Identifiable {
 		let id: MusicItemID
 		let index: Int
-		let playlist: Playlist
+		let item: Item
 		let screenAngle: Angle
 		let isFocused: Bool
 		let rippleTrigger: Int
 	}
 
 	private func visibleEntries() -> [DialEntry] {
-		let count = playlists.count
+		let count = items.count
 		guard count > 0 else { return [] }
 		let cp = continuousPosition
 		let cpRounded = cp.rounded()
@@ -300,14 +309,14 @@ private struct DialContent: View, Animatable {
 			let idx = ((focused + k) % count + count) % count
 			guard seen.insert(idx).inserted else { continue }
 			let offset = Double(k) - fractional
-			let playlistID = playlists[idx].id
+			let itemID = items[idx].id
 			entries.append(DialEntry(
-				id: playlistID,
+				id: itemID,
 				index: idx,
-				playlist: playlists[idx],
+				item: items[idx],
 				screenAngle: .degrees(offset * DialTunables.stepVisual),
 				isFocused: idx == focused,
-				rippleTrigger: rippleCounters[playlistID] ?? 0
+				rippleTrigger: rippleCounters[itemID] ?? 0
 			))
 		}
 		return entries
@@ -317,7 +326,7 @@ private struct DialContent: View, Animatable {
 // MARK: - Single dial item
 
 private struct DialItemView: View {
-	let playlist: Playlist
+	let artwork: Artwork?
 	let coverSize: Double
 	let requestSize: Double
 	let radius: Double
@@ -329,6 +338,7 @@ private struct DialItemView: View {
 	/// touch point) feed the same modifier — local state lets both sources
 	/// configure origin + bump the trigger in lockstep.
 	let rippleTrigger: Int
+	let placeholderSymbol: String
 	let onTap: () -> Void
 
 	@State private var rippleOrigin: CGPoint = .zero
@@ -382,10 +392,11 @@ private struct DialItemView: View {
 		// (coverSize × coverSize) frame — same space the tap location is
 		// reported in. Means the touch point can be passed straight through
 		// as the ripple origin without un-projecting the 3D transforms.
-		PlaylistCoverView(
-			playlist: playlist,
+		CoverArtView(
+			artwork: artwork,
 			width: coverSize,
-			requestedWidth: requestSize
+			requestedWidth: requestSize,
+			placeholderSymbol: placeholderSymbol
 		)
 		.frame(width: coverSize, height: coverSize)
 		.modifier(RippleEffect(
