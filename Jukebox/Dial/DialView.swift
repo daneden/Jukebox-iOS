@@ -283,15 +283,21 @@ private struct DialItemView: View {
 		let wobbleX: Double = isFocused ? sin(t * omega) * DialTunables.wobbleAmplitude : 0
 		let wobbleY: Double = isFocused ? cos(t * omega) * DialTunables.wobbleAmplitude : 0
 
-		// Plain onTapGesture instead of Button — Button's gesture eats the
-		// parent's DragGesture until a hard flick breaks it loose, which
-		// makes the wheel feel stuck. A tap gesture composes cleanly with
-		// the simultaneousGesture drag on the parent ZStack.
+		// DragGesture-with-slop-threshold instead of .onTapGesture or
+		// Button. Button's gesture eats the parent's DragGesture until a
+		// hard flick breaks it loose (wheel feels stuck); .onTapGesture
+		// composes correctly but fires on any touch-up within iOS's
+		// built-in ~10–20pt tap tolerance, which catches gentle dial
+		// swipes — the user is trying to scroll but the cover under their
+		// finger starts playing. By thresholding manually we get the best
+		// of both: tap fires only when the finger really stays put, and
+		// the gesture still runs simultaneously with the parent's dial
+		// drag (which actually rotates the wheel).
 		//
 		// RippleEffect is attached BEFORE rotation3DEffect/shadow so the
 		// shader's local coordinate space is the cover's own
-		// (coverSize × coverSize) frame — same space the tap location is
-		// reported in.
+		// (coverSize × coverSize) frame — same space the gesture location
+		// is reported in.
 		CoverArtView(
 			artwork: artwork,
 			width: coverSize,
@@ -304,13 +310,21 @@ private struct DialItemView: View {
 			trigger: rippleTriggerCount
 		))
 		.contentShape(.rect)
-		.onTapGesture(coordinateSpace: .local) { location in
-			if isFocused {
-				rippleOrigin = location
-				rippleTriggerCount &+= 1
-			}
-			onTap()
-		}
+		.simultaneousGesture(
+			DragGesture(minimumDistance: 0, coordinateSpace: .local)
+				.onEnded { value in
+					let movement = hypot(value.translation.width, value.translation.height)
+					// 10pt slop matches Apple's own tap tolerance for buttons
+					// in scrollable contexts. Tighter and real taps occasionally
+					// miss; looser and we re-introduce the original bug.
+					guard movement < 10 else { return }
+					if isFocused {
+						rippleOrigin = value.location
+						rippleTriggerCount &+= 1
+					}
+					onTap()
+				}
+		)
 		.shadow(color: .black.opacity(0.35), radius: isFocused ? 28 : 10, y: isFocused ? 16 : 6)
 		.rotation3DEffect(.degrees(wobbleX), axis: (x: 1, y: 0, z: 0))
 		.rotation3DEffect(.degrees(wobbleY), axis: (x: 0, y: 1, z: 0))
