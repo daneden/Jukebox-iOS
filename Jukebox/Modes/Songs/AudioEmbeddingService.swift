@@ -58,8 +58,9 @@ enum AudioEmbeddingService {
 		}
 
 		// 2. ISRC bridge — exact catalog match when ISRC is populated.
-		//    Many library songs come back with nil ISRC, so this often
-		//    misses; that's why we have step 3.
+		//    Requires the MusicKit capability enabled on the dev portal so
+		//    the framework can request a developer token. Falls through
+		//    silently if either ISRC is nil or the dev token can't be issued.
 		if let isrc = song.isrc, !isrc.isEmpty {
 			let req = MusicCatalogResourceRequest<Song>(matching: \.isrc, equalTo: isrc)
 			if let match = try? await req.response().items.first,
@@ -69,27 +70,63 @@ enum AudioEmbeddingService {
 			}
 		}
 
-		// 3. Free-text catalog search by "title artist". The catalog search
-		//    is relevance-ranked, so the intended match is usually at the
-		//    top — but for songs with very common titles ("Hold On") it can
-		//    surface the wrong artist's version. Sanity-check the candidate
-		//    by requiring its artist name to overlap with ours before
-		//    accepting it.
+		// 3. Free-text catalog search. Same dev-token requirement; same
+		//    silent fallthrough.
 		let term = "\(song.title) \(song.artistName)"
 		let searchReq = MusicCatalogSearchRequest(term: term, types: [Song.self])
-		let response = try await searchReq.response()
-
-		let needle = song.artistName.lowercased()
-		for candidate in response.songs.prefix(5) {
-			let candidateArtist = candidate.artistName.lowercased()
-			let artistMatches = candidateArtist.contains(needle) || needle.contains(candidateArtist)
-			guard artistMatches else { continue }
-			if let url = candidate.previewAssets?.first?.url {
-				return url
+		if let response = try? await searchReq.response() {
+			let needle = song.artistName.lowercased()
+			for candidate in response.songs.prefix(5) {
+				let candidateArtist = candidate.artistName.lowercased()
+				let artistMatches = candidateArtist.contains(needle) || needle.contains(candidateArtist)
+				guard artistMatches else { continue }
+				if let url = candidate.previewAssets?.first?.url {
+					return url
+				}
 			}
 		}
 
+		// 4. iTunes Search API — public, no auth, no developer token. The
+		//    underlying catalog is the same one Apple Music uses, just
+		//    exposed via the older unauthenticated endpoint. Lets the spike
+		//    work without the MusicKit capability being configured.
+		if let url = try await itunesSearchPreviewURL(title: song.title, artist: song.artistName) {
+			return url
+		}
+
 		throw EmbedError.noCatalogMatch
+	}
+
+	private static func itunesSearchPreviewURL(title: String, artist: String) async throws -> URL? {
+		var components = URLComponents(string: "https://itunes.apple.com/search")!
+		components.queryItems = [
+			URLQueryItem(name: "term", value: "\(title) \(artist)"),
+			URLQueryItem(name: "media", value: "music"),
+			URLQueryItem(name: "entity", value: "song"),
+			URLQueryItem(name: "limit", value: "5"),
+		]
+		guard let url = components.url else { return nil }
+
+		let (data, _) = try await URLSession.shared.data(from: url)
+		let response = try JSONDecoder().decode(ITunesSearchResponse.self, from: data)
+
+		let needle = artist.lowercased()
+		for result in response.results {
+			guard let candidateArtist = result.artistName?.lowercased() else { continue }
+			let artistMatches = candidateArtist.contains(needle) || needle.contains(candidateArtist)
+			guard artistMatches, let previewURL = result.previewUrl else { continue }
+			return previewURL
+		}
+		return nil
+	}
+
+	private struct ITunesSearchResponse: Decodable {
+		let results: [Result]
+		struct Result: Decodable {
+			let trackName: String?
+			let artistName: String?
+			let previewUrl: URL?
+		}
 	}
 
 	/// Download → decode → AudioFeaturePrint → mean-pool. Returns a 512-d
