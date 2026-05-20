@@ -12,9 +12,10 @@ import SwiftUI
 /// so the two tabs stay in sync.
 struct SettingsMenu: View {
 	@AppStorage(SettingsKeys.autoplay) private var autoplay: Bool = true
-	@State private var showingProbe = false
-	@State private var showingEmbeddingSpike = false
 	@State private var showingHowItWorks = false
+	#if DEBUG
+		@State private var showingEmbeddingSpike = false
+	#endif
 
 	var body: some View {
 		Menu {
@@ -25,29 +26,25 @@ struct SettingsMenu: View {
 			} label: {
 				Label("How It Works", systemImage: "info.circle")
 			}
-			Divider()
-			Button {
-				showingProbe = true
-			} label: {
-				Label("Audio Metadata Probe", systemImage: "waveform.path.ecg")
-			}
-			Button {
-				showingEmbeddingSpike = true
-			} label: {
-				Label("Embedding Spike", systemImage: "waveform.and.magnifyingglass")
-			}
+			#if DEBUG
+				Divider()
+				Button {
+					showingEmbeddingSpike = true
+				} label: {
+					Label("Embedding Spike", systemImage: "waveform.and.magnifyingglass")
+				}
+			#endif
 		} label: {
 			Label("Settings", systemImage: "gearshape")
-		}
-		.sheet(isPresented: $showingProbe) {
-			AudioMetadataProbeView()
-		}
-		.sheet(isPresented: $showingEmbeddingSpike) {
-			EmbeddingSpikeView()
 		}
 		.sheet(isPresented: $showingHowItWorks) {
 			HowItWorksView()
 		}
+		#if DEBUG
+		.sheet(isPresented: $showingEmbeddingSpike) {
+				EmbeddingSpikeView()
+			}
+		#endif
 	}
 }
 
