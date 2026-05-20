@@ -1,5 +1,5 @@
 //
-//  EndlessView.swift
+//  SongsView.swift
 //  Jukebox
 //
 //  Created by Daniel Eden on 20/05/2026.
@@ -8,11 +8,11 @@
 import MusicKit
 import SwiftUI
 
-/// Endless / hidden-gems mode. Builds a curated deck of songs from the user's
+/// Songs (hidden-gems) mode. Builds a curated deck of songs from the user's
 /// library (formerly-played-now-dormant + old-and-untouched) and rides the
 /// same dial as Playlists mode. On play, seeds the system queue with a 20-
 /// song runway so playback keeps flowing when the user puts the phone down.
-struct EndlessView: View {
+struct SongsView: View {
 	@Environment(\.scenePhase) private var scenePhase
 	@Environment(\.openURL) private var openURL
 
@@ -204,7 +204,7 @@ struct EndlessView: View {
 			try await SystemMusicPlayer.shared.play()
 			dial.markPlaying(id: song.id)
 		} catch {
-			print("Endless playback error: \(error)")
+			print("Songs playback error: \(error)")
 		}
 	}
 
@@ -215,5 +215,5 @@ struct EndlessView: View {
 }
 
 #Preview {
-	EndlessView()
+	SongsView()
 }

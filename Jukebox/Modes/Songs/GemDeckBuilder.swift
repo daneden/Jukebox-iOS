@@ -8,7 +8,7 @@
 import Foundation
 import MusicKit
 
-/// Builds the "hidden gems" deck for Endless mode.
+/// Builds the "hidden gems" deck for Songs mode.
 ///
 /// Strategy: fetch two complementary candidate pools from MusicKit
 /// (nostalgia: highest playCount; discovery: oldest libraryAddedDate),
@@ -17,7 +17,7 @@ import MusicKit
 /// same #1 every time.
 ///
 /// Why two pools instead of scanning the whole library: a heavy user has
-/// 5k–50k library songs. Paging the entire library on every Endless-tab
+/// 5k–50k library songs. Paging the entire library on every Songs-tab
 /// appearance is wasteful (and user has flagged unbounded scans before).
 /// The cost we accept: a song that's middling on *both* axes can miss
 /// both pools and never appear. Worth it.

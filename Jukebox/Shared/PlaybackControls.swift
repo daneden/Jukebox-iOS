@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-/// Bottom-aligned Play + Shuffle pair shared by Playlists and Endless modes.
+/// Bottom-aligned Play + Shuffle pair shared by Playlists and Songs modes.
 /// Play immediately plays whatever is focused; Shuffle rotates the dial
 /// (and lets the caller decide whether to auto-play based on the user's
 /// Autoplay preference).

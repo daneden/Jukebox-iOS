@@ -10,7 +10,7 @@ import SwiftUI
 /// Two equal-citizen modes:
 /// - **Playlists** — the original dial-of-playlists for rediscovering an
 ///   album you forgot you saved.
-/// - **Endless** — the dial-of-songs for rediscovering individual tracks
+/// - **Songs** — the dial-of-songs for rediscovering individual tracks
 ///   that have gone quiet in a big library.
 ///
 /// Selection persists across launches so the user lands back where they were.
@@ -25,18 +25,18 @@ struct ContentView: View {
 				}
 				.tag(AppTab.playlists)
 
-			EndlessView()
+			SongsView()
 				.tabItem {
-					Label("Endless", systemImage: "sparkles")
+					Label("Songs", systemImage: "sparkles")
 				}
-				.tag(AppTab.endless)
+				.tag(AppTab.songs)
 		}
 	}
 }
 
 enum AppTab: String, CaseIterable {
 	case playlists
-	case endless
+	case songs
 }
 
 #Preview {

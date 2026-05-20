@@ -8,7 +8,7 @@ Jukebox (display name **Playback**, bundle ID `me.daneden.Jukebox`) is a single-
 
 Two tabs share the same dial component:
 - **Playlists** — original surface; spins playlists and plays via `SystemMusicPlayer`.
-- **Endless** — "hidden gems" mode; builds a scored deck of dormant songs (`GemDeckBuilder` + `GemScorer`) and rides the same dial.
+- **Songs** — "hidden gems" mode; builds a scored deck of dormant songs (`GemDeckBuilder` + `GemScorer`) and rides the same dial.
 
 There's also an App Intent (`Intents/PlayRandomPlaylist.swift`) for Siri/Shortcuts.
 
@@ -31,7 +31,7 @@ This project may trigger Xcode Cloud builds on push, so **do not push automatica
 
 ## Architecture
 
-The dial is the whole app. The interesting design is how Playlists mode and Endless mode share it.
+The dial is the whole app. The interesting design is how Playlists mode and Songs mode share it.
 
 ### The dial pipeline (`Jukebox/Dial/`)
 
@@ -48,10 +48,10 @@ The dial is the whole app. The interesting design is how Playlists mode and Endl
 
 Each mode is a `View` that owns: how items are fetched, sort/build preferences, and how playback is started. Everything else (focus tracking, ripple counters, spin land animation, haptics) goes through `DialState`.
 
-- `Playlists/PlaylistsView.swift` — `MusicLibraryRequest<Playlist>` with sort preference, streams successive batches into `applyPlaylists`, reanchors focus on the same playlist across updates. Intentionally does **not** refetch on play (see "Watch out for" below).
-- `Endless/EndlessView.swift` — calls `GemDeckBuilder.build()` once per session, seeds `SystemMusicPlayer.shared.queue` with a 20-song runway from the focused song forward so playback keeps flowing.
-- `Endless/GemDeckBuilder.swift` — fetches two parallel pools (top-`playCount` and oldest `libraryAddedDate`, 1500 each), dedupes, scores with `GemScorer`, takes top 300, then shuffles within top-N for per-session variety. Two pools instead of full-library scan is deliberate — a heavy user can have 50k songs.
-- `Endless/GemScorer.swift` — pure function. Nostalgia = `log(plays+1) × dormantMonths`; Discovery = `libraryAgeMonths / (plays+1)`. Songs played in the last 14 days are filtered out entirely. Default blend: 70% nostalgia, 30% discovery.
+- `Playlists/PlaylistsView.swift` — `MusicLibraryRequest<Playlist>` sorted by `lastPlayedDate` descending, streams successive batches into `applyPlaylists`, reanchors focus on the same playlist across updates. Intentionally does **not** refetch on play (see "Watch out for" below).
+- `Songs/SongsView.swift` — calls `GemDeckBuilder.build()` once per session, seeds `SystemMusicPlayer.shared.queue` with a 20-song runway from the focused song forward so playback keeps flowing.
+- `Songs/GemDeckBuilder.swift` — fetches two parallel pools (top-`playCount` and oldest `libraryAddedDate`, 1500 each), dedupes, scores with `GemScorer`, takes top 300, then shuffles within top-N for per-session variety. Two pools instead of full-library scan is deliberate — a heavy user can have 50k songs.
+- `Songs/GemScorer.swift` — pure function. Nostalgia = `log(plays+1) × dormantMonths`; Discovery = `libraryAgeMonths / (plays+1)`. Songs played in the last 14 days are filtered out entirely. Default blend: 70% nostalgia, 30% discovery.
 
 ### Shared (`Jukebox/Shared/`, `Jukebox/Effects/`, `Jukebox/Helper Views/`)
 
