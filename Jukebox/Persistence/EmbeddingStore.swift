@@ -95,6 +95,12 @@ actor EmbeddingStore {
 			context.insert(new)
 		}
 		try? context.save()
+
+		// Notify the toolbar progress tracker. No-op if this song isn't
+		// in the current deck (e.g. ad-hoc embeds from the spike).
+		Task { @MainActor in
+			EmbeddingProgress.shared.recordEmbedded(songID)
+		}
 	}
 
 	/// Vector ↔ Data is raw little-endian Float32 bytes. iOS runs on

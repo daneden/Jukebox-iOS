@@ -72,6 +72,9 @@ struct SongsView: View {
 			.toolbar {
 				ToolbarItem(placement: .topBarLeading) { SettingsMenu() }
 				ToolbarItem(placement: .principal) { ToolbarLogo() }
+				ToolbarItem(placement: .topBarTrailing) {
+					EmbeddingProgressIndicator(progress: .shared)
+				}
 			}
 			.sensoryFeedback(.impact(weight: .medium), trigger: dial.spinLandTick)
 			// Trigger on the focused song's *id*, not its index — a
@@ -139,6 +142,16 @@ struct SongsView: View {
 			for try await result in GemDeckBuilder.buildStreaming() {
 				applyDeck(result.deck)
 			}
+			// Seed the toolbar progress tracker with the final deck.
+			// The background warm task (kicked off inside GemDeckBuilder)
+			// will then drive `recordEmbedded` calls into it as each song's
+			// embedding lands.
+			let deckIDs = deck.map(\.id)
+			let existing = await EmbeddingStore.shared.embeddings(for: deckIDs)
+			EmbeddingProgress.shared.setTracking(
+				songIDs: deckIDs,
+				existing: Set(existing.keys.map(\.rawValue))
+			)
 			hasBuiltDeck = true
 		} catch {
 			loadError = "Couldn't load gems: \(error.localizedDescription)"
