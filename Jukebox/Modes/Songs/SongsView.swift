@@ -127,9 +127,14 @@ struct SongsView: View {
 		loadError = nil
 		defer { isLoading = false }
 
+		// Stream partial → final from GemDeckBuilder. The first emission is
+		// the nostalgia-only deck (lands fast, dial becomes interactive);
+		// the second is the full nostalgia+discovery deck (lift-out
+		// transition swaps it in when ready).
 		do {
-			let result = try await GemDeckBuilder.build()
-			applyDeck(result.deck)
+			for try await result in GemDeckBuilder.buildStreaming() {
+				applyDeck(result.deck)
+			}
 			hasBuiltDeck = true
 		} catch {
 			loadError = "Couldn't load gems: \(error.localizedDescription)"

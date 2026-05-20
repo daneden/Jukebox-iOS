@@ -34,15 +34,63 @@ enum GemDeckBuilder {
 		let scannedCount: Int
 	}
 
+	/// Final-result API: consumes the stream and returns the last emission.
+	/// Useful for callers that don't care about intermediate progress
+	/// (e.g. the embedding spike).
 	static func build(now: Date = Date()) async throws -> BuildResult {
-		let scorer = GemScorer(now: now)
+		var last: BuildResult?
+		for try await result in buildStreaming(now: now) {
+			last = result
+		}
+		return last ?? BuildResult(deck: [], scannedCount: 0)
+	}
 
-		async let nostalgiaPool = fetchPool(sort: .playCount, ascending: false)
-		async let discoveryPool = fetchPool(sort: .libraryAddedDate, ascending: true)
+	/// Streaming API: yields a partial deck as soon as the nostalgia pool
+	/// returns (scored on nostalgia alone), then yields a final deck once
+	/// the discovery pool joins. SongsView consumes this so the dial
+	/// becomes interactive at roughly half the cold-launch wait — the
+	/// final deck slides in via the lift-out transition when ready.
+	///
+	/// Why nostalgia-first rather than first-completed: both pools take
+	/// similar time (both do a full-library sort + 1500-row hydrate), and
+	/// the partial deck built on nostalgia alone skews to "songs you used
+	/// to play a lot," which is a reasonable thing to land on while
+	/// discovery is still arriving.
+	static func buildStreaming(now: Date = Date()) -> AsyncThrowingStream<BuildResult, Error> {
+		AsyncThrowingStream { continuation in
+			let task = Task {
+				do {
+					let scorer = GemScorer(now: now)
 
-		let (nostalgia, discovery) = try await (nostalgiaPool, discoveryPool)
+					async let nostalgiaTask = fetchPool(sort: .playCount, ascending: false)
+					async let discoveryTask = fetchPool(sort: .libraryAddedDate, ascending: true)
 
-		// Dedupe by MusicItemID — same song often appears in both pools.
+					let nostalgia = try await nostalgiaTask
+					continuation.yield(rank(songs: nostalgia, scorer: scorer))
+
+					let discovery = try await discoveryTask
+					let union = dedupeUnion(nostalgia: nostalgia, discovery: discovery)
+					continuation.yield(rank(songs: union, scorer: scorer))
+
+					continuation.finish()
+				} catch {
+					continuation.finish(throwing: error)
+				}
+			}
+			continuation.onTermination = { _ in task.cancel() }
+		}
+	}
+
+	private static func rank(songs: [Song], scorer: GemScorer) -> BuildResult {
+		let ranked = scorer.scoreAndRank(songs)
+		let top = ranked.prefix(deckSize).map(\.song)
+		// Shuffle within the top-N — top-ranked deterministic order would
+		// hand the same song to the user every time they open the tab.
+		let deck = top.shuffled()
+		return BuildResult(deck: deck, scannedCount: songs.count)
+	}
+
+	private static func dedupeUnion(nostalgia: [Song], discovery: [Song]) -> [Song] {
 		var seen = Set<MusicItemID>()
 		var union: [Song] = []
 		union.reserveCapacity(nostalgia.count + discovery.count)
@@ -52,14 +100,7 @@ enum GemDeckBuilder {
 		for song in discovery where seen.insert(song.id).inserted {
 			union.append(song)
 		}
-
-		let ranked = scorer.scoreAndRank(union)
-		let top = ranked.prefix(deckSize).map(\.song)
-		// Shuffle within the top-N — top-ranked deterministic order would
-		// hand the same song to the user every time they open the tab.
-		let deck = top.shuffled()
-
-		return BuildResult(deck: deck, scannedCount: union.count)
+		return union
 	}
 
 	/// Which axis to sort the candidate pool on. One sort key per
