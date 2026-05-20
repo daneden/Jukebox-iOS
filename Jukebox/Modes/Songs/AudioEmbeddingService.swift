@@ -24,26 +24,51 @@ import MusicKit
 
 enum AudioEmbeddingService {
 	enum EmbedError: Error, LocalizedError {
+		case noISRC
+		case noCatalogMatch
 		case noPreview
 		case downloadFailed(any Error)
 		case emptyOutput
 
 		var errorDescription: String? {
 			switch self {
-			case .noPreview: "Song has no preview asset."
+			case .noISRC: "Song has no ISRC — can't bridge to catalog for a preview."
+			case .noCatalogMatch: "No catalog match found for this song's ISRC."
+			case .noPreview: "Catalog song has no preview asset."
 			case let .downloadFailed(e): "Preview download failed: \(e.localizedDescription)"
 			case .emptyOutput: "Feature extractor produced no windows."
 			}
 		}
 	}
 
-	/// Convenience wrapper for a `MusicKit.Song` — picks the first preview
-	/// asset's URL and forwards to `embed(previewURL:)`.
+	/// Resolve a `MusicKit.Song` to a 30s preview URL, then embed it.
+	///
+	/// Library-fetched songs almost never have `previewAssets` populated —
+	/// that field lives on the Apple Music catalog metadata, not the local
+	/// library record, and isn't in `Song.PartialMusicProperty` so we can't
+	/// hydrate it via `.with(...)`. We bridge via ISRC: catalog-search by
+	/// the library song's ISRC, take the matched catalog song's preview.
 	static func embed(song: Song) async throws -> [Float] {
-		guard let previewURL = song.previewAssets?.first?.url else {
+		let url = try await previewURL(for: song)
+		return try await embed(previewURL: url)
+	}
+
+	private static func previewURL(for song: Song) async throws -> URL {
+		if let url = song.previewAssets?.first?.url {
+			return url
+		}
+		guard let isrc = song.isrc, !isrc.isEmpty else {
+			throw EmbedError.noISRC
+		}
+		let request = MusicCatalogResourceRequest<Song>(matching: \.isrc, equalTo: isrc)
+		let response = try await request.response()
+		guard let catalogSong = response.items.first else {
+			throw EmbedError.noCatalogMatch
+		}
+		guard let url = catalogSong.previewAssets?.first?.url else {
 			throw EmbedError.noPreview
 		}
-		return try await embed(previewURL: previewURL)
+		return url
 	}
 
 	/// Download → decode → AudioFeaturePrint → mean-pool. Returns a 512-d
