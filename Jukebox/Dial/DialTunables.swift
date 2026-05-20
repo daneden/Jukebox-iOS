@@ -80,6 +80,13 @@ enum DialTunables {
 
 	// MARK: - Shuffle animation
 
+	/// Bounce parameter on the spring driving the shuffle spin. Lower =
+	/// more resistance, less overshoot past the landing detent (so a
+	/// long-distance shuffle doesn't briefly carry the focused cover off
+	/// to the side before settling). Keep > 0 so it still reads as
+	/// springy rather than critically damped.
+	static let shuffleSpringBounce: Double = 0.12
+
 	/// Bounded shuffle spin duration as a function of angular distance.
 	/// Short hops feel like a flick; longer trips ease out a touch more.
 	static func shuffleDuration(degrees distance: Double) -> Double {

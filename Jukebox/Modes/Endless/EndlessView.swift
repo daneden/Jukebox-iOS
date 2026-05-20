@@ -75,6 +75,7 @@ struct EndlessView: View {
 			}
 			.sensoryFeedback(.impact(weight: .medium), trigger: dial.spinLandTick)
 			.sensoryFeedback(.selection, trigger: dial.focusedIndex)
+			.sensoryFeedback(.start, trigger: dial.playbackTick)
 			.onChange(of: MusicAuthorization.currentStatus) { _, newValue in
 				if newValue == .authorized, !hasBuiltDeck {
 					Task { await buildDeck() }
@@ -171,7 +172,7 @@ struct EndlessView: View {
 		)
 
 		dial.isSpinning = true
-		withAnimation(.spring(duration: duration, bounce: 0.22)) {
+		withAnimation(.spring(duration: duration, bounce: DialTunables.shuffleSpringBounce)) {
 			dial.rotation = destination
 		}
 		try? await Task.sleep(for: .seconds(duration))
@@ -194,7 +195,7 @@ struct EndlessView: View {
 		do {
 			SystemMusicPlayer.shared.queue = .init(for: runway)
 			try await SystemMusicPlayer.shared.play()
-			dial.rippleCounters[song.id, default: 0] &+= 1
+			dial.markPlaying(id: song.id)
 		} catch {
 			print("Endless playback error: \(error)")
 		}

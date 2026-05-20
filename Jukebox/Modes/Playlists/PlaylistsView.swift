@@ -81,6 +81,7 @@ struct PlaylistsView: View {
 			}
 			.sensoryFeedback(.impact(weight: .medium), trigger: dial.spinLandTick)
 			.sensoryFeedback(.selection, trigger: dial.focusedIndex)
+			.sensoryFeedback(.start, trigger: dial.playbackTick)
 			.onChange(of: MusicAuthorization.currentStatus) { _, newValue in
 				if newValue == .authorized {
 					Task { await updatePlaylists() }
@@ -222,7 +223,7 @@ struct PlaylistsView: View {
 		)
 
 		dial.isSpinning = true
-		withAnimation(.spring(duration: duration, bounce: 0.22)) {
+		withAnimation(.spring(duration: duration, bounce: DialTunables.shuffleSpringBounce)) {
 			dial.rotation = destination
 		}
 		try? await Task.sleep(for: .seconds(duration))
@@ -240,6 +241,7 @@ struct PlaylistsView: View {
 		do {
 			SystemMusicPlayer.shared.queue = .init(playlist: detailed, startingAt: firstEntry)
 			try await SystemMusicPlayer.shared.play()
+			dial.markPlaying(id: playlist.id)
 		} catch {
 			print(error)
 		}

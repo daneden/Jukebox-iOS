@@ -22,17 +22,31 @@ struct DialState {
 	/// Bumped each time a shuffle lands. Drives the `.impact` haptic.
 	var spinLandTick: Int = 0
 	var isSpinning: Bool = false
-	/// Per-item RippleEffect trigger. Bumped when a cover gets shuffled
-	/// onto. Each cover reads its own entry so only the landed item ripples.
+	/// Per-item RippleEffect trigger. Bumped when a cover actually starts
+	/// playing — not when the wheel lands. Each cover reads its own entry
+	/// so only the played item ripples.
 	var rippleCounters: [MusicItemID: Int] = [:]
+	/// Bumped once per playback start. Drives the playback-start haptic.
+	/// Separate from `rippleCounters` (which is per-item) so a single
+	/// `.sensoryFeedback` observer can watch a scalar.
+	var playbackTick: Int = 0
 
-	/// Mark a shuffle landing: record the focused id, bump that item's
-	/// ripple counter, and tick the haptic trigger.
+	/// Mark a shuffle landing: record the focused id and tick the spin-land
+	/// haptic. Does **not** ripple or fire the playback haptic — both of
+	/// those are reserved for `markPlaying(id:)`, so a shuffle without
+	/// autoplay lands silently on the visual.
 	mutating func recordLanding(at index: Int, id: MusicItemID) {
 		focusedIndex = index
 		focusedItemID = id
-		rippleCounters[id, default: 0] &+= 1
 		spinLandTick &+= 1
+	}
+
+	/// Signal that `id` has actually started playing: ripple that one
+	/// cover and tick the global playback haptic. Call from the play
+	/// paths once `SystemMusicPlayer.play()` has returned.
+	mutating func markPlaying(id: MusicItemID) {
+		rippleCounters[id, default: 0] &+= 1
+		playbackTick &+= 1
 	}
 
 	/// Reset to a clean state when items go empty.
