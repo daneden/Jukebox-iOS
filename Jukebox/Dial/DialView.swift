@@ -176,6 +176,13 @@ private struct DialContent<Item: MusicItem & DialItem>: View, Animatable {
 				) {
 					onTap(entry.index)
 				}
+				// Covers leaving the visible window (because the library
+				// reordered while we were backgrounded, or focus jumped)
+				// should read as "lifted out," not just popped. Pair with
+				// the .smooth curve in the mode's applyPlaylists/applyDeck
+				// so the slide of stayers and the scale-fade of movers
+				// share the same transaction.
+				.transition(.scale(scale: 0.6).combined(with: .opacity))
 			}
 		}
 	}

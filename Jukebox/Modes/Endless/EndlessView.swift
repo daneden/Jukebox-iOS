@@ -141,7 +141,14 @@ struct EndlessView: View {
 		let newCollection = MusicItemCollection<Song>(songs)
 		let newIdx = preservedID.flatMap { id in newCollection.firstIndex(where: { $0.id == id }) }
 
-		withAnimation { self.deck = newCollection }
+		let unchanged = deck.count == newCollection.count
+			&& zip(deck, newCollection).allSatisfy { $0.id == $1.id }
+
+		if unchanged {
+			deck = newCollection
+		} else {
+			withAnimation(.smooth(duration: 0.5)) { deck = newCollection }
+		}
 
 		if newCollection.isEmpty {
 			dial.clear()
