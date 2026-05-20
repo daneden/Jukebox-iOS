@@ -1,5 +1,5 @@
 //
-//  PlaylistCoverView.swift
+//  CoverArtView.swift
 //  Jukebox
 //
 //  Created by Daniel Eden on 25/06/2025.

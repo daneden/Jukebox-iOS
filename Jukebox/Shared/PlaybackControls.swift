@@ -22,6 +22,7 @@ struct PlaybackControls: View {
 			HStack(spacing: 8) {
 				AsyncButton(action: onPlay) {
 					Label("Play", systemImage: "play.fill")
+						.frame(maxWidth: .infinity)
 				}
 				.fontWeight(.bold)
 				.buttonStyle(.glass)
@@ -31,6 +32,7 @@ struct PlaybackControls: View {
 
 				AsyncButton(action: onShuffle) {
 					Label("Shuffle", systemImage: "shuffle")
+						.frame(maxWidth: .infinity)
 						.foregroundStyle(colorScheme == .dark ? .black : .white)
 				}
 				.fontWeight(.bold)
@@ -42,5 +44,6 @@ struct PlaybackControls: View {
 			.frame(height: 56)
 		}
 		.scenePadding(.horizontal)
+		.scenePadding(.bottom)
 	}
 }

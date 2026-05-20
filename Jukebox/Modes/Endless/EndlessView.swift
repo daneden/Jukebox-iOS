@@ -1,0 +1,211 @@
+//
+//  EndlessView.swift
+//  Jukebox
+//
+//  Created by Daniel Eden on 20/05/2026.
+//
+
+import MusicKit
+import SwiftUI
+
+/// Endless / hidden-gems mode. Builds a curated deck of songs from the user's
+/// library (formerly-played-now-dormant + old-and-untouched) and rides the
+/// same dial as Playlists mode. On play, seeds the system queue with a 20-
+/// song runway so playback keeps flowing when the user puts the phone down.
+struct EndlessView: View {
+	@Environment(\.scenePhase) private var scenePhase
+	@Environment(\.openURL) private var openURL
+
+	@AppStorage(SettingsKeys.autoplay) private var autoplay: Bool = true
+
+	@State private var deck: MusicItemCollection<Song> = []
+	@State private var dial = DialState()
+
+	@State private var isLoading: Bool = true
+	@State private var loadError: String?
+	@State private var hasBuiltDeck = false
+
+	private var focusedSong: Song? {
+		guard !deck.isEmpty,
+		      dial.focusedIndex >= 0,
+		      dial.focusedIndex < deck.count else { return nil }
+		return deck[dial.focusedIndex]
+	}
+
+	var body: some View {
+		NavigationView {
+			VStack(spacing: 0) {
+				Spacer(minLength: 0)
+
+				DialView(
+					items: deck,
+					rotation: $dial.rotation,
+					focusedIndex: $dial.focusedIndex,
+					rippleCounters: dial.rippleCounters,
+					placeholderSymbol: "music.note"
+				) {
+					if let song = focusedSong {
+						Task { await play(from: song) }
+					}
+				}
+				.frame(maxWidth: .infinity, maxHeight: .infinity)
+				.allowsHitTesting(!dial.isSpinning)
+
+				if let song = focusedSong, !dial.isSpinning {
+					titleBlock(song)
+				}
+
+				Spacer(minLength: 0)
+			}
+			.animation(.easeInOut(duration: 0.25), value: focusedSong?.id)
+			.task(id: scenePhase) {
+				if scenePhase == .active, !hasBuiltDeck { await buildDeck() }
+			}
+			.refreshable { await buildDeck() }
+			.safeAreaBar(edge: .bottom, alignment: .trailing) {
+				PlaybackControls(
+					disabled: dial.isSpinning || deck.isEmpty,
+					onPlay: { if let s = focusedSong { await play(from: s) } },
+					onShuffle: { await shuffle() }
+				)
+			}
+			.toolbar {
+				ToolbarItem(placement: .topBarLeading) { SettingsMenu() }
+				ToolbarItem(placement: .principal) { ToolbarLogo() }
+			}
+			.sensoryFeedback(.impact(weight: .medium), trigger: dial.spinLandTick)
+			.sensoryFeedback(.selection, trigger: dial.focusedIndex)
+			.onChange(of: MusicAuthorization.currentStatus) { _, newValue in
+				if newValue == .authorized, !hasBuiltDeck {
+					Task { await buildDeck() }
+				}
+			}
+			.onChange(of: dial.focusedIndex) { _, newIdx in
+				guard !dial.isSpinning, newIdx >= 0, newIdx < deck.count else { return }
+				dial.focusedItemID = deck[newIdx].id
+			}
+			.overlay {
+				LibraryStateOverlay(
+					isEmpty: deck.isEmpty,
+					isLoading: isLoading,
+					loadError: loadError,
+					loadingMessage: "Searching your library for gems…",
+					emptyMessage: "No gems yet",
+					emptyHint: "Pull to refresh once your library has more history.",
+					authMessage: "Jukebox needs access to your Apple Music library to find your hidden gems."
+				)
+			}
+		}
+	}
+
+	private func titleBlock(_ song: Song) -> some View {
+		VStack(spacing: 4) {
+			Text(song.title)
+				.font(.title2)
+				.fontWeight(.semibold)
+				.multilineTextAlignment(.center)
+				.lineLimit(2)
+
+			Text(song.artistName)
+				.font(.subheadline)
+				.foregroundStyle(.secondary)
+		}
+		.id(song.id)
+		.contentTransition(.numericText())
+		.padding(.horizontal, 24)
+		.padding(.bottom, 24)
+		.contentShape(.rect)
+		.onTapGesture { open(song) }
+		.transition(.blurReplace)
+	}
+
+	// MARK: - Deck building
+
+	private func buildDeck() async {
+		isLoading = true
+		loadError = nil
+		defer { isLoading = false }
+
+		do {
+			let result = try await GemDeckBuilder.build()
+			applyDeck(result.deck)
+			hasBuiltDeck = true
+		} catch {
+			loadError = "Couldn't load gems: \(error.localizedDescription)"
+		}
+	}
+
+	private func applyDeck(_ songs: [Song]) {
+		let preservedID = dial.focusedItemID
+		let newCollection = MusicItemCollection<Song>(songs)
+		let newIdx = preservedID.flatMap { id in newCollection.firstIndex(where: { $0.id == id }) }
+
+		withAnimation { self.deck = newCollection }
+
+		if newCollection.isEmpty {
+			dial.clear()
+		} else if let newIdx {
+			dial.reanchor(to: newIdx, newID: newCollection[newIdx].id, count: newCollection.count)
+		} else {
+			dial.focusedIndex = 0
+			dial.rotation = .zero
+			dial.focusedItemID = newCollection.first?.id
+		}
+	}
+
+	// MARK: - Shuffle
+
+	private func shuffle() async {
+		guard let target = DialMechanics.shuffleTarget(
+			currentFocus: dial.focusedIndex,
+			itemCount: deck.count
+		) else { return }
+
+		let destination = DialMechanics.spinDestination(
+			current: dial.rotation,
+			target: target,
+			count: deck.count
+		)
+		let duration = DialTunables.shuffleDuration(
+			degrees: destination.degrees - dial.rotation.degrees
+		)
+
+		dial.isSpinning = true
+		withAnimation(.spring(duration: duration, bounce: 0.22)) {
+			dial.rotation = destination
+		}
+		try? await Task.sleep(for: .seconds(duration))
+		dial.isSpinning = false
+
+		let chosen = deck[target]
+		dial.recordLanding(at: target, id: chosen.id)
+
+		if autoplay { await play(from: chosen) }
+	}
+
+	// MARK: - Playback
+
+	/// Seed the system queue with the picked song + the next 19 deck items
+	/// so playback keeps flowing without us having to babysit `queue.insert`
+	/// on every track end.
+	private func play(from song: Song) async {
+		let runway = Array(deck.drop(while: { $0.id != song.id }).prefix(20))
+		guard !runway.isEmpty else { return }
+		do {
+			SystemMusicPlayer.shared.queue = .init(for: runway)
+			try await SystemMusicPlayer.shared.play()
+			dial.rippleCounters[song.id, default: 0] &+= 1
+		} catch {
+			print("Endless playback error: \(error)")
+		}
+	}
+
+	private func open(_ song: Song) {
+		guard let url = song.url else { return }
+		openURL(url)
+	}
+}
+
+#Preview {
+	EndlessView()
+}
