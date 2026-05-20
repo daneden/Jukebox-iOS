@@ -213,10 +213,31 @@ struct SongsView: View {
 		} else if let newIdx {
 			dial.reanchor(to: newIdx, newID: newCollection[newIdx].id, count: newCollection.count)
 		} else {
-			dial.focusedIndex = 0
-			dial.rotation = .zero
-			dial.focusedItemID = newCollection.first?.id
+			// Land at a random offset around the walk's seed (position 0)
+			// rather than always at the seed itself. Otherwise every
+			// reshuffle surfaces the same #1 gem and the top of the deck
+			// feels repetitive; an offset of ±landingSpread keeps the
+			// landing within the seed's sonic neighborhood (the walk's
+			// greedy similarity ordering puts the closest neighbors
+			// nearby in both directions around 0 modulo count).
+			let landingIdx = Self.randomLandingIndex(count: newCollection.count)
+			dial.focusedIndex = landingIdx
+			dial.rotation = .degrees(-Double(landingIdx) * DialTunables.stepVisual)
+			dial.focusedItemID = newCollection[landingIdx].id
 		}
+	}
+
+	/// How far around the walk's seed the dial may land on a fresh deck.
+	/// Tunable; 6 keeps the landing in the seed's similarity neighborhood
+	/// (the first ~6 walk steps are all close to the seed) while giving
+	/// 13 possible landing slots — enough variety that consecutive
+	/// reshuffles feel different.
+	private static let landingSpread = 6
+
+	private static func randomLandingIndex(count: Int) -> Int {
+		guard count > 1 else { return 0 }
+		let offset = Int.random(in: -Self.landingSpread ... Self.landingSpread)
+		return ((offset % count) + count) % count
 	}
 
 	// MARK: - Shuffle

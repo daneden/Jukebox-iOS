@@ -125,6 +125,20 @@ enum GemDeckBuilder {
 		}
 	}
 
+	/// Cap on how many tracks from a single artist enter the deck. The
+	/// walk's artist-lookback (≤2) only prevents adjacency; if the
+	/// candidate pool itself is e.g. 30 Zomby tracks (heavy nostalgia
+	/// playCount), the walk runs out of non-Zomby candidates and
+	/// relaxes, clumping them anyway. Capping at the deck stage means
+	/// the walk always has enough variety on hand.
+	static let perArtistCap = 8
+
+	/// Cap on tracks from a single album. The user reported "almost an
+	/// entire Zomby album" in one deck — heavy library skew was filling
+	/// the deck with full-album-listings. 3 lets distinctive albums
+	/// still surface multiple tracks without dominating the list.
+	static let perAlbumCap = 3
+
 	private static func rank(
 		songs: [Song],
 		scorer: GemScorer,
@@ -139,11 +153,17 @@ enum GemDeckBuilder {
 			// the same top-300 in a different order. Shuffle uses the
 			// system RNG (fresh per call) — each press gives a different
 			// sample even though scoring is deterministic.
+			//
+			// Caps applied to the widened pool first so the resulting
+			// shuffled deck still respects per-artist/album limits.
 			let wideCount = min(deckSize * wideSampleMultiplier, ranked.count)
-			let widePool = ranked.prefix(wideCount).map(\.song)
+			let widePool = capPerArtistAndAlbum(
+				ranked.prefix(wideCount).map(\.song),
+				limit: deckSize * wideSampleMultiplier
+			)
 			top = Array(widePool.shuffled().prefix(deckSize))
 		} else {
-			top = ranked.prefix(deckSize).map(\.song)
+			top = capPerArtistAndAlbum(ranked.map(\.song), limit: deckSize)
 		}
 		// Bulk-load embeddings for the top-N; the walk uses them where
 		// available and falls back to genre Jaccard for songs that
@@ -159,6 +179,38 @@ enum GemDeckBuilder {
 			seed: seed
 		)
 		return BuildResult(deck: deck, scannedCount: songs.count)
+	}
+
+	/// Walks the score-sorted candidate list and keeps each song unless
+	/// its artist or album has already hit the cap. Stops at `limit` or
+	/// when the pool is exhausted — whichever comes first. An empty
+	/// `albumTitle` skips the album cap (don't lump all metadata-less
+	/// tracks under one "unknown album" bucket).
+	private static func capPerArtistAndAlbum(_ ordered: [Song], limit: Int) -> [Song] {
+		var perArtist: [String: Int] = [:]
+		var perAlbum: [String: Int] = [:]
+		var result: [Song] = []
+		result.reserveCapacity(limit)
+
+		for song in ordered {
+			if result.count >= limit { break }
+
+			let artist = song.artistName
+			if perArtist[artist, default: 0] >= perArtistCap { continue }
+
+			let album = song.albumTitle ?? ""
+			if !album.isEmpty, perAlbum[album, default: 0] >= perAlbumCap {
+				continue
+			}
+
+			result.append(song)
+			perArtist[artist, default: 0] += 1
+			if !album.isEmpty {
+				perAlbum[album, default: 0] += 1
+			}
+		}
+
+		return result
 	}
 
 	private static func warmEmbeddings(for deck: [Song]) {
