@@ -10,12 +10,14 @@ import SwiftUI
 /// Bottom-aligned Play + Shuffle pair shared by Playlists and Songs modes.
 /// Play immediately plays whatever is focused; Shuffle rotates the dial
 /// (and lets the caller decide whether to auto-play based on the user's
-/// Autoplay preference).
+/// Autoplay preference). When `onSuperShuffle` is provided, long-pressing
+/// the Shuffle button surfaces a "Super Shuffle" context-menu action.
 struct PlaybackControls: View {
 	@Environment(\.colorScheme) private var colorScheme
 	let disabled: Bool
 	let onPlay: () async -> Void
 	let onShuffle: () async -> Void
+	var onSuperShuffle: (() async -> Void)? = nil
 
 	var body: some View {
 		GlassEffectContainer(spacing: 8) {
@@ -40,6 +42,15 @@ struct PlaybackControls: View {
 				.buttonBorderShape(.capsule)
 				.controlSize(.large)
 				.disabled(disabled)
+				.contextMenu {
+					if let onSuperShuffle {
+						Button {
+							Task { await onSuperShuffle() }
+						} label: {
+							Label("Super Shuffle", systemImage: "shuffle.circle.fill")
+						}
+					}
+				}
 			}
 			.frame(height: 56)
 		}

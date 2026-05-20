@@ -66,7 +66,8 @@ struct SongsView: View {
 				PlaybackControls(
 					disabled: dial.isSpinning || deck.isEmpty,
 					onPlay: { if let s = focusedSong { await play(from: s) } },
-					onShuffle: { await shuffle() }
+					onShuffle: { await shuffle() },
+					onSuperShuffle: { await superShuffle() }
 				)
 			}
 			.toolbar {
@@ -133,13 +134,27 @@ struct SongsView: View {
 		isLoading = true
 		loadError = nil
 		defer { isLoading = false }
+		await runBuild(wideSample: false)
+	}
 
+	/// Force a fresh deck by widening the candidate slice and resampling.
+	/// Same songs in the same library produce a different deck each time,
+	/// so the dial genuinely turns over rather than just re-walking the
+	/// same top-300 in a new order. Doesn't toggle `isLoading` — the
+	/// current deck stays visible until the new one lifts in via the
+	/// existing partial/final transitions.
+	private func superShuffle() async {
+		guard !dial.isSpinning else { return }
+		await runBuild(wideSample: true)
+	}
+
+	private func runBuild(wideSample: Bool) async {
 		// Stream partial → final from GemDeckBuilder. The first emission is
 		// the nostalgia-only deck (lands fast, dial becomes interactive);
 		// the second is the full nostalgia+discovery deck (lift-out
 		// transition swaps it in when ready).
 		do {
-			for try await result in GemDeckBuilder.buildStreaming() {
+			for try await result in GemDeckBuilder.buildStreaming(wideSample: wideSample) {
 				applyDeck(result.deck)
 			}
 			// Seed the toolbar progress tracker with the final deck.

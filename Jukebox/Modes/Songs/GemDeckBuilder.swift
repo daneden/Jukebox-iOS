@@ -56,7 +56,15 @@ enum GemDeckBuilder {
 	/// the partial deck built on nostalgia alone skews to "songs you used
 	/// to play a lot," which is a reasonable thing to land on while
 	/// discovery is still arriving.
-	static func buildStreaming(now: Date = Date()) -> AsyncThrowingStream<BuildResult, Error> {
+	/// Multiplier on `deckSize` used as the candidate slice when
+	/// `wideSample: true`. Larger = more variety in super-shuffle, at
+	/// the cost of letting lower-scored gems into the deck.
+	static let wideSampleMultiplier = 2
+
+	static func buildStreaming(
+		now: Date = Date(),
+		wideSample: Bool = false
+	) -> AsyncThrowingStream<BuildResult, Error> {
 		AsyncThrowingStream { continuation in
 			let task = Task {
 				do {
@@ -70,11 +78,21 @@ enum GemDeckBuilder {
 					async let discoveryTask = fetchPool(sort: .libraryAddedDate, ascending: true)
 
 					let nostalgia = try await nostalgiaTask
-					continuation.yield(await rank(songs: nostalgia, scorer: scorer, seed: seed))
+					continuation.yield(await rank(
+						songs: nostalgia,
+						scorer: scorer,
+						seed: seed,
+						wideSample: wideSample
+					))
 
 					let discovery = try await discoveryTask
 					let union = dedupeUnion(nostalgia: nostalgia, discovery: discovery)
-					let final = await rank(songs: union, scorer: scorer, seed: seed)
+					let final = await rank(
+						songs: union,
+						scorer: scorer,
+						seed: seed,
+						wideSample: wideSample
+					)
 					continuation.yield(final)
 
 					continuation.finish()
@@ -95,9 +113,26 @@ enum GemDeckBuilder {
 		}
 	}
 
-	private static func rank(songs: [Song], scorer: GemScorer, seed: UInt64) async -> BuildResult {
+	private static func rank(
+		songs: [Song],
+		scorer: GemScorer,
+		seed: UInt64,
+		wideSample: Bool = false
+	) async -> BuildResult {
 		let ranked = scorer.scoreAndRank(songs)
-		let top = ranked.prefix(deckSize).map(\.song)
+		let top: [Song]
+		if wideSample {
+			// Super-shuffle: widen the slice and sample down to deckSize,
+			// so the deck genuinely turns over rather than just re-walking
+			// the same top-300 in a different order. Shuffle uses the
+			// system RNG (fresh per call) — each press gives a different
+			// sample even though scoring is deterministic.
+			let wideCount = min(deckSize * wideSampleMultiplier, ranked.count)
+			let widePool = ranked.prefix(wideCount).map(\.song)
+			top = Array(widePool.shuffled().prefix(deckSize))
+		} else {
+			top = ranked.prefix(deckSize).map(\.song)
+		}
 		// Bulk-load embeddings for the top-N; the walk uses them where
 		// available and falls back to genre Jaccard for songs that
 		// haven't been embedded yet.
