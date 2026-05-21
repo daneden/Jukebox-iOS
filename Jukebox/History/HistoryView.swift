@@ -29,6 +29,11 @@ struct HistoryView: View {
 				}
 				.task { await reload() }
 		}
+		#if os(macOS)
+		// macOS sheets don't get iOS's automatic detent sizing — without
+		// a frame, NavigationStack collapses to just the title bar.
+		.frame(minWidth: 420, idealWidth: 480, minHeight: 480, idealHeight: 600)
+		#endif
 	}
 
 	@ViewBuilder
@@ -138,10 +143,10 @@ private struct HistoryDetailView: View {
 		.navigationTitle(entry.displayName)
 		.inlineNavigationTitle()
 		.toolbar {
-			ToolbarItem(placement: .trailingAction) {
+			ToolbarItem {
 				feedbackMenu
 			}
-			ToolbarItem(placement: .trailingAction) {
+			ToolbarItem {
 				Button {
 					presentSaveDialog()
 				} label: {
@@ -179,7 +184,9 @@ private struct HistoryDetailView: View {
 			.disabled(songs.isEmpty)
 			.frame(height: 56)
 			.scenePadding(.horizontal)
-			.scenePadding(.bottom)
+			#if os(iOS)
+				.scenePadding(.bottom)
+			#endif
 		}
 	}
 
@@ -230,7 +237,7 @@ private struct HistoryDetailView: View {
 			}
 		} icon: {
 			Text(String(format: "%02d", index + 1))
-				.font(.system(.body, design: .monospaced))
+				.font(.system(.caption, design: .monospaced))
 				.monospacedDigit()
 				.foregroundStyle(.secondary)
 		}

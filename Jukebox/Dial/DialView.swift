@@ -10,6 +10,12 @@ import SwiftUI
 #if canImport(UIKit)
 	import UIKit
 #endif
+#if canImport(AppKit)
+	import AppKit
+#endif
+
+// `DialItemView` (single rotating cover) lives in `DialItemView.swift`.
+// `ScrollWheelDialReader` (macOS scroll input) lives in `ScrollWheelInput.swift`.
 
 // MARK: - Haptics
 
@@ -48,6 +54,9 @@ struct DialView<Item: MusicItem & DialItem>: View {
 	var onTapFocused: () -> Void = {}
 
 	@State private var dragStartRotation: Angle?
+	#if os(macOS)
+		@State private var scrollSnapTask: Task<Void, Never>?
+	#endif
 
 	private var continuousPosition: Double {
 		guard !items.isEmpty else { return 0 }
@@ -79,9 +88,45 @@ struct DialView<Item: MusicItem & DialItem>: View {
 			.frame(width: proxy.size.width, height: proxy.size.height)
 			.contentShape(.rect)
 			.simultaneousGesture(dragGesture(coverWidth: coverSize))
+			#if os(macOS)
+				.modifier(ScrollWheelDialReader { delta, phase in
+					handleScroll(delta: delta, phase: phase, coverWidth: coverSize)
+				})
+			#endif
 		}
 		.onChange(of: rotation) { _, _ in updateFocus() }
 	}
+
+	#if os(macOS)
+		private func handleScroll(delta: CGFloat, phase: NSEvent.Phase, coverWidth: Double) {
+			let perPoint = DialTunables.stepVisual / coverWidth
+			rotation = rotation + .degrees(delta * perPoint)
+
+			scrollSnapTask?.cancel()
+
+			if phase == .ended {
+				snapToNearestDetent()
+			} else if phase == [] {
+				// Mouse wheel deliveries arrive without phase information,
+				// so debounce a snap after the last tick instead of snapping
+				// per event (which would spring-back every wheel notch).
+				scrollSnapTask = Task { @MainActor in
+					try? await Task.sleep(for: .milliseconds(140))
+					guard !Task.isCancelled else { return }
+					snapToNearestDetent()
+				}
+			}
+		}
+
+		private func snapToNearestDetent() {
+			let projectedPos = -rotation.degrees / DialTunables.stepVisual
+			let snappedPos = projectedPos.rounded()
+			let snappedRot = -snappedPos * DialTunables.stepVisual
+			withAnimation(DialTunables.wheelSpring) {
+				rotation = .degrees(snappedRot)
+			}
+		}
+	#endif
 
 	private func dragGesture(coverWidth: Double) -> some Gesture {
 		DragGesture(minimumDistance: 0)
@@ -233,161 +278,5 @@ private struct DialContent<Item: MusicItem & DialItem>: View, Animatable {
 			))
 		}
 		return entries
-	}
-}
-
-// MARK: - Single dial item
-
-private struct DialItemView: View {
-	let artwork: Artwork?
-	let coverSize: Double
-	let requestSize: Double
-	let radius: Double
-	let screenAngle: Angle
-	let isFocused: Bool
-	/// External "this cover was shuffled to" counter. Distinct from
-	/// `rippleTriggerCount` (the local ripple-event counter) because the
-	/// shuffle-land origin (bottom center) and a focused-tap origin (the
-	/// touch point) feed the same modifier — local state lets both sources
-	/// configure origin + bump the trigger in lockstep.
-	let rippleTrigger: Int
-	let placeholderSymbol: String
-	let onTap: () -> Void
-
-	@State private var rippleOrigin: CGPoint = .zero
-	@State private var rippleTriggerCount: Int = 0
-	/// Eased 0→1 ramp that follows `isFocused`. SwiftUI can't smooth
-	/// the wobble's `sin(t*omega)` directly — it's a function of time,
-	/// not a value SwiftUI animates between — so we multiply by this
-	/// state instead. Wobble amplitude grows in (and dies out) over
-	/// the focus transition, and the shadow size rides the same ramp,
-	/// so a cover landing at center doesn't pop straight into full
-	/// oscillation + heavy shadow.
-	@State private var focusStrength: Double
-
-	init(
-		artwork: Artwork?,
-		coverSize: Double,
-		requestSize: Double,
-		radius: Double,
-		screenAngle: Angle,
-		isFocused: Bool,
-		rippleTrigger: Int,
-		placeholderSymbol: String,
-		onTap: @escaping () -> Void
-	) {
-		self.artwork = artwork
-		self.coverSize = coverSize
-		self.requestSize = requestSize
-		self.radius = radius
-		self.screenAngle = screenAngle
-		self.isFocused = isFocused
-		self.rippleTrigger = rippleTrigger
-		self.placeholderSymbol = placeholderSymbol
-		self.onTap = onTap
-		// Initialise to match isFocused so the first render isn't a
-		// one-frame snap (state default would be 0, then onAppear
-		// would jump to 1 for a freshly-focused cover).
-		_focusStrength = State(initialValue: isFocused ? 1.0 : 0.0)
-	}
-
-	var body: some View {
-		let radians = screenAngle.radians
-		let depth = cos(radians)
-		let normalized = max(0, depth)
-		let xOffset = sin(radians) * radius
-		let scale = DialTunables.edgeScale
-			+ (DialTunables.focusedScale - DialTunables.edgeScale)
-			* pow(normalized, DialTunables.scaleCurveExponent)
-		let opacity = normalized
-		let blur = (1 - normalized) * 3
-
-		// Keep ticking through the focus-out fade so the wobble can
-		// decay smoothly. Once the ramp settles at ~0 and the cover
-		// isn't focused, pause to save energy.
-		TimelineView(
-			.animation(minimumInterval: 1.0 / 30.0, paused: !isFocused && focusStrength < 0.01)
-		) { context in
-			wobblingCover(at: context.date)
-		}
-		.rotation3DEffect(
-			.degrees(screenAngle.degrees * DialTunables.rotationDamping),
-			axis: (x: 0, y: 1, z: 0),
-			perspective: DialTunables.perspective
-		)
-		.offset(x: xOffset)
-		.scaleEffect(scale)
-		.opacity(opacity)
-		.blur(radius: blur)
-		.zIndex(normalized)
-		.onChange(of: isFocused) { _, focused in
-			withAnimation(.smooth(duration: 0.35)) {
-				focusStrength = focused ? 1.0 : 0.0
-			}
-		}
-		.onChange(of: rippleTrigger) { _, _ in
-			rippleOrigin = CGPoint(x: coverSize / 2, y: coverSize * 0.9)
-			rippleTriggerCount &+= 1
-		}
-	}
-
-	@ViewBuilder
-	private func wobblingCover(at date: Date) -> some View {
-		let t = date.timeIntervalSinceReferenceDate
-		let omega: Double = 2 * .pi / DialTunables.wobblePeriod
-		// Envelope the oscillation with the eased focus ramp so a
-		// newly-focused cover doesn't snap straight into ±amplitude.
-		let wobbleX: Double = sin(t * omega) * DialTunables.wobbleAmplitude * focusStrength
-		let wobbleY: Double = cos(t * omega) * DialTunables.wobbleAmplitude * focusStrength
-
-		// DragGesture-with-slop-threshold instead of .onTapGesture or
-		// Button. Button's gesture eats the parent's DragGesture until a
-		// hard flick breaks it loose (wheel feels stuck); .onTapGesture
-		// composes correctly but fires on any touch-up within iOS's
-		// built-in ~10–20pt tap tolerance, which catches gentle dial
-		// swipes — the user is trying to scroll but the cover under their
-		// finger starts playing. By thresholding manually we get the best
-		// of both: tap fires only when the finger really stays put, and
-		// the gesture still runs simultaneously with the parent's dial
-		// drag (which actually rotates the wheel).
-		//
-		// RippleEffect is attached BEFORE rotation3DEffect/shadow so the
-		// shader's local coordinate space is the cover's own
-		// (coverSize × coverSize) frame — same space the gesture location
-		// is reported in.
-		CoverArtView(
-			artwork: artwork,
-			width: coverSize,
-			requestedWidth: requestSize,
-			placeholderSymbol: placeholderSymbol
-		)
-		.frame(width: coverSize, height: coverSize)
-		.modifier(RippleEffect(
-			at: rippleOrigin,
-			trigger: rippleTriggerCount
-		))
-		.contentShape(.rect)
-		.simultaneousGesture(
-			DragGesture(minimumDistance: 0, coordinateSpace: .local)
-				.onEnded { value in
-					let movement = hypot(value.translation.width, value.translation.height)
-					// 10pt slop matches Apple's own tap tolerance for buttons
-					// in scrollable contexts. Tighter and real taps occasionally
-					// miss; looser and we re-introduce the original bug.
-					guard movement < 10 else { return }
-					if isFocused {
-						rippleOrigin = value.location
-						rippleTriggerCount &+= 1
-					}
-					onTap()
-				}
-		)
-		.shadow(
-			color: .black.opacity(0.35),
-			radius: 10 + 18 * focusStrength,
-			y: 6 + 10 * focusStrength
-		)
-		.rotation3DEffect(.degrees(wobbleX), axis: (x: 1, y: 0, z: 0))
-		.rotation3DEffect(.degrees(wobbleY), axis: (x: 0, y: 1, z: 0))
 	}
 }

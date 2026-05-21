@@ -37,6 +37,13 @@ struct SongsView: View {
 		return deck[dial.focusedIndex]
 	}
 
+	/// `focusedSong` only while the dial is at rest. Used by the title block
+	/// so the text empties out during shuffle / reshuffle instead of
+	/// disappearing, which would shift the dial up and back.
+	private var settledSong: Song? {
+		(dial.isSpinning || isReshuffling) ? nil : focusedSong
+	}
+
 	var body: some View {
 		NavigationStack {
 			VStack(spacing: 0) {
@@ -70,13 +77,21 @@ struct SongsView: View {
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 				.animation(.smooth(duration: 0.45), value: isReshuffling)
 
-				if let song = focusedSong, !dial.isSpinning, !isReshuffling {
-					titleBlock(song)
-				}
+				TitleBlock(
+					title: settledSong?.title ?? "",
+					subtitle: settledSong?.artistName ?? "",
+					onTap: { if let song = settledSong { open(song) } }
+				)
+				// Scoped to the title block subtree on purpose — applying
+				// this on the parent VStack also catches `DialContent`'s
+				// `animatableData: rotation`, so the first deck load (which
+				// changes `focusedSong?.id` from nil → some id at the same
+				// time as `dial.rotation` jumps to a non-zero landing
+				// position) visibly spins the dial on cold launch.
+				.animation(.easeInOut(duration: 0.25), value: settledSong?.id)
 
 				Spacer(minLength: 0)
 			}
-			.animation(.easeInOut(duration: 0.25), value: focusedSong?.id)
 			.task(id: scenePhase) {
 				if scenePhase == .active, !hasBuiltDeck { await buildDeck() }
 			}
@@ -148,33 +163,24 @@ struct SongsView: View {
 		}
 	}
 
-	private func titleBlock(_ song: Song) -> some View {
-		VStack(spacing: 4) {
-			Text(song.title)
-				.font(.title2)
-				.fontWeight(.semibold)
-				.multilineTextAlignment(.center)
-				.lineLimit(2)
-
-			Text(song.artistName)
-				.font(.subheadline)
-				.foregroundStyle(.secondary)
-		}
-		.id(song.id)
-		.contentTransition(.numericText())
-		.padding(.horizontal, 24)
-		.padding(.bottom, 24)
-		.contentShape(.rect)
-		.onTapGesture { open(song) }
-		.transition(.blurReplace)
-	}
-
 	// MARK: - Deck building
 
 	private func buildDeck() async {
 		isLoading = true
 		loadError = nil
 		defer { isLoading = false }
+		// Pre-position the dial off-center BEFORE the deck arrives. If we
+		// instead set rotation in applyDeck (when items first land), the
+		// rotation mutation and the deck mutation flush in the same SwiftUI
+		// render pass and the dial visibly spins from 0 to the landing
+		// position. Setting rotation here — while the dial has no items and
+		// is still hidden behind the loading overlay — means the dial
+		// renders at its final position the moment the overlay clears.
+		// Guard: only on first build, so pull-to-refresh doesn't re-randomize.
+		if dial.focusedItemID == nil {
+			let offset = Int.random(in: -Self.landingSpread ... Self.landingSpread)
+			dial.rotation = .degrees(-Double(offset) * DialTunables.stepVisual)
+		}
 		await runBuild(wideSample: false)
 	}
 
@@ -221,19 +227,30 @@ struct SongsView: View {
 			dial.clear()
 		} else if let newIdx {
 			dial.reanchor(to: newIdx, newID: newCollection[newIdx].id, count: newCollection.count)
+		} else if preservedID == nil {
+			// Cold launch. Rotation was pre-positioned in buildDeck before
+			// this fired — derive the landing index from it so the dial
+			// renders in its final position without animating from 0.
+			let landingIdx = Self.landingIndex(forRotation: dial.rotation, count: newCollection.count)
+			dial.focusedIndex = landingIdx
+			dial.focusedItemID = newCollection[landingIdx].id
 		} else {
-			// Land at a random offset around the walk's seed (position 0)
-			// rather than always at the seed itself. Otherwise every
-			// reshuffle surfaces the same #1 gem and the top of the deck
-			// feels repetitive; an offset of ±landingSpread keeps the
-			// landing within the seed's sonic neighborhood (the walk's
-			// greedy similarity ordering puts the closest neighbors
-			// nearby in both directions around 0 modulo count).
+			// Had a focus but the song isn't in the new deck (typically
+			// shuffle replacing the candidate pool). The dial is hidden
+			// behind the reshuffle overlay during that path, so changing
+			// rotation here isn't visible.
 			let landingIdx = Self.randomLandingIndex(count: newCollection.count)
 			dial.focusedIndex = landingIdx
 			dial.rotation = .degrees(-Double(landingIdx) * DialTunables.stepVisual)
 			dial.focusedItemID = newCollection[landingIdx].id
 		}
+	}
+
+	private static func landingIndex(forRotation rotation: Angle, count: Int) -> Int {
+		guard count > 0 else { return 0 }
+		let continuousPos = -rotation.degrees / DialTunables.stepVisual
+		let raw = Int(continuousPos.rounded())
+		return ((raw % count) + count) % count
 	}
 
 	/// How far around the walk's seed the dial may land on a fresh deck.

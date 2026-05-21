@@ -31,6 +31,13 @@ struct PlaylistsView: View {
 		return playlists[dial.focusedIndex]
 	}
 
+	/// `focusedPlaylist` only while the dial is at rest. Used by the title
+	/// block so the text empties out during shuffle instead of disappearing,
+	/// which would shift the dial up and back.
+	private var settledPlaylist: Playlist? {
+		dial.isSpinning ? nil : focusedPlaylist
+	}
+
 	var body: some View {
 		NavigationStack {
 			VStack(spacing: 0) {
@@ -55,13 +62,20 @@ struct PlaylistsView: View {
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 				.allowsHitTesting(!dial.isSpinning)
 
-				if let playlist = focusedPlaylist, !dial.isSpinning {
-					titleBlock(playlist)
-				}
+				TitleBlock(
+					title: settledPlaylist?.name ?? "",
+					subtitle: settledPlaylist?.curatorName ?? "",
+					onTap: { if let playlist = settledPlaylist { open(playlist) } }
+				)
+				// Scoped to the title block subtree on purpose — applying
+				// this on the parent VStack also catches `DialContent`'s
+				// `animatableData: rotation`, so any case where the rotation
+				// changes in the same body re-evaluation as `focusedPlaylist?.id`
+				// would visibly animate the dial.
+				.animation(.easeInOut(duration: 0.25), value: settledPlaylist?.id)
 
 				Spacer(minLength: 0)
 			}
-			.animation(.easeInOut(duration: 0.25), value: focusedPlaylist?.id)
 			.task(id: scenePhase) {
 				if scenePhase == .active { await updatePlaylists() }
 			}
@@ -118,32 +132,24 @@ struct PlaylistsView: View {
 		}
 	}
 
-	private func titleBlock(_ playlist: Playlist) -> some View {
-		VStack(spacing: 4) {
-			Text(playlist.name)
-				.font(.title2)
-				.fontWeight(.semibold)
-				.multilineTextAlignment(.center)
-				.lineLimit(2)
-
-			Text(playlist.curatorName ?? "")
-				.font(.subheadline)
-				.foregroundStyle(.secondary)
-		}
-		.id(playlist.id)
-		.contentTransition(.numericText())
-		.padding(.horizontal, 24)
-		.padding(.bottom, 24)
-		.contentShape(.rect)
-		.onTapGesture { open(playlist) }
-		.transition(.blurReplace)
-	}
-
 	// MARK: - Fetching
 
 	func updatePlaylists() async {
 		isLoading = true
 		defer { isLoading = false }
+
+		// Pre-position the dial before the first batch arrives. Same
+		// rationale as SongsView.buildDeck: mutating rotation in
+		// applyPlaylists (when items first land) flushes in the same
+		// SwiftUI render pass as the playlists mutation and visibly spins
+		// the dial. We don't know the eventual count yet, so pick from a
+		// large range and let `applyPlaylists` modular-wrap it to a valid
+		// index when the batch arrives. Guard so resume/refresh don't
+		// randomize.
+		if dial.focusedItemID == nil {
+			let offset = Int.random(in: 0 ..< 10000)
+			dial.rotation = .degrees(-Double(offset) * DialTunables.stepVisual)
+		}
 
 		var request = MusicLibraryRequest<Playlist>()
 		#if os(iOS)
@@ -196,6 +202,16 @@ struct PlaylistsView: View {
 			dial.clear()
 		} else if let newIdx {
 			dial.reanchor(to: newIdx, newID: new[newIdx].id, count: new.count)
+		} else if preservedID == nil {
+			// Cold launch. Rotation was pre-positioned in updatePlaylists
+			// before this fired — derive the landing index from it (modular
+			// wrap across the now-known count) so the dial renders in its
+			// final position without animating from 0.
+			let continuousPos = -dial.rotation.degrees / DialTunables.stepVisual
+			let raw = Int(continuousPos.rounded())
+			let landingIdx = ((raw % new.count) + new.count) % new.count
+			dial.focusedIndex = landingIdx
+			dial.focusedItemID = new[landingIdx].id
 		} else if dial.focusedIndex >= new.count {
 			dial.focusedIndex = 0
 			dial.rotation = .zero
