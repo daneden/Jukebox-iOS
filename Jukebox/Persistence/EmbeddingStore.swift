@@ -105,7 +105,7 @@ actor EmbeddingStore {
 		// Notify the toolbar progress tracker. No-op if this song isn't
 		// in the current deck (e.g. ad-hoc embeds from the spike).
 		Task { @MainActor in
-			EmbeddingProgress.shared.recordEmbedded(songID)
+			EmbeddingProgress.shared.recordProcessed(songID)
 		}
 	}
 

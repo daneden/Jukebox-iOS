@@ -217,9 +217,20 @@ enum GemDeckBuilder {
 		Task.detached(priority: .background) {
 			for song in deck {
 				if await EmbeddingStore.shared.embedding(for: song.id) != nil {
+					await MainActor.run {
+						EmbeddingProgress.shared.recordProcessed(song.id)
+					}
 					continue
 				}
 				_ = try? await AudioEmbeddingService.embed(song: song)
+				// Mark the song processed regardless of success — a permanent
+				// failure (noCatalogMatch, noPreview, …) is "done for this
+				// session" from the progress UI's point of view, otherwise the
+				// indicator stalls at e.g. 298/300 for songs that can't be
+				// resolved to a catalog preview.
+				await MainActor.run {
+					EmbeddingProgress.shared.recordProcessed(song.id)
+				}
 				// Small breath between requests so we don't hammer the
 				// network or the user's battery in one burst.
 				try? await Task.sleep(for: .milliseconds(200))

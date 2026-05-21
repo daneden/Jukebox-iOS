@@ -64,10 +64,18 @@ final class EmbeddingProgress {
 		embedded = rawTracked.intersection(existing)
 	}
 
-	/// Called from `EmbeddingStore.store` whenever a row is upserted.
-	/// No-op for songs we're not currently tracking (e.g. the embedding
-	/// spike embedding ad-hoc samples).
-	func recordEmbedded(_ id: MusicItemID) {
+	/// Marks a tracked song as finished for this session — either a
+	/// successful embed (called from `EmbeddingStore.store`) or a permanent
+	/// failure the warmer gave up on (called from `GemDeckBuilder`'s
+	/// `warmEmbeddings` after a `try?`). No-op for untracked songs (e.g.
+	/// ad-hoc embeds from the spike).
+	///
+	/// **Why:** progress would otherwise stall at e.g. 298/300 forever when
+	/// a couple of deck songs can't be resolved to a catalog preview
+	/// (`noCatalogMatch`, `noPreview`, `downloadFailed`, …). Since the
+	/// warmer already moves on after one failed attempt, the progress
+	/// counter should mirror that.
+	func recordProcessed(_ id: MusicItemID) {
 		guard tracked.contains(id.rawValue) else { return }
 		embedded.insert(id.rawValue)
 	}

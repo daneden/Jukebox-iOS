@@ -179,8 +179,8 @@ struct SongsView: View {
 			}
 			// Seed the toolbar progress tracker with the final deck.
 			// The background warm task (kicked off inside GemDeckBuilder)
-			// will then drive `recordEmbedded` calls into it as each song's
-			// embedding lands.
+			// will then drive `recordProcessed` calls into it as each song's
+			// embedding lands or is given up on.
 			let deckIDs = deck.map(\.id)
 			let existing = await EmbeddingStore.shared.embeddings(for: deckIDs)
 			EmbeddingProgress.shared.setTracking(
