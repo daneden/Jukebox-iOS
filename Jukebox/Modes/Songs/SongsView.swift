@@ -36,6 +36,12 @@ struct SongsView: View {
 	/// pulled offscreen for the duration so partial/final deck swaps
 	/// don't visibly thrash; a loading view sits in its place.
 	@State private var isReshuffling = false
+	/// Previous shuffle's seed neighbourhood. Passed back into the
+	/// next shuffle so the walk's seed picker actively jumps away —
+	/// without this hint the top-tier of a heavily-oldies library
+	/// tends to land on the same decade/artist cluster repeatedly.
+	@State private var lastShuffleDecade: Int?
+	@State private var lastShuffleArtist: String?
 
 	private var walkControls: WalkControls {
 		WalkControls(
@@ -54,13 +60,6 @@ struct SongsView: View {
 				decadeSpanRaw = new.decadeSpan.rawValue
 			}
 		)
-	}
-
-	private func resetWalkControls() {
-		let d = WalkControls.default
-		meander = d.meander
-		energyRaw = d.energy.rawValue
-		decadeSpanRaw = d.decadeSpan.rawValue
 	}
 
 	private var focusedSong: Song? {
@@ -147,17 +146,14 @@ struct SongsView: View {
 					.controlSize(.extraLarge)
 					.disabled(dial.isSpinning || isReshuffling)
 					.popover(isPresented: $showingWalkControls) {
-						WalkControlsPopover(
-							controls: walkControlsBinding,
-							onReset: resetWalkControls
-						)
-						// Floating popover stays on regular size classes
-						// (iPad, macOS); compact (iPhone) adapts to a
-						// sheet — the popover frame was too cramped on
-						// phone-sized screens.
-						.presentationCompactAdaptation(.sheet)
-						.presentationDetents([.medium, .large])
-						.presentationDragIndicator(.visible)
+						WalkControlsPopover(controls: walkControlsBinding)
+							// Floating popover stays on regular size
+							// classes (iPad, macOS); compact (iPhone)
+							// adapts to a sheet — the popover frame
+							// was too cramped on phone-sized screens.
+							.presentationCompactAdaptation(.sheet)
+							.presentationDetents([.medium, .large])
+							.presentationDragIndicator(.visible)
 					}
 				}
 			}
@@ -252,13 +248,22 @@ struct SongsView: View {
 		await runBuild(wideSample: false)
 	}
 
-	private func runBuild(wideSample: Bool) async {
+	private func runBuild(
+		wideSample: Bool,
+		avoidDecade: Int? = nil,
+		avoidArtist: String? = nil
+	) async {
 		// Stream partial → final from GemDeckBuilder. The first emission is
 		// the nostalgia-only deck (lands fast, dial becomes interactive);
 		// the second is the full nostalgia+discovery deck (lift-out
 		// transition swaps it in when ready).
 		do {
-			for try await result in GemDeckBuilder.buildStreaming(wideSample: wideSample, controls: walkControls) {
+			for try await result in GemDeckBuilder.buildStreaming(
+				wideSample: wideSample,
+				controls: walkControls,
+				avoidDecade: avoidDecade,
+				avoidArtist: avoidArtist
+			) {
 				applyDeck(result.deck)
 			}
 			// Seed the toolbar progress tracker with the final deck.
@@ -343,9 +348,24 @@ struct SongsView: View {
 	/// fetched and walked, and the dial blurs back in.
 	private func shuffle() async {
 		guard !dial.isSpinning, !isReshuffling else { return }
+		// Tell the walk to seed away from the previous shuffle's
+		// neighbourhood — without this, a library skewed toward one
+		// era keeps landing on that era's cluster shuffle after shuffle.
+		let avoidDecade = lastShuffleDecade
+		let avoidArtist = lastShuffleArtist
 		withAnimation(.smooth(duration: 0.45)) { isReshuffling = true }
-		await runBuild(wideSample: true)
+		await runBuild(
+			wideSample: true,
+			avoidDecade: avoidDecade,
+			avoidArtist: avoidArtist
+		)
 		withAnimation(.smooth(duration: 0.45)) { isReshuffling = false }
+		// Record the new seed (deck[0]) so the next shuffle jumps away
+		// from it too.
+		if let seed = deck.first {
+			lastShuffleDecade = seed.releaseDecade
+			lastShuffleArtist = seed.artistName
+		}
 		// Detached: same rationale as PlaylistsView.shuffle — the rebuild is
 		// the visible work; the queue handoff to MusicPlayback shouldn't
 		// keep the Shuffle button busy.

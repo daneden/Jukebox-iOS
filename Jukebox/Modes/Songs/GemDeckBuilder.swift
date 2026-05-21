@@ -64,7 +64,9 @@ enum GemDeckBuilder {
 	static func buildStreaming(
 		now: Date = Date(),
 		wideSample: Bool = false,
-		controls: WalkControls = .default
+		controls: WalkControls = .default,
+		avoidDecade: Int? = nil,
+		avoidArtist: String? = nil
 	) -> AsyncThrowingStream<BuildResult, Error> {
 		AsyncThrowingStream { continuation in
 			let task = Task {
@@ -96,7 +98,9 @@ enum GemDeckBuilder {
 						scorer: scorer,
 						seed: seed,
 						controls: controls,
-						wideSample: wideSample
+						wideSample: wideSample,
+						avoidDecade: avoidDecade,
+						avoidArtist: avoidArtist
 					))
 
 					let discovery = try await discoveryTask
@@ -106,7 +110,9 @@ enum GemDeckBuilder {
 						scorer: scorer,
 						seed: seed,
 						controls: controls,
-						wideSample: wideSample
+						wideSample: wideSample,
+						avoidDecade: avoidDecade,
+						avoidArtist: avoidArtist
 					)
 					continuation.yield(final)
 
@@ -147,7 +153,9 @@ enum GemDeckBuilder {
 		scorer: GemScorer,
 		seed: UInt64,
 		controls: WalkControls = .default,
-		wideSample: Bool = false
+		wideSample: Bool = false,
+		avoidDecade: Int? = nil,
+		avoidArtist: String? = nil
 	) async -> BuildResult {
 		// When energy filtering is active we need embeddings for the
 		// whole input pool (the centroid classifier scores everything),
@@ -218,7 +226,9 @@ enum GemDeckBuilder {
 			embeddings: embeddings,
 			blockedPairs: blockedPairs,
 			seed: seed,
-			controls: controls
+			controls: controls,
+			avoidDecade: avoidDecade,
+			avoidArtist: avoidArtist
 		)
 		return BuildResult(deck: deck, scannedCount: songs.count)
 	}

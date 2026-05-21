@@ -38,12 +38,20 @@ enum SongDeckWalk {
 	/// scorers were cycling too predictably at 10.
 	static let seedTier = 20
 
+	/// Minimum number of post-filter candidates required for the
+	/// neighbourhood-avoidance seed picker to use the filtered subset.
+	/// Below this we accept the unfiltered top tier — a one-or-two-song
+	/// remainder isn't meaningfully a "different neighbourhood."
+	static let seedAvoidanceFloor = 3
+
 	static func walk(
 		songs: [Song],
 		embeddings: [MusicItemID: [Float]],
 		blockedPairs: Set<String> = [],
 		seed: UInt64,
-		controls: WalkControls = .default
+		controls: WalkControls = .default,
+		avoidDecade: Int? = nil,
+		avoidArtist: String? = nil
 	) -> [Song] {
 		guard songs.count > 1 else { return songs }
 
@@ -53,10 +61,23 @@ enum SongDeckWalk {
 
 		// Seed from the top of the score-ranked input but offset by the
 		// session seed so different launches start the walk in different
-		// places.
+		// places. When the caller provides an avoid-decade/avoid-artist
+		// hint (the previous shuffle's seed), prefer tier entries that
+		// don't match — that's how the shuffle button reliably jumps
+		// the walk into a new neighbourhood instead of grinding through
+		// the same era/artist cluster.
 		let tier = min(Self.seedTier, remaining.count)
-		let seedIdx = Int(seed % UInt64(tier))
-		ordered.append(remaining.remove(at: seedIdx))
+		let topTier = remaining.prefix(tier)
+		let preferred = topTier.enumerated().filter { _, song in
+			if let d = avoidDecade, song.releaseDecade == d { return false }
+			if let a = avoidArtist, song.artistName == a { return false }
+			return true
+		}
+		let candidates = preferred.count >= Self.seedAvoidanceFloor
+			? Array(preferred)
+			: Array(topTier.enumerated())
+		let pick = candidates[Int(seed % UInt64(candidates.count))]
+		ordered.append(remaining.remove(at: pick.offset))
 
 		let g = Float(controls.seedGravity)
 		let temperature = controls.stepTemperature
@@ -247,5 +268,17 @@ enum SongDeckWalk {
 		}
 		let yearsApart = abs(aDate.timeIntervalSince(bDate)) / (365.25 * 86400)
 		return Float(exp(-yearsApart / halflifeYears))
+	}
+}
+
+extension Song {
+	/// Decade of release as an Int (1960, 1970, ..., 2020). Nil when
+	/// MusicKit has no release date — common for library-only items
+	/// and tracks with missing metadata. Used by the walk's shuffle-
+	/// neighbourhood avoidance.
+	var releaseDecade: Int? {
+		guard let date = releaseDate else { return nil }
+		let year = Calendar.current.component(.year, from: date)
+		return (year / 10) * 10
 	}
 }

@@ -5,16 +5,33 @@
 //  Created by Daniel Eden on 21/05/2026.
 //
 //  Bottom-bar popover that exposes the three composable walk knobs —
-//  meander, energy, decade span — plus a reset that returns control to
-//  the curated app defaults. SongsView reads the values via @AppStorage
-//  and rebuilds the deck when the popover dismisses with changes.
+//  meander, energy, decade span. Close reverts to the on-open snapshot;
+//  Confirm dismisses with current state; Reset wipes back to app
+//  defaults but keeps the popover open so the user can confirm or
+//  close from there. SongsView reads the values via @AppStorage and
+//  rebuilds the deck on dismiss when anything changed.
 //
 
 import SwiftUI
 
 struct WalkControlsPopover: View {
 	@Binding var controls: WalkControls
-	let onReset: () -> Void
+
+	var body: some View {
+		NavigationStack {
+			WalkControlsForm(controls: $controls)
+		}
+		.frame(idealWidth: 360)
+	}
+}
+
+/// Inner view so `@Environment(\.dismiss)` resolves to the popover's
+/// presentation, not whatever container the parent lives in. Also
+/// owns the on-open snapshot used by Close-as-revert.
+private struct WalkControlsForm: View {
+	@Binding var controls: WalkControls
+	@Environment(\.dismiss) private var dismiss
+	@State private var initialSnapshot: WalkControls = .default
 
 	private var isDefault: Bool {
 		controls == .default
@@ -57,19 +74,52 @@ struct WalkControlsPopover: View {
 			} footer: {
 				Text("How willing the walk is to bridge eras. Same era keeps consecutive songs close in time.")
 			}
-
-			Section {
-				Button(role: .destructive) {
-					onReset()
-				} label: {
-					Label("Reset", systemImage: "arrow.counterclockwise")
-						.frame(maxWidth: .infinity)
-				}
-				.disabled(isDefault)
-			}
 		}
 		.formStyle(.grouped)
-		.frame(idealWidth: 360)
+		.toolbar {
+			// Close = revert to the snapshot taken when the sheet
+			// opened, then dismiss. This makes Close behave like Cancel
+			// in iOS sheet UX while still using the iOS 26 `.close`
+			// role chrome (the × glyph) the user asked for.
+			ToolbarItem(placement: .cancellationAction) {
+				Button(role: .close) {
+					controls = initialSnapshot
+					dismiss()
+				}
+			}
+			// Confirm = dismiss with current state. SongsView's
+			// onChange-of-isPresented compares current controls against
+			// its own snapshot and rebuilds the deck if anything changed.
+			ToolbarItem(placement: .confirmationAction) {
+				Button(role: .confirm) {
+					dismiss()
+				}
+			}
+			// Reset clears the knobs back to .default but doesn't
+			// dismiss — gives the user a chance to confirm or close
+			// from the reset state. `.bottomBar` is iOS-only; on
+			// macOS `.destructiveAction` keeps the role semantics in
+			// the toolbar without the iOS bottom bar.
+			#if os(iOS)
+				ToolbarItem(placement: .bottomBar) {
+					resetButton
+				}
+			#else
+				ToolbarItem(placement: .destructiveAction) {
+					resetButton
+				}
+			#endif
+		}
+		.onAppear { initialSnapshot = controls }
+	}
+
+	private var resetButton: some View {
+		Button(role: .destructive) {
+			controls = .default
+		} label: {
+			Label("Reset", systemImage: "arrow.counterclockwise")
+		}
+		.disabled(isDefault)
 	}
 
 	private var meanderSlider: some View {
@@ -100,5 +150,5 @@ struct WalkControlsPopover: View {
 
 #Preview {
 	@Previewable @State var controls = WalkControls.default
-	WalkControlsPopover(controls: $controls, onReset: { controls = .default })
+	WalkControlsPopover(controls: $controls)
 }
