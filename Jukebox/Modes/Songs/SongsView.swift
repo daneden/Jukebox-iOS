@@ -330,7 +330,20 @@ struct SongsView: View {
 	}
 
 	private func open(_ song: Song) {
-		guard let url = song.url else { return }
+		// Library-only songs (no Apple Music catalog match — iTunes Match
+		// uploads, personal files) have a nil `Song.url`, so the existing
+		// guard would silently bail. The iOS Music app's library deep-link
+		// scheme handles them by MusicKit id. The same URL form errors on
+		// macOS Music ("Sorry, something went wrong"), so the fallback is
+		// iOS-only — on macOS, catalog-matched songs still open via
+		// `song.url`, library-only ones no-op.
+		var url: URL? = song.url
+		#if os(iOS)
+			if url == nil {
+				url = URL(string: "music://music.apple.com/library/song/\(song.id)")
+			}
+		#endif
+		guard let url else { return }
 		openURL(url)
 	}
 }

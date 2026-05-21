@@ -262,9 +262,19 @@ struct PlaylistsView: View {
 	}
 
 	private func open(_ playlist: Playlist) {
-		guard let url = playlist.url
-			?? URL(string: "music://music.apple.com/library/playlist/\(playlist.id)")
-		else { return }
+		// Library-only playlists (user-created, never shared) have a nil
+		// `Playlist.url`. The iOS Music app's library deep-link scheme
+		// handles them by MusicKit id. The same URL form errors on macOS
+		// Music ("Sorry, something went wrong"), so the fallback is
+		// iOS-only — on macOS, catalog playlists still open via
+		// `playlist.url`, library-only ones no-op.
+		var url: URL? = playlist.url
+		#if os(iOS)
+			if url == nil {
+				url = URL(string: "music://music.apple.com/library/playlist/\(playlist.id)")
+			}
+		#endif
+		guard let url else { return }
 		openURL(url)
 	}
 }
