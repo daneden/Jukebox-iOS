@@ -151,7 +151,13 @@ struct SongsView: View {
 							controls: walkControlsBinding,
 							onReset: resetWalkControls
 						)
-						.presentationCompactAdaptation(.popover)
+						// Floating popover stays on regular size classes
+						// (iPad, macOS); compact (iPhone) adapts to a
+						// sheet — the popover frame was too cramped on
+						// phone-sized screens.
+						.presentationCompactAdaptation(.sheet)
+						.presentationDetents([.medium, .large])
+						.presentationDragIndicator(.visible)
 					}
 				}
 			}
