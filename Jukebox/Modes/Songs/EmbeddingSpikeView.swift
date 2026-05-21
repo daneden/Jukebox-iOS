@@ -55,9 +55,9 @@
 					.frame(maxWidth: .infinity, alignment: .leading)
 				}
 				.navigationTitle("Embedding Spike")
-				.navigationBarTitleDisplayMode(.inline)
+				.inlineNavigationTitle()
 				.toolbar {
-					ToolbarItem(placement: .topBarTrailing) {
+					ToolbarItem(placement: .trailingAction) {
 						Button("Done") { dismiss() }
 					}
 				}

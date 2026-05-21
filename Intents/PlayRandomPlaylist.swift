@@ -40,14 +40,9 @@ struct PlayRandomPlaylist: AppIntent, CustomIntentMigratedAppIntent, Predictable
 			return .result(dialog: IntentDialog("No playlists found"))
 		}
 
-		let detailedPlaylist = try await playlist.with([.entries])
-
-		guard let firstEntry = detailedPlaylist.entries?.first else {
+		guard await MusicPlayback.play(playlist: playlist) else {
 			return .result(dialog: IntentDialog("Unable to play"))
 		}
-
-		SystemMusicPlayer.shared.queue = .init(playlist: detailedPlaylist, startingAt: firstEntry)
-		try await SystemMusicPlayer.shared.play()
 
 		return .result(dialog: IntentDialog.responseSuccess(playlistName: playlist.name))
 	}

@@ -7,20 +7,29 @@
 
 import MusicKit
 import SwiftUI
-import UIKit
+#if canImport(UIKit)
+	import UIKit
+#endif
 
 // MARK: - Haptics
 
-/// Persistent selection-feedback generator. Holding it across renders keeps it
-/// prepared between detent crossings (vs spinning up a fresh generator each
-/// time, which can drop the first tick).
-private enum DialHapticEngine {
-	static let selection: UISelectionFeedbackGenerator = {
-		let g = UISelectionFeedbackGenerator()
-		g.prepare()
-		return g
-	}()
-}
+// Persistent selection-feedback generator. Holding it across renders keeps it
+// prepared between detent crossings (vs spinning up a fresh generator each
+// time, which can drop the first tick). macOS has no equivalent direct
+// generator suitable for firing inside `animatableData` (NSHapticFeedback
+// requires a trackpad and isn't useful for keyboard/scroll-driven motion),
+// so the per-frame detent tick is iOS-only — Mac falls back to the parent's
+// `.sensoryFeedback(trigger: focusedIndex)` path, which still fires on
+// every focus change, just not on intermediate animation frames.
+#if canImport(UIKit)
+	private enum DialHapticEngine {
+		static let selection: UISelectionFeedbackGenerator = {
+			let g = UISelectionFeedbackGenerator()
+			g.prepare()
+			return g
+		}()
+	}
+#endif
 
 // MARK: - Dial
 
@@ -151,7 +160,9 @@ private struct DialContent<Item: MusicItem & DialItem>: View, Animatable {
 			rotation = newValue
 			let newDetent = Int((-newValue / DialTunables.stepVisual).rounded())
 			if previousDetent != newDetent {
-				DialHapticEngine.selection.selectionChanged()
+				#if canImport(UIKit)
+					DialHapticEngine.selection.selectionChanged()
+				#endif
 			}
 		}
 	}

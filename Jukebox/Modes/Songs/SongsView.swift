@@ -38,8 +38,13 @@ struct SongsView: View {
 	}
 
 	var body: some View {
-		NavigationView {
+		NavigationStack {
 			VStack(spacing: 0) {
+				#if os(macOS)
+					ToolbarLogo()
+						.padding(.top, 8)
+				#endif
+
 				Spacer(minLength: 0)
 
 				ZStack {
@@ -84,12 +89,17 @@ struct SongsView: View {
 				)
 			}
 			.toolbar {
-				ToolbarItem(placement: .topBarLeading) { SettingsMenu() }
-				ToolbarItem(placement: .principal) { ToolbarLogo() }
-				ToolbarItem(placement: .topBarTrailing) {
+				ToolbarItem(placement: .navigation) { SettingsMenu() }
+				#if os(iOS)
+					// macOS renders the wordmark inline above the dial (the
+					// title-bar `.principal` slot competes with the window
+					// chrome and looks out of place there).
+					ToolbarItem(placement: .principal) { ToolbarLogo() }
+				#endif
+				ToolbarItem(placement: .trailingAction) {
 					EmbeddingProgressIndicator(progress: .shared)
 				}
-				ToolbarItem(placement: .topBarTrailing) {
+				ToolbarItem(placement: .trailingAction) {
 					Button {
 						showingHistory = true
 					} label: {
@@ -251,8 +261,11 @@ struct SongsView: View {
 		withAnimation(.smooth(duration: 0.45)) { isReshuffling = true }
 		await runBuild(wideSample: true)
 		withAnimation(.smooth(duration: 0.45)) { isReshuffling = false }
+		// Detached: same rationale as PlaylistsView.shuffle — the rebuild is
+		// the visible work; the queue handoff to MusicPlayback shouldn't
+		// keep the Shuffle button busy.
 		if autoplay, let song = focusedSong {
-			await play(from: song)
+			Task { await play(from: song) }
 		}
 	}
 
@@ -283,24 +296,20 @@ struct SongsView: View {
 			deck[(startIdx + offset) % deck.count]
 		}
 		guard !runway.isEmpty else { return }
-		do {
-			SystemMusicPlayer.shared.queue = .init(for: runway)
-			try await SystemMusicPlayer.shared.play()
-			dial.markPlaying(id: song.id)
 
-			// Log the runway after playback actually starts — no point
-			// remembering a "playlist" that errored on the way out the door.
-			let seedSnapshot = SongSnapshot(song: song)
-			let runwaySnapshots = runway.map(SongSnapshot.init(song:))
-			let name = PlaylistNamer.suggestedName(seedArtist: song.artistName)
-			await HistoryStore.shared.record(
-				name: name,
-				seed: seedSnapshot,
-				runway: runwaySnapshots
-			)
-		} catch {
-			print("Songs playback error: \(error)")
-		}
+		guard await MusicPlayback.play(songs: runway) else { return }
+		dial.markPlaying(id: song.id)
+
+		// Record only after playback started — no point remembering a runway
+		// that errored on the way out the door.
+		let seedSnapshot = SongSnapshot(song: song)
+		let runwaySnapshots = runway.map(SongSnapshot.init(song:))
+		let name = PlaylistNamer.suggestedName(seedArtist: song.artistName)
+		await HistoryStore.shared.record(
+			name: name,
+			seed: seedSnapshot,
+			runway: runwaySnapshots
+		)
 	}
 
 	private func open(_ song: Song) {

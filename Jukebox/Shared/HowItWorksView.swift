@@ -31,9 +31,9 @@ struct HowItWorksView: View {
 				.padding(.vertical, 16)
 			}
 			.navigationTitle("How It Works")
-			.navigationBarTitleDisplayMode(.inline)
+			.inlineNavigationTitle()
 			.toolbar {
-				ToolbarItem(placement: .topBarTrailing) {
+				ToolbarItem(placement: .cancellationAction) {
 					Button(role: .close) { dismiss() }
 				}
 			}

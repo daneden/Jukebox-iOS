@@ -73,7 +73,12 @@ struct OnboardingView: View {
 #Preview("Onboarding sheet") {
 	// Present inside a sheet so the preview matches the production
 	// presentation context (rounded corners, detents, safe areas).
-	Color(.systemBackground)
+	#if os(iOS)
+		let backdrop = Color(.systemBackground)
+	#else
+		let backdrop = Color(.windowBackgroundColor)
+	#endif
+	backdrop
 		.ignoresSafeArea()
 		.sheet(isPresented: .constant(true)) {
 			OnboardingView {

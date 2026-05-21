@@ -32,8 +32,13 @@ struct PlaylistsView: View {
 	}
 
 	var body: some View {
-		NavigationView {
+		NavigationStack {
 			VStack(spacing: 0) {
+				#if os(macOS)
+					ToolbarLogo()
+						.padding(.top, 8)
+				#endif
+
 				Spacer(minLength: 0)
 
 				DialView(
@@ -69,8 +74,13 @@ struct PlaylistsView: View {
 				)
 			}
 			.toolbar {
-				ToolbarItem(placement: .topBarLeading) { SettingsMenu() }
-				ToolbarItem(placement: .principal) { ToolbarLogo() }
+				ToolbarItem(placement: .navigation) { SettingsMenu() }
+				#if os(iOS)
+					// macOS renders the wordmark inline above the dial (the
+					// title-bar `.principal` slot competes with the window
+					// chrome and looks out of place there).
+					ToolbarItem(placement: .principal) { ToolbarLogo() }
+				#endif
 			}
 			.sensoryFeedback(.impact(weight: .medium), trigger: dial.spinLandTick)
 			// Trigger on the focused song's *id*, not its index — a
@@ -136,7 +146,14 @@ struct PlaylistsView: View {
 		defer { isLoading = false }
 
 		var request = MusicLibraryRequest<Playlist>()
-		request.sort(by: \.lastPlayedDate, ascending: false)
+		#if os(iOS)
+			// `.lastPlayedDate` as a sort keypath crashes the macOS MusicKit
+			// resolver with `-[NSSortDescriptor keyPath]: unrecognized selector`
+			// — the property is declared in the cross-platform protocol but
+			// has no NSObject-bridged sort descriptor on macOS. Use the
+			// default library order (library add date) there.
+			request.sort(by: \.lastPlayedDate, ascending: false)
+		#endif
 
 		guard let response = try? await request.response() else { return }
 
@@ -215,18 +232,16 @@ struct PlaylistsView: View {
 		let chosen = playlists[target]
 		dial.recordLanding(at: target, id: chosen.id)
 
-		if autoplay { await play(chosen) }
+		// Detached so the Shuffle button's busy state ends with the visual
+		// landing. `playlist.with([.entries])` + `MusicPlayback.play()` can
+		// take many seconds (network fetch + player startup) and we don't
+		// want the spinner to outlive the spin the user can already see.
+		if autoplay { Task { await play(chosen) } }
 	}
 
 	func play(_ playlist: Playlist) async {
-		guard let detailed = try? await playlist.with([.entries]),
-		      let firstEntry = detailed.entries?.first else { return }
-		do {
-			SystemMusicPlayer.shared.queue = .init(playlist: detailed, startingAt: firstEntry)
-			try await SystemMusicPlayer.shared.play()
+		if await MusicPlayback.play(playlist: playlist) {
 			dial.markPlaying(id: playlist.id)
-		} catch {
-			print(error)
 		}
 	}
 

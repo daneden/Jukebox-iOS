@@ -214,22 +214,33 @@ enum GemDeckBuilder {
 	}
 
 	private static func warmEmbeddings(for deck: [Song]) {
-		Task.detached(priority: .background) {
-			for song in deck {
-				if await EmbeddingStore.shared.embedding(for: song.id) != nil {
+		// `.utility` not `.background` — narrows the QoS gap to the
+		// user-initiated walk reads from the same actor so the runtime
+		// doesn't flag a priority inversion when a walk fetch lands
+		// behind us.
+		Task.detached(priority: .utility) {
+			// One bulk fetch instead of 300 per-song actor hops, so the
+			// walk's `embeddings(for:)` isn't stuck behind hundreds of
+			// low-QoS queries inside the actor.
+			let cached = await EmbeddingStore.shared.embeddings(for: deck.map(\.id))
+			let cachedIDs = Set(cached.keys)
+			await MainActor.run {
+				for id in cachedIDs {
+					EmbeddingProgress.shared.recordProcessed(id)
+				}
+			}
+
+			for song in deck where !cachedIDs.contains(song.id) {
+				do {
+					_ = try await AudioEmbeddingService.embed(song: song)
+					// `EmbeddingStore.store` already fired `recordProcessed`.
+				} catch {
+					// Mark permanent failures (noCatalogMatch, noPreview, …)
+					// processed too — otherwise the indicator stalls at e.g.
+					// 298/300 for songs that can't be resolved to a preview.
 					await MainActor.run {
 						EmbeddingProgress.shared.recordProcessed(song.id)
 					}
-					continue
-				}
-				_ = try? await AudioEmbeddingService.embed(song: song)
-				// Mark the song processed regardless of success — a permanent
-				// failure (noCatalogMatch, noPreview, …) is "done for this
-				// session" from the progress UI's point of view, otherwise the
-				// indicator stalls at e.g. 298/300 for songs that can't be
-				// resolved to a catalog preview.
-				await MainActor.run {
-					EmbeddingProgress.shared.recordProcessed(song.id)
 				}
 				// Small breath between requests so we don't hammer the
 				// network or the user's battery in one burst.

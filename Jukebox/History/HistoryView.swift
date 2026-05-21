@@ -21,9 +21,9 @@ struct HistoryView: View {
 		NavigationStack {
 			content
 				.navigationTitle("History")
-				.navigationBarTitleDisplayMode(.inline)
+				.inlineNavigationTitle()
 				.toolbar {
-					ToolbarItem(placement: .topBarTrailing) {
+					ToolbarItem(placement: .cancellationAction) {
 						Button(role: .close) { dismiss() }
 					}
 				}
@@ -136,12 +136,12 @@ private struct HistoryDetailView: View {
 		}
 		.onDisappear { onChange() }
 		.navigationTitle(entry.displayName)
-		.navigationBarTitleDisplayMode(.inline)
+		.inlineNavigationTitle()
 		.toolbar {
-			ToolbarItem(placement: .topBarTrailing) {
+			ToolbarItem(placement: .trailingAction) {
 				feedbackMenu
 			}
-			ToolbarItem(placement: .topBarTrailing) {
+			ToolbarItem(placement: .trailingAction) {
 				Button {
 					presentSaveDialog()
 				} label: {
@@ -304,11 +304,19 @@ private struct HistoryDetailView: View {
 				saveError = "None of these songs are in your Apple Music library anymore."
 				return
 			}
-			_ = try await MusicLibrary.shared.createPlaylist(
-				name: name,
-				description: "Made with Playback",
-				items: resolved
-			)
+			#if os(iOS)
+				_ = try await MusicLibrary.shared.createPlaylist(
+					name: name,
+					description: "Made with Playback",
+					items: resolved
+				)
+			#else
+				// MusicLibrary.createPlaylist is iOS-only. macOS MusicKit doesn't
+				// expose any library-mutation API, so a "save to library" flow
+				// from the app isn't possible there.
+				_ = name
+				saveError = "Saving to your library isn't available on macOS yet."
+			#endif
 		} catch {
 			saveError = error.localizedDescription
 		}
@@ -324,9 +332,7 @@ private struct HistoryDetailView: View {
 	private func playAll() async {
 		do {
 			let resolved = try await fetchSongs()
-			guard !resolved.isEmpty else { return }
-			SystemMusicPlayer.shared.queue = .init(for: resolved)
-			try await SystemMusicPlayer.shared.play()
+			await MusicPlayback.play(songs: resolved)
 		} catch {
 			print("History play error: \(error)")
 		}

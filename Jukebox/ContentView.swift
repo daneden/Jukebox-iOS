@@ -40,9 +40,23 @@ struct ContentView: View {
 		.sheet(isPresented: $showOnboarding) {
 			OnboardingView {
 				let status = await MusicAuthorization.request()
+				#if os(macOS)
+					// Group the Music.app automation prompt with the library auth
+					// so the user isn't ambushed by a second prompt on first play.
+					_ = await AppleMusicScriptBridge.requestAutomationPermission()
+				#endif
 				if status != .notDetermined { showOnboarding = false }
 			}
 		}
+		#if os(macOS)
+		.task {
+			// Covers the already-authorized path where onboarding never shows.
+			// `AEDeterminePermissionToAutomateTarget` is a no-op once cached,
+			// so this is harmless if it also ran through the onboarding hook.
+			guard MusicAuthorization.currentStatus == .authorized else { return }
+			_ = await AppleMusicScriptBridge.requestAutomationPermission()
+		}
+		#endif
 	}
 }
 

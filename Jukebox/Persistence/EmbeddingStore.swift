@@ -13,6 +13,7 @@
 //  the user pays ~5 minutes of background embedding the next time the
 //  gem deck builds — acceptable for a once-per-device cost.
 
+import Dispatch
 import Foundation
 import MusicKit
 import SwiftData
@@ -24,6 +25,19 @@ actor EmbeddingStore {
 	static let currentModelVersion = 1
 
 	static let shared = EmbeddingStore()
+
+	/// Pin the actor's executor to a single QoS. Callers span `.utility`
+	/// (warm loop) and `.userInitiated` (dial walk); without pinning, the
+	/// QoS of whichever task scheduled the running actor job determines
+	/// what subsequent waiters see — and a higher-priority waiter behind a
+	/// lower-priority job trips the runtime's priority-inversion warning.
+	private nonisolated let queue = DispatchSerialQueue(
+		label: "me.daneden.Jukebox.EmbeddingStore",
+		qos: .userInitiated
+	)
+	nonisolated var unownedExecutor: UnownedSerialExecutor {
+		queue.asUnownedSerialExecutor()
+	}
 
 	private var container: ModelContainer?
 	private var context: ModelContext?

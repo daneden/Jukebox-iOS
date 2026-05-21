@@ -27,7 +27,7 @@ struct PlaybackControls: View {
 				.fontWeight(.bold)
 				.buttonStyle(.glass)
 				.buttonBorderShape(.capsule)
-				.controlSize(.large)
+				.controlSize(.extraLarge)
 				.disabled(disabled)
 
 				AsyncButton(action: onShuffle) {
@@ -38,12 +38,17 @@ struct PlaybackControls: View {
 				.fontWeight(.bold)
 				.buttonStyle(.glassProminent)
 				.buttonBorderShape(.capsule)
-				.controlSize(.large)
+				.controlSize(.extraLarge)
 				.disabled(disabled)
 			}
 			.frame(height: 56)
 		}
 		.scenePadding(.horizontal)
-		.scenePadding(.bottom)
+		#if os(iOS)
+			// macOS windows have their own bottom chrome margin already; the
+			// extra scenePadding here makes the bar float too far above the
+			// window's bottom edge.
+			.scenePadding(.bottom)
+		#endif
 	}
 }

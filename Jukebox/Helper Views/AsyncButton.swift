@@ -20,16 +20,18 @@ struct AsyncButton<T: View>: View {
 				isBusy = false
 			}
 		} label: {
-			label()
-				.opacity(isBusy ? 0 : 1)
-		}
-		.disabled(isBusy)
-		.overlay {
-			if isBusy {
+			// The spinner sits inside the label, not as an outer .overlay,
+			// so glass button styles (which paint their material over outer
+			// overlays) don't bury it behind the glass.
+			ZStack {
+				label()
+					.opacity(isBusy ? 0 : 1)
 				ProgressView()
-					.controlSize(.regular)
+					.controlSize(.small)
+					.opacity(isBusy ? 1 : 0)
 			}
 		}
+		.disabled(isBusy)
 	}
 }
 
