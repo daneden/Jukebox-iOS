@@ -6,10 +6,11 @@
 //
 //  Greedy similarity walk that orders a deck of songs so consecutive
 //  entries share sonic mood. Uses cached AudioFeaturePrint embeddings
-//  via cosine similarity when available, falling back to genre Jaccard
-//  for songs that haven't been embedded yet — so the walk produces a
-//  coherent ordering on a fresh install (zero embeddings cached) and
-//  gradually sharpens as the embedding cache fills via background work.
+//  via cosine similarity when available, falling back to a graph-based
+//  genre similarity for songs that haven't been embedded yet — so the
+//  walk produces a coherent ordering on a fresh install (zero
+//  embeddings cached) and gradually sharpens as the embedding cache
+//  fills via background work.
 //
 //  Diversity rules (hard-exclude, with graceful relaxation):
 //   - No same artist within the previous 2 songs.
@@ -160,7 +161,7 @@ enum SongDeckWalk {
 		_ b: Song,
 		embeddings: [MusicItemID: [Float]]
 	) -> Float {
-		let genre = genreJaccard(a, b)
+		let genre = GenreSimilarity.score(a.genreNames, b.genreNames)
 		let era = eraProximity(a, b)
 
 		if let eA = embeddings[a.id], let eB = embeddings[b.id] {
@@ -169,14 +170,6 @@ enum SongDeckWalk {
 		}
 		// No cached embedding for at least one side — metadata only.
 		return 0.5 * genre + 0.5 * era
-	}
-
-	private static func genreJaccard(_ a: Song, _ b: Song) -> Float {
-		let aGenres = Set(a.genreNames)
-		let bGenres = Set(b.genreNames)
-		let union = aGenres.union(bGenres)
-		guard !union.isEmpty else { return 0.5 }
-		return Float(aGenres.intersection(bGenres).count) / Float(union.count)
 	}
 
 	/// Exponential decay with a ~20-year halflife. Linear clamping at 30
