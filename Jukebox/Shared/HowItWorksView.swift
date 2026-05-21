@@ -153,7 +153,7 @@ private struct GemDeckFunnel: View {
 				RoundedRectangle(cornerRadius: 24).fill(.quinary)
 			)
 			connector("union + dedupe")
-			stage("Candidates", count: "~2,500", width: 200, tint: .gray.secondary)
+			stage("Candidates", count: "~2,500", width: 200, tint: .gray.opacity(0.7))
 			connector("score + recency filter")
 			stage("Deck", count: "300", width: 100, tint: .black)
 		}
