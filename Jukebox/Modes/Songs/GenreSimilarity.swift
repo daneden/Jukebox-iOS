@@ -4,26 +4,32 @@
 //
 //  Created by Daniel Eden on 21/05/2026.
 //
-//  Hand-curated genre adjacency graph used by the walk's metadata
+//  Lineage-based genre similarity used by the walk's metadata
 //  similarity blend. Pure Jaccard on string-equal genre names treated
 //  "Reggae" and "Dub" as wholly unrelated, which blunted the walk on
 //  collections with deep stylistic crossover — a deck with reggae,
 //  dub, dubstep, and techno tracks got no genre signal bridging the
 //  chain even though the chain is sonically obvious.
 //
-//  Genres are nodes in a small undirected graph; pairwise similarity
-//  decays with shortest-path distance — 1-hop neighbours score 0.6,
-//  2-hop 0.3, 3-hop 0.1, anything further 0. The decay curve is steep
-//  enough that a direct match (1.0) still dominates a cousin (0.3),
-//  but a "reggae → techno" pair earns a small bridging score that the
-//  rest of the blend can build on instead of starting from zero.
+//  Genre lineage is expressed as a set of ordered chains — each chain
+//  is a sequence of stylistically descended/adjacent genres. From
+//  those chains we materialize n-gram window distances: a bigram
+//  (positions i, i+1 in the same chain) scores 0.6, a trigram window
+//  (i, i+2) scores 0.3, a 4-gram window (i, i+3) scores 0.1, and
+//  anything further apart — or not co-present in any chain — scores
+//  0. A direct match (post-normalization) scores 1.0.
 //
-//  The graph is intentionally sparse — only edges that capture
-//  meaningful family or lineage relationships, not "both are music."
-//  Apple Music's genre tags use both broad labels ("Rock",
-//  "Electronic") and finer sub-genres ("Dubstep", "Trap"); the graph
-//  includes both and bridges them, so e.g. "Reggae" / "Dub" scores
-//  like a direct lineage step rather than two unrelated strings.
+//  Chains overlap on shared nodes (e.g. "rock" appears in several),
+//  so bridging happens implicitly through co-membership. To bridge a
+//  pair that doesn't fall within a single chain, add a chain that
+//  contains both — it's intentionally local: lineage is named, not
+//  inferred via global graph traversal.
+//
+//  Eventually we may layer a learned model on top — bigram counts
+//  from the user's playlists, where co-occurrence is genuine signal
+//  rather than my best guess at the music-history textbook — and
+//  fall back to these chains when the learned model has too few
+//  observations. The chains are the lineage prior.
 
 import Foundation
 
@@ -58,17 +64,15 @@ enum GenreSimilarity {
 	}
 
 	/// Pairwise similarity between two genre names. 1.0 for exact
-	/// (post-normalization) match, then 0.6 / 0.3 / 0.1 by graph
-	/// distance, 0 for anything further (including unknown genres
-	/// not in the graph).
+	/// (post-normalization) match, then 0.6 / 0.3 / 0.1 by minimum
+	/// n-gram window distance across all lineage chains, 0 for
+	/// anything further (including unknown genres not in any chain).
 	static func pairwise(_ a: String, _ b: String) -> Float {
 		let na = normalize(a)
 		let nb = normalize(b)
 		if na == nb { return 1.0 }
-		guard let distance = shortestPath(from: na, to: nb, maxDepth: 3) else {
-			return 0
-		}
-		switch distance {
+		guard let d = pairwiseDistance[na]?[nb] else { return 0 }
+		switch d {
 		case 1: return 0.6
 		case 2: return 0.3
 		case 3: return 0.1
@@ -76,147 +80,113 @@ enum GenreSimilarity {
 		}
 	}
 
-	// MARK: - Graph
+	// MARK: - Lineage chains
 
 	private static func normalize(_ s: String) -> String {
 		s.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
 	}
 
-	/// Undirected edges. Listed once; `adjacency` mirrors them. Add new
-	/// relationships here — keep edges meaningful (lineage, sonic
-	/// kinship, named sub-genre) rather than thematic.
-	private static let edges: [(String, String)] = [
+	/// Ordered lineage chains. Adjacent entries are bigrams; skip-one
+	/// is a trigram window; skip-two is a 4-gram window. Chains
+	/// overlap on shared ancestors — that's how lineage diverges
+	/// from a single 1D ordering. Add new lineage by extending an
+	/// existing chain or adding a new one; window distance is
+	/// recomputed at static-init time.
+	///
+	/// All entries are pre-normalized (lowercase, trimmed) so the
+	/// adjacency table can key directly without re-normalizing per
+	/// lookup.
+	private static let chains: [[String]] = [
 		// Electronic / dance lineage. The reggae → dub → dubstep →
-		// drum-and-bass → techno → house spine is the canonical
-		// "surprising chain" this graph exists to enable.
-		("electronic", "dance"),
-		("electronic", "house"),
-		("electronic", "techno"),
-		("electronic", "ambient"),
-		("electronic", "edm"),
-		("electronic", "idm"),
-		("house", "techno"),
-		("house", "deep house"),
-		("house", "disco"),
-		("techno", "edm"),
-		("techno", "dubstep"),
-		("dubstep", "drum & bass"),
-		("dubstep", "dub"),
-		("ambient", "downtempo"),
-		("ambient", "idm"),
-		("ambient", "chillwave"),
+		// techno chain is the canonical "surprising chain" this
+		// exists to enable — kept as a single 5-gram so reggae and
+		// techno land within window distance of each other.
+		["reggae", "dub", "dubstep", "techno", "house"],
+		["electronic", "dub", "dubstep"],
+		["electronic", "techno", "edm"],
+		["electronic", "house", "deep house"],
+		["electronic", "ambient", "idm"],
+		["electronic", "ambient", "downtempo"],
+		["electronic", "dance"],
+		["dance", "house", "disco"],
+		["dance", "edm"],
+		["dubstep", "drum & bass"],
 
-		// Reggae lineage
-		("reggae", "dub"),
-		("reggae", "ska"),
-		("reggae", "dancehall"),
-		("ska", "punk"),
+		// Reggae / ska / dancehall
+		["reggae", "ska", "punk"],
+		["reggae", "dancehall"],
 
-		// Rock family
-		("rock", "alternative"),
-		("rock", "indie rock"),
-		("rock", "hard rock"),
-		("rock", "garage rock"),
-		("rock", "blues"),
-		("alternative", "indie rock"),
-		("alternative", "post-punk"),
-		("alternative", "indie pop"),
-		("indie rock", "indie pop"),
-		("punk", "post-punk"),
-		("punk", "hardcore punk"),
-		("punk", "new wave"),
-		("post-punk", "new wave"),
-		("new wave", "synthpop"),
-		("synthpop", "pop"),
-		("synthpop", "synthwave"),
-		("synthwave", "vaporwave"),
-		("synthwave", "chillwave"),
+		// Rock / alternative / indie
+		["rock", "alternative", "indie rock", "indie pop"],
+		["rock", "garage rock"],
+		["rock", "blues", "soul"],
+		["alternative", "post-punk", "new wave", "synthpop"],
+		["punk", "post-punk", "new wave"],
+		["punk", "hardcore punk"],
+		["synthpop", "synthwave", "vaporwave"],
+		["synthpop", "synthwave", "chillwave"],
 
 		// Metal
-		("hard rock", "metal"),
-		("metal", "thrash metal"),
-		("metal", "death metal"),
-		("metal", "black metal"),
-		("metal", "doom metal"),
+		["rock", "hard rock", "metal"],
+		["metal", "thrash metal"],
+		["metal", "death metal"],
+		["metal", "black metal"],
+		["metal", "doom metal"],
 
-		// Hip-hop / R&B / soul / funk
-		("hip-hop/rap", "rap"),
-		("hip-hop/rap", "trap"),
-		("hip-hop/rap", "r&b/soul"),
-		("rap", "trap"),
-		("rap", "lo-fi"),
-		("r&b/soul", "soul"),
-		("r&b/soul", "neo-soul"),
-		("r&b/soul", "funk"),
-		("soul", "funk"),
-		("soul", "gospel"),
-		("soul", "blues"),
-		("funk", "disco"),
-		("disco", "dance"),
+		// Soul / funk / hip-hop / r&b
+		["soul", "funk", "disco", "house"],
+		["soul", "r&b/soul", "neo-soul"],
+		["soul", "gospel"],
+		["r&b/soul", "hip-hop/rap", "rap", "trap"],
+		["rap", "lo-fi"],
 
 		// Jazz
-		("jazz", "vocal jazz"),
-		("jazz", "bebop"),
-		("jazz", "fusion"),
-		("jazz", "blues"),
-		("jazz", "soul"),
-		("fusion", "funk"),
+		["jazz", "vocal jazz"],
+		["jazz", "bebop"],
+		["jazz", "fusion", "funk"],
+		["jazz", "blues", "soul"],
 
 		// Folk / country / americana
-		("folk", "singer/songwriter"),
-		("folk", "americana"),
-		("folk", "country"),
-		("country", "americana"),
-		("country", "bluegrass"),
-		("americana", "bluegrass"),
-		("americana", "singer/songwriter"),
+		["folk", "singer/songwriter"],
+		["folk", "americana", "bluegrass"],
+		["folk", "country", "americana"],
 
 		// Pop bridges
-		("pop", "indie pop"),
-		("pop", "dance pop"),
-		("dance pop", "edm"),
-		("dance pop", "dance"),
+		["pop", "indie pop"],
+		["pop", "dance pop", "edm"],
+		["pop", "synthpop"],
 
-		// Classical / score
-		("classical", "soundtrack"),
-		("classical", "ambient"),
+		// Classical / soundtrack
+		["classical", "soundtrack"],
+		["classical", "ambient"],
 	]
 
-	private static let adjacency: [String: Set<String>] = {
-		var adj: [String: Set<String>] = [:]
-		for (a, b) in edges {
-			adj[a, default: []].insert(b)
-			adj[b, default: []].insert(a)
-		}
-		return adj
-	}()
+	/// Window cap for n-gram distance. We only consider pairs within
+	/// `windowSize - 1` positions of each other in a chain (i.e. a
+	/// 4-gram window means up to 3 positions apart). Anything beyond
+	/// is "too far" and falls out to 0 — the score curve is steep
+	/// enough that a 4th-order link is barely signal anyway.
+	private static let windowSize = 4
 
-	/// Returns shortest-path hop count from `start` to `goal`, or `nil`
-	/// if there's no path within `maxDepth` hops. Plain BFS; graph is
-	/// small (~40 nodes, ~80 edges) so each call is microseconds.
-	private static func shortestPath(
-		from start: String,
-		to goal: String,
-		maxDepth: Int
-	) -> Int? {
-		guard adjacency[start] != nil, adjacency[goal] != nil else { return nil }
-
-		var visited: Set<String> = [start]
-		var frontier: Set<String> = [start]
-
-		for depth in 1 ... maxDepth {
-			var next: Set<String> = []
-			for node in frontier {
-				guard let neighbours = adjacency[node] else { continue }
-				for n in neighbours where !visited.contains(n) {
-					if n == goal { return depth }
-					visited.insert(n)
-					next.insert(n)
+	/// Precomputed minimum n-gram distance for every co-chain pair.
+	/// O(C × L²) build, where C = number of chains and L = chain
+	/// length — both small; ~hundreds of entries total. Worth it
+	/// to make `pairwise(_:_:)` O(1) inside the walk's N² loop.
+	private static let pairwiseDistance: [String: [String: Int]] = {
+		var table: [String: [String: Int]] = [:]
+		for chain in chains {
+			for i in 0 ..< chain.count {
+				let upper = min(chain.count, i + windowSize)
+				for j in (i + 1) ..< upper {
+					let a = chain[i]
+					let b = chain[j]
+					let d = j - i
+					if let existing = table[a]?[b], existing <= d { continue }
+					table[a, default: [:]][b] = d
+					table[b, default: [:]][a] = d
 				}
 			}
-			if next.isEmpty { return nil }
-			frontier = next
 		}
-		return nil
-	}
+		return table
+	}()
 }
