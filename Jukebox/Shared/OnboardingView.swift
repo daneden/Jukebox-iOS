@@ -46,6 +46,7 @@ struct OnboardingView: View {
 				Text("No accounts, no tracking, and no subscription.")
 			}
 			.font(.title3)
+			.fontDesign(.serif)
 			.foregroundStyle(.secondary)
 
 			Spacer()
