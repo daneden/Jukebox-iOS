@@ -5,7 +5,7 @@
 //  Created by Daniel Eden on 20/05/2026.
 //
 //  Rotates through a pool of evocative music-discovery phrases while
-//  Jukebox is searching/building. Sweetens the wait without changing
+//  Playback is searching/building. Sweetens the wait without changing
 //  what it actually means — every phrase signals "we're rummaging
 //  through your library."
 

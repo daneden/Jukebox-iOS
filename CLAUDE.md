@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Jukebox (display name **Playback**, bundle ID `me.daneden.Jukebox`) is a single-target iOS 26 SwiftUI app that spins the user's Apple Music library on a 3D cover-flow-style dial. It's a personal app — one user, no telemetry, no server — so visual/experiential richness is fair game.
+**Playback** (Xcode target/scheme `Jukebox`, App Store listing "Playback Music", bundle ID `me.daneden.Jukebox`) is a single-target iOS 26 SwiftUI app that spins the user's Apple Music library on a 3D cover-flow-style dial. It's a personal app — one user, no telemetry, no server — so visual/experiential richness is fair game.
+
+The product was originally named "Jukebox" — that name survives only as the Xcode target/scheme/folder name and the bundle ID suffix. Everything user-facing (home-screen icon, App Store listing, in-app copy) is "Playback".
 
 Two tabs share the same dial component:
 - **Playlists** — original surface; spins playlists and plays via `SystemMusicPlayer`.

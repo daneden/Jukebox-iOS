@@ -8,7 +8,7 @@
 import MusicKit
 import SwiftUI
 
-/// Playlist-shuffle mode. The original Jukebox surface, now living inside a
+/// Playlist-shuffle mode. The original Playback surface, now living inside a
 /// tab. Mechanics (shuffle, reanchor, ripple) live in DialState; this view
 /// owns playlist fetching and Apple-Music playback.
 struct PlaylistsView: View {

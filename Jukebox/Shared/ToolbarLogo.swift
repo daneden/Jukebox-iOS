@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-/// The Jukebox wordmark for the toolbar's principal placement. Identical in
+/// The Playback wordmark for the toolbar's principal placement. Identical in
 /// both tabs — extracted so the asset name and sizing live in one spot.
 struct ToolbarLogo: View {
 	var body: some View {
