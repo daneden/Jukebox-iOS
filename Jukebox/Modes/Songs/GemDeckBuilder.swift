@@ -63,7 +63,8 @@ enum GemDeckBuilder {
 
 	static func buildStreaming(
 		now: Date = Date(),
-		wideSample: Bool = false
+		wideSample: Bool = false,
+		controls: WalkControls = .default
 	) -> AsyncThrowingStream<BuildResult, Error> {
 		AsyncThrowingStream { continuation in
 			let task = Task {
@@ -94,6 +95,7 @@ enum GemDeckBuilder {
 						songs: nostalgia,
 						scorer: scorer,
 						seed: seed,
+						controls: controls,
 						wideSample: wideSample
 					))
 
@@ -103,6 +105,7 @@ enum GemDeckBuilder {
 						songs: union,
 						scorer: scorer,
 						seed: seed,
+						controls: controls,
 						wideSample: wideSample
 					)
 					continuation.yield(final)
@@ -143,9 +146,42 @@ enum GemDeckBuilder {
 		songs: [Song],
 		scorer: GemScorer,
 		seed: UInt64,
+		controls: WalkControls = .default,
 		wideSample: Bool = false
 	) async -> BuildResult {
-		let ranked = scorer.scoreAndRank(songs)
+		// When energy filtering is active we need embeddings for the
+		// whole input pool (the centroid classifier scores everything),
+		// not just the eventual top-300. For the "Any" band we defer the
+		// embedding fetch to after `top` is picked — the current pre-
+		// classifier behaviour — to avoid loading ~3000 vectors when we
+		// don't need them. The 'top-only' path below short-circuits this
+		// branch.
+		var poolEmbeddings: [MusicItemID: [Float]]?
+		if controls.energy != .any {
+			poolEmbeddings = await EmbeddingStore.shared.embeddings(for: songs.map(\.id))
+		}
+
+		// Energy: centroid-based refinement first; if there aren't
+		// enough anchors with cached embeddings the classifier returns
+		// nil and we fall through to the keyword filter; if *that* is
+		// empty we fall through to the unfiltered pool. Soft-fail at
+		// every step so a misconfigured band can't produce a blank deck.
+		let pool: [Song]
+		if controls.energy == .any {
+			pool = songs
+		} else if let emb = poolEmbeddings,
+		          let centroidFiltered = EnergyClassifier.filter(songs, band: controls.energy, embeddings: emb),
+		          !centroidFiltered.isEmpty
+		{
+			pool = centroidFiltered
+		} else if let keywordFiltered = filterByEnergy(songs, energy: controls.energy),
+		          !keywordFiltered.isEmpty
+		{
+			pool = keywordFiltered
+		} else {
+			pool = songs
+		}
+		let ranked = scorer.scoreAndRank(pool)
 		let top: [Song]
 		if wideSample {
 			// Super-shuffle: widen the slice and sample down to deckSize,
@@ -165,10 +201,15 @@ enum GemDeckBuilder {
 		} else {
 			top = capPerArtistAndAlbum(ranked.map(\.song), limit: deckSize)
 		}
-		// Bulk-load embeddings for the top-N; the walk uses them where
-		// available and falls back to genre similarity for songs that
-		// haven't been embedded yet.
-		let embeddings = await EmbeddingStore.shared.embeddings(for: top.map(\.id))
+		// Use the pool-wide embeddings if we already loaded them for the
+		// classifier; otherwise fetch just the top-N for the walk.
+		let embeddings: [MusicItemID: [Float]]
+		if let emb = poolEmbeddings {
+			let topIDs = Set(top.map(\.id))
+			embeddings = emb.filter { topIDs.contains($0.key) }
+		} else {
+			embeddings = await EmbeddingStore.shared.embeddings(for: top.map(\.id))
+		}
 		// Pull the user's blocked-pair feedback so the walk avoids
 		// recreating transitions they've explicitly rejected.
 		let blockedPairs = await TransitionFeedbackStore.shared.allBlockedPairs()
@@ -176,9 +217,24 @@ enum GemDeckBuilder {
 			songs: top,
 			embeddings: embeddings,
 			blockedPairs: blockedPairs,
-			seed: seed
+			seed: seed,
+			controls: controls
 		)
 		return BuildResult(deck: deck, scannedCount: songs.count)
+	}
+
+	/// Returns nil when the band imposes no filter; otherwise returns
+	/// the subset of `songs` whose `genreNames` contain (case-insensitive
+	/// substring) any of the band's keywords.
+	private static func filterByEnergy(_ songs: [Song], energy: EnergyBand) -> [Song]? {
+		guard let keywords = energy.genreKeywords else { return nil }
+		let lowered = keywords.map { $0.lowercased() }
+		return songs.filter { song in
+			song.genreNames.contains { genre in
+				let g = genre.lowercased()
+				return lowered.contains(where: g.contains)
+			}
+		}
 	}
 
 	/// Walks the score-sorted candidate list and keeps each song unless

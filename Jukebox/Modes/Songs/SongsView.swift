@@ -17,6 +17,9 @@ struct SongsView: View {
 	@Environment(\.openURL) private var openURL
 
 	@AppStorage(SettingsKeys.autoplay) private var autoplay: Bool = true
+	@AppStorage(SettingsKeys.walkMeander) private var meander: Double = WalkControls.default.meander
+	@AppStorage(SettingsKeys.walkEnergy) private var energyRaw: Int = WalkControls.default.energy.rawValue
+	@AppStorage(SettingsKeys.walkDecadeSpan) private var decadeSpanRaw: Int = WalkControls.default.decadeSpan.rawValue
 
 	@State private var deck: MusicItemCollection<Song> = []
 	@State private var dial = DialState()
@@ -25,10 +28,40 @@ struct SongsView: View {
 	@State private var loadError: String?
 	@State private var hasBuiltDeck = false
 	@State private var showingHistory = false
+	@State private var showingWalkControls = false
+	/// Captured at popover-open time so we can tell on dismiss whether
+	/// the user actually changed anything and skip the rebuild if not.
+	@State private var walkControlsAtOpen: WalkControls?
 	/// True while a shuffle-driven rebuild is in flight. The dial is
 	/// pulled offscreen for the duration so partial/final deck swaps
 	/// don't visibly thrash; a loading view sits in its place.
 	@State private var isReshuffling = false
+
+	private var walkControls: WalkControls {
+		WalkControls(
+			meander: meander,
+			energy: EnergyBand(rawValue: energyRaw) ?? .any,
+			decadeSpan: DecadeSpan(rawValue: decadeSpanRaw) ?? .balanced
+		)
+	}
+
+	private var walkControlsBinding: Binding<WalkControls> {
+		Binding(
+			get: { walkControls },
+			set: { new in
+				meander = new.meander
+				energyRaw = new.energy.rawValue
+				decadeSpanRaw = new.decadeSpan.rawValue
+			}
+		)
+	}
+
+	private func resetWalkControls() {
+		let d = WalkControls.default
+		meander = d.meander
+		energyRaw = d.energy.rawValue
+		decadeSpanRaw = d.decadeSpan.rawValue
+	}
 
 	private var focusedSong: Song? {
 		guard !deck.isEmpty,
@@ -101,7 +134,36 @@ struct SongsView: View {
 					disabled: dial.isSpinning || deck.isEmpty || isReshuffling,
 					onPlay: { if let s = focusedSong { await play(from: s) } },
 					onShuffle: { await shuffle() }
-				)
+				) {
+					Button {
+						walkControlsAtOpen = walkControls
+						showingWalkControls = true
+					} label: {
+						Label("Walk controls", systemImage: "slider.horizontal.3")
+							.labelStyle(.iconOnly)
+					}
+					.buttonStyle(.glass)
+					.buttonBorderShape(.circle)
+					.controlSize(.extraLarge)
+					.disabled(dial.isSpinning || isReshuffling)
+					.popover(isPresented: $showingWalkControls) {
+						WalkControlsPopover(
+							controls: walkControlsBinding,
+							onReset: resetWalkControls
+						)
+						.presentationCompactAdaptation(.popover)
+					}
+				}
+			}
+			.onChange(of: showingWalkControls) { wasShowing, nowShowing in
+				// Rebuild on dismiss rather than per-slider-step so the
+				// user can scrub freely without thrashing the deck.
+				if wasShowing, !nowShowing,
+				   let snap = walkControlsAtOpen, snap != walkControls
+				{
+					walkControlsAtOpen = nil
+					Task { await rebuildForWalkControlsChange() }
+				}
 			}
 			.toolbar {
 				ToolbarItem(placement: .navigation) { SettingsMenu() }
@@ -190,7 +252,7 @@ struct SongsView: View {
 		// the second is the full nostalgia+discovery deck (lift-out
 		// transition swaps it in when ready).
 		do {
-			for try await result in GemDeckBuilder.buildStreaming(wideSample: wideSample) {
+			for try await result in GemDeckBuilder.buildStreaming(wideSample: wideSample, controls: walkControls) {
 				applyDeck(result.deck)
 			}
 			// Seed the toolbar progress tracker with the final deck.
@@ -284,6 +346,17 @@ struct SongsView: View {
 		if autoplay, let song = focusedSong {
 			Task { await play(from: song) }
 		}
+	}
+
+	/// Triggered when the walk-controls popover dismisses with changes.
+	/// Reuses the reshuffle blur path (not wideSample — energy/decade
+	/// changes already turn the deck over) so the swap feels intentional
+	/// rather than mid-flight.
+	private func rebuildForWalkControlsChange() async {
+		guard !dial.isSpinning, !isReshuffling else { return }
+		withAnimation(.smooth(duration: 0.45)) { isReshuffling = true }
+		await runBuild(wideSample: false)
+		withAnimation(.smooth(duration: 0.45)) { isReshuffling = false }
 	}
 
 	// MARK: - Playback

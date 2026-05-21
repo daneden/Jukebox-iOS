@@ -11,15 +11,22 @@ import SwiftUI
 /// Play immediately plays whatever is focused; Shuffle's behavior is
 /// owned by the caller — Playlists rotates the dial, Songs rebuilds the
 /// deck — so this view is a dumb action surface.
-struct PlaybackControls: View {
+///
+/// Optional `leading` slot tucks an extra control (e.g. Songs mode's
+/// walk-controls trigger) inside the same glass container so the effect
+/// merges with Play + Shuffle.
+struct PlaybackControls<Leading: View>: View {
 	@Environment(\.colorScheme) private var colorScheme
 	let disabled: Bool
 	let onPlay: () async -> Void
 	let onShuffle: () async -> Void
+	@ViewBuilder let leading: Leading
 
 	var body: some View {
 		GlassEffectContainer(spacing: 8) {
 			HStack(spacing: 8) {
+				leading
+
 				AsyncButton(action: onPlay) {
 					Label("Play", systemImage: "play.fill")
 						.frame(maxWidth: .infinity)
@@ -50,5 +57,17 @@ struct PlaybackControls: View {
 			// window's bottom edge.
 			.scenePadding(.bottom)
 		#endif
+	}
+}
+
+extension PlaybackControls where Leading == EmptyView {
+	init(
+		disabled: Bool,
+		onPlay: @escaping () async -> Void,
+		onShuffle: @escaping () async -> Void
+	) {
+		self.init(disabled: disabled, onPlay: onPlay, onShuffle: onShuffle) {
+			EmptyView()
+		}
 	}
 }

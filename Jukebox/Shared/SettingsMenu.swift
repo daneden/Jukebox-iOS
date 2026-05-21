@@ -50,4 +50,7 @@ struct SettingsMenu: View {
 
 enum SettingsKeys {
 	static let autoplay = "autoplay"
+	static let walkMeander = "walkControls.meander"
+	static let walkEnergy = "walkControls.energy"
+	static let walkDecadeSpan = "walkControls.decadeSpan"
 }

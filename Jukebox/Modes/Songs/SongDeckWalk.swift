@@ -42,7 +42,8 @@ enum SongDeckWalk {
 		songs: [Song],
 		embeddings: [MusicItemID: [Float]],
 		blockedPairs: Set<String> = [],
-		seed: UInt64
+		seed: UInt64,
+		controls: WalkControls = .default
 	) -> [Song] {
 		guard songs.count > 1 else { return songs }
 
@@ -57,6 +58,11 @@ enum SongDeckWalk {
 		let seedIdx = Int(seed % UInt64(tier))
 		ordered.append(remaining.remove(at: seedIdx))
 
+		let g = Float(controls.seedGravity)
+		let temperature = controls.stepTemperature
+		let eraHalflife = controls.decadeSpan.eraHalflifeYears
+		let seedSong = ordered[0]
+
 		while !remaining.isEmpty {
 			let previous = ordered.last!
 			let history = Array(ordered.suffix(max(artistLookback, albumLookback)))
@@ -69,19 +75,33 @@ enum SongDeckWalk {
 			// represent an explicit "never again" signal, so we'd rather
 			// violate artist/album smoothing than recreate a pairing the
 			// user already rejected.
-			var picked: (index: Int, similarity: Float)?
+			var scored: [(index: Int, score: Float)] = []
 			for relaxLevel in 0 ... 2 {
+				scored.removeAll(keepingCapacity: true)
 				for (i, candidate) in remaining.enumerated() {
 					if isBlocked(previous, candidate, in: blockedPairs) { continue }
 					if !isEligible(candidate: candidate, history: history, relaxLevel: relaxLevel) {
 						continue
 					}
-					let sim = similarity(candidate, previous, embeddings: embeddings)
-					if picked == nil || sim > picked!.similarity {
-						picked = (i, sim)
+					let simPrev = similarity(
+						candidate, previous,
+						embeddings: embeddings,
+						eraHalflife: eraHalflife
+					)
+					let score: Float
+					if g > 0 {
+						let simSeed = similarity(
+							candidate, seedSong,
+							embeddings: embeddings,
+							eraHalflife: eraHalflife
+						)
+						score = (1 - g) * simPrev + g * simSeed
+					} else {
+						score = simPrev
 					}
+					scored.append((i, score))
 				}
-				if picked != nil { break }
+				if !scored.isEmpty { break }
 			}
 
 			// Fallback: the blocked-pair filter is strict, so it's
@@ -91,11 +111,40 @@ enum SongDeckWalk {
 			// a soft preference, not a hard contract, and an N=300 deck
 			// would have to be extraordinarily blocked for this branch
 			// to fire in practice.
-			let index = picked?.index ?? 0
+			let index = scored.isEmpty ? 0 : pickIndex(from: scored, temperature: temperature)
 			ordered.append(remaining.remove(at: index))
 		}
 
 		return ordered
+	}
+
+	/// `temperature == 0` returns the argmax (greedy, deterministic).
+	/// Positive temperature samples from a softmax over the scored
+	/// candidates, so the runner-up sometimes wins — this is the
+	/// "meander" knob from the walk-controls popover.
+	private static func pickIndex(
+		from candidates: [(index: Int, score: Float)],
+		temperature: Double
+	) -> Int {
+		if temperature <= 0 {
+			return candidates.max(by: { $0.score < $1.score })!.index
+		}
+		let T = Float(temperature)
+		// Subtract the max before exp() — keeps numbers in a sane range
+		// even when scores are bunched (which they often are after the
+		// metadata-blend bunches cosine into a narrow band).
+		let maxScore = candidates.map(\.score).max() ?? 0
+		let weights = candidates.map { exp(($0.score - maxScore) / T) }
+		let total = weights.reduce(0, +)
+		guard total > 0 else {
+			return candidates.max(by: { $0.score < $1.score })!.index
+		}
+		var r = Float.random(in: 0 ..< total)
+		for (cand, w) in zip(candidates, weights) {
+			r -= w
+			if r <= 0 { return cand.index }
+		}
+		return candidates.last!.index
 	}
 
 	private static func isBlocked(
@@ -159,10 +208,11 @@ enum SongDeckWalk {
 	static func similarity(
 		_ a: Song,
 		_ b: Song,
-		embeddings: [MusicItemID: [Float]]
+		embeddings: [MusicItemID: [Float]],
+		eraHalflife: Double = 20
 	) -> Float {
 		let genre = GenreSimilarity.score(a.genreNames, b.genreNames)
-		let era = eraProximity(a, b)
+		let era = eraProximity(a, b, halflifeYears: eraHalflife)
 
 		if let eA = embeddings[a.id], let eB = embeddings[b.id] {
 			let cosine = AudioEmbeddingService.cosineSimilarity(eA, eB)
@@ -191,11 +241,11 @@ enum SongDeckWalk {
 	/// 0.35 weight keeps that mistake from dominating the blend on its
 	/// own, but back-to-back remasters of decades-apart originals will
 	/// still register as same-era.
-	private static func eraProximity(_ a: Song, _ b: Song) -> Float {
+	private static func eraProximity(_ a: Song, _ b: Song, halflifeYears: Double) -> Float {
 		guard let aDate = a.releaseDate, let bDate = b.releaseDate else {
 			return 0.5
 		}
 		let yearsApart = abs(aDate.timeIntervalSince(bDate)) / (365.25 * 86400)
-		return Float(exp(-yearsApart / 20))
+		return Float(exp(-yearsApart / halflifeYears))
 	}
 }
