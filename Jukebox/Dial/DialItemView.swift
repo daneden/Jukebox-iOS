@@ -142,10 +142,15 @@ struct DialItemView: View {
 			DragGesture(minimumDistance: 0, coordinateSpace: .local)
 				.onEnded { value in
 					let movement = hypot(value.translation.width, value.translation.height)
-					// 10pt slop matches Apple's own tap tolerance for buttons
-					// in scrollable contexts. Tighter and real taps occasionally
-					// miss; looser and we re-introduce the original bug.
-					guard movement < 10 else { return }
+					let speed = hypot(value.velocity.width, value.velocity.height)
+					// Movement alone isn't enough: during a dial scroll the
+					// cover under the finger moves WITH the rotation (covers
+					// track the gesture 1:1), so `.local` translation can
+					// stay tiny even on a long swipe. The velocity gate
+					// catches "finger still moving at release" — a real tap
+					// settles to ~0 before the lift, a scroll-release does
+					// not. Both must pass for the tap to fire.
+					guard movement < 10, speed < 80 else { return }
 					if isFocused {
 						rippleOrigin = value.location
 						rippleTriggerCount &+= 1
