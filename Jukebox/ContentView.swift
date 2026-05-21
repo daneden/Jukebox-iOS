@@ -5,6 +5,7 @@
 //  Created by Daniel Eden on 27/09/2021.
 //
 
+import MusicKit
 import SwiftUI
 
 /// Two equal-citizen modes:
@@ -16,6 +17,11 @@ import SwiftUI
 /// Selection persists across launches so the user lands back where they were.
 struct ContentView: View {
 	@AppStorage("selectedTab") private var selectedTab: AppTab = .songs
+
+	/// Drives the first-run onboarding sheet. Seeded from the current
+	/// authorization status so an already-authorized user never sees the
+	/// sheet; flipped to `false` once the user answers the system prompt.
+	@State private var showOnboarding: Bool = MusicAuthorization.currentStatus == .notDetermined
 
 	var body: some View {
 		TabView(selection: $selectedTab) {
@@ -30,6 +36,12 @@ struct ContentView: View {
 					Label("Playlists", systemImage: "music.note.list")
 				}
 				.tag(AppTab.playlists)
+		}
+		.sheet(isPresented: $showOnboarding) {
+			OnboardingView {
+				let status = await MusicAuthorization.request()
+				if status != .notDetermined { showOnboarding = false }
+			}
 		}
 	}
 }

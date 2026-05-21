@@ -122,8 +122,7 @@ struct SongsView: View {
 					isLoading: isLoading,
 					loadError: loadError,
 					emptyMessage: "No gems yet",
-					emptyHint: "Pull to refresh once your library has more history.",
-					authMessage: "Jukebox needs access to your Apple Music library to find your hidden gems."
+					emptyHint: "Pull to refresh once your library has more history."
 				)
 			}
 		}
