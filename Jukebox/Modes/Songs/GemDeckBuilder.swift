@@ -113,7 +113,7 @@ enum GemDeckBuilder {
 					// embedding work for any songs in it that don't have a
 					// cached embedding yet. This converges the next
 					// session's walk on real audio similarity rather than
-					// the genre-Jaccard fallback. Fire-and-forget — survives
+					// the genre-similarity fallback. Fire-and-forget — survives
 					// or doesn't survive the buildStreaming task's lifetime
 					// independently.
 					warmEmbeddings(for: final.deck)
@@ -166,7 +166,7 @@ enum GemDeckBuilder {
 			top = capPerArtistAndAlbum(ranked.map(\.song), limit: deckSize)
 		}
 		// Bulk-load embeddings for the top-N; the walk uses them where
-		// available and falls back to genre Jaccard for songs that
+		// available and falls back to genre similarity for songs that
 		// haven't been embedded yet.
 		let embeddings = await EmbeddingStore.shared.embeddings(for: top.map(\.id))
 		// Pull the user's blocked-pair feedback so the walk avoids
