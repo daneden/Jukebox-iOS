@@ -141,19 +141,19 @@ struct HowItWorksView: View {
 private struct GemDeckFunnel: View {
 	var body: some View {
 		VStack(spacing: 0) {
-			stage("Library", count: "~8,000", width: 240, tint: .secondary.opacity(0.4))
+			stage("Library", count: "~8,000", width: 240, tint: .gray)
 			connector("fetch top 1,500 by play count and oldest by add date")
 			HStack(spacing: 16) {
-				stage("Most played", count: "1,500", width: 110, tint: .blue.opacity(0.6))
-				stage("Oldest", count: "1,500", width: 110, tint: .purple.opacity(0.6))
+				stage("Most played", count: "1,500", width: 110, tint: .blue)
+				stage("Oldest", count: "1,500", width: 110, tint: .purple)
 			}
 			.padding(.horizontal, 14)
 			.padding(.vertical, 8)
 			.background(
-				Capsule().fill(.quaternary)
+				RoundedRectangle(cornerRadius: 24).fill(.quinary)
 			)
 			connector("union + dedupe")
-			stage("Candidates", count: "~2,500", width: 200, tint: .accentColor.opacity(0.4))
+			stage("Candidates", count: "~2,500", width: 200, tint: .gray.secondary)
 			connector("score + recency filter")
 			stage("Deck", count: "300", width: 100, tint: .black)
 		}
@@ -168,7 +168,7 @@ private struct GemDeckFunnel: View {
 					Text(count)
 						.font(.system(.footnote, design: .monospaced))
 						.fontWeight(.semibold)
-						.foregroundStyle(.primary)
+						.foregroundStyle(.white)
 				}
 			Text(name)
 				.font(.caption2)
