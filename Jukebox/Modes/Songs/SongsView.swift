@@ -43,6 +43,11 @@ struct SongsView: View {
 	/// tends to land on the same decade/artist cluster repeatedly.
 	@State private var lastShuffleDecade: Int?
 	@State private var lastShuffleArtist: String?
+	/// Min/max release decades observed in the unfiltered candidate
+	/// pool — surfaced from GemDeckBuilder's BuildResult so the
+	/// walk-controls range slider can constrain its thumbs to
+	/// decades that actually exist in the user's library.
+	@State private var libraryDecadeBounds: ClosedRange<Int>?
 
 	private var walkControls: WalkControls {
 		WalkControls(
@@ -149,14 +154,18 @@ struct SongsView: View {
 					.controlSize(.extraLarge)
 					.disabled(dial.isSpinning || isReshuffling)
 					.popover(isPresented: $showingWalkControls) {
-						WalkControlsPopover(controls: walkControlsBinding)
-							// Floating popover stays on regular size
-							// classes (iPad, macOS); compact (iPhone)
-							// adapts to a sheet — the popover frame
-							// was too cramped on phone-sized screens.
-							.presentationCompactAdaptation(.sheet)
-							.presentationDetents([.medium, .large])
-							.presentationDragIndicator(.visible)
+						WalkControlsPopover(
+							controls: walkControlsBinding,
+							libraryDecadeBounds: libraryDecadeBounds,
+							poolSize: hasBuiltDeck ? deck.count : nil
+						)
+						// Floating popover stays on regular size
+						// classes (iPad, macOS); compact (iPhone)
+						// adapts to a sheet — the popover frame
+						// was too cramped on phone-sized screens.
+						.presentationCompactAdaptation(.sheet)
+						.presentationDetents([.medium, .large])
+						.presentationDragIndicator(.visible)
 					}
 				}
 			}
@@ -268,6 +277,9 @@ struct SongsView: View {
 				avoidArtist: avoidArtist
 			) {
 				applyDeck(result.deck)
+				if let bounds = result.libraryDecadeBounds {
+					libraryDecadeBounds = bounds
+				}
 			}
 			// Seed the toolbar progress tracker with the final deck.
 			// The background warm task (kicked off inside GemDeckBuilder)

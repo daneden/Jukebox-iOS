@@ -32,6 +32,11 @@ enum GemDeckBuilder {
 	struct BuildResult {
 		let deck: [Song]
 		let scannedCount: Int
+		/// Min/max release decades from the *unfiltered* candidate pool.
+		/// Used by the walk-controls range slider so its thumbs only
+		/// travel decades that actually exist in the user's library.
+		/// Nil when the pool is empty or no candidate has a releaseDate.
+		let libraryDecadeBounds: ClosedRange<Int>?
 	}
 
 	/// Final-result API: consumes the stream and returns the last emission.
@@ -42,7 +47,7 @@ enum GemDeckBuilder {
 		for try await result in buildStreaming(now: now) {
 			last = result
 		}
-		return last ?? BuildResult(deck: [], scannedCount: 0)
+		return last ?? BuildResult(deck: [], scannedCount: 0, libraryDecadeBounds: nil)
 	}
 
 	/// Streaming API: yields a partial deck as soon as the nostalgia pool
@@ -157,6 +162,16 @@ enum GemDeckBuilder {
 		avoidDecade: Int? = nil,
 		avoidArtist: String? = nil
 	) async -> BuildResult {
+		// Library decade bounds from the *unfiltered* pool — surfaced so
+		// the popover's range slider knows which decades actually exist
+		// in the library. Calculated once here; the filter steps below
+		// don't change the answer.
+		let libraryDecadeBounds: ClosedRange<Int>? = {
+			let decades = songs.compactMap(\.releaseDecade)
+			guard let lo = decades.min(), let hi = decades.max() else { return nil }
+			return lo ... hi
+		}()
+
 		// When energy filtering is active we need embeddings for the
 		// whole input pool (the centroid classifier scores everything),
 		// not just the eventual top-300. For the "Any" band we defer the
@@ -247,7 +262,11 @@ enum GemDeckBuilder {
 			avoidDecade: avoidDecade,
 			avoidArtist: avoidArtist
 		)
-		return BuildResult(deck: deck, scannedCount: songs.count)
+		return BuildResult(
+			deck: deck,
+			scannedCount: songs.count,
+			libraryDecadeBounds: libraryDecadeBounds
+		)
 	}
 
 	/// Returns nil when the band imposes no filter; otherwise returns

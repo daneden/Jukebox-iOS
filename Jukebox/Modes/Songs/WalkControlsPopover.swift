@@ -16,10 +16,23 @@ import SwiftUI
 
 struct WalkControlsPopover: View {
 	@Binding var controls: WalkControls
+	/// Min/max decades observed in the user's candidate pool — when
+	/// provided, the range slider constrains its thumbs to this
+	/// window so they don't wander into empty decades. Nil means
+	/// fall back to the static 1900–2030 bounds.
+	let libraryDecadeBounds: ClosedRange<Int>?
+	/// Size of the currently-built deck after filters, surfaced as a
+	/// summary row so the user can see when their filters are biting
+	/// hard. Nil while the deck hasn't built yet (cold launch).
+	let poolSize: Int?
 
 	var body: some View {
 		NavigationStack {
-			WalkControlsForm(controls: $controls)
+			WalkControlsForm(
+				controls: $controls,
+				libraryDecadeBounds: libraryDecadeBounds,
+				poolSize: poolSize
+			)
 		}
 		.frame(idealWidth: 360)
 	}
@@ -30,6 +43,8 @@ struct WalkControlsPopover: View {
 /// owns the on-open snapshot used by Close-as-revert.
 private struct WalkControlsForm: View {
 	@Binding var controls: WalkControls
+	let libraryDecadeBounds: ClosedRange<Int>?
+	let poolSize: Int?
 	@Environment(\.dismiss) private var dismiss
 	@State private var initialSnapshot: WalkControls = .default
 
@@ -62,11 +77,20 @@ private struct WalkControlsForm: View {
 			}
 
 			Section {
-				DecadeRangeSlider(range: $controls.decadeRange)
+				DecadeRangeSlider(
+					range: $controls.decadeRange,
+					bounds: libraryDecadeBounds
+				)
 			} header: {
 				Text("Decade range")
 			} footer: {
 				Text("Only songs released in this range make it into the deck. Drag both thumbs to the ends for no filter.")
+			}
+
+			if let count = poolSize {
+				Section {
+					PoolSummaryRow(count: count)
+				}
 			}
 		}
 		.formStyle(.grouped)
@@ -144,7 +168,78 @@ private struct WalkControlsForm: View {
 	}
 }
 
+/// Visual summary of how many songs survived the current filter
+/// stack. Reflects the deck *as currently built* — when the user
+/// changes controls and confirms, the next time they reopen the
+/// popover the count reflects the new deck. Severity tints + an
+/// inline warning icon make low counts hard to miss.
+private struct PoolSummaryRow: View {
+	let count: Int
+
+	private enum Severity {
+		case fine, low, veryLow
+
+		var tint: Color {
+			switch self {
+			case .fine: .secondary
+			case .low: .orange
+			case .veryLow: .red
+			}
+		}
+
+		var icon: String? {
+			switch self {
+			case .fine: nil
+			case .low, .veryLow: "exclamationmark.triangle.fill"
+			}
+		}
+	}
+
+	private var severity: Severity {
+		switch count {
+		case ..<30: .veryLow
+		case ..<100: .low
+		default: .fine
+		}
+	}
+
+	private var hint: String? {
+		switch severity {
+		case .fine: nil
+		case .low: "Loosen a filter for more variety."
+		case .veryLow: "Filters are very strict — try widening the decade range or switching Energy to Any."
+		}
+	}
+
+	var body: some View {
+		HStack(alignment: .top, spacing: 10) {
+			if let icon = severity.icon {
+				Image(systemName: icon)
+					.foregroundStyle(severity.tint)
+					.font(.callout)
+					.padding(.top, 2)
+			}
+			VStack(alignment: .leading, spacing: 2) {
+				Text("\(count) \(count == 1 ? "song" : "songs") in your deck")
+					.font(.callout.weight(.medium))
+					.foregroundStyle(severity == .fine ? .primary : severity.tint)
+				if let hint {
+					Text(hint)
+						.font(.caption)
+						.foregroundStyle(.secondary)
+				}
+			}
+			Spacer(minLength: 0)
+		}
+		.accessibilityElement(children: .combine)
+	}
+}
+
 #Preview {
 	@Previewable @State var controls = WalkControls.default
-	WalkControlsPopover(controls: $controls)
+	WalkControlsPopover(
+		controls: $controls,
+		libraryDecadeBounds: 1960 ... 2020,
+		poolSize: 42
+	)
 }
