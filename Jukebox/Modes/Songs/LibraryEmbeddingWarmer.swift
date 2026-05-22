@@ -213,11 +213,11 @@ actor LibraryEmbeddingWarmer {
 			if !conditionsFavorable { return }
 
 			do {
-				_ = try await AudioEmbeddingService.embed(song: song)
+				try await AudioEmbeddingService.ensureCached(song: song)
 			} catch {
 				// Permanent failures are negative-cached inside
-				// `AudioEmbeddingService.embed`; transient errors
-				// (downloadFailed) are silently retried next pass.
+				// `ensureCached`; transient errors (downloadFailed)
+				// are silently retried next pass.
 			}
 
 			try? await Task.sleep(for: Self.breath)
@@ -260,15 +260,23 @@ actor LibraryEmbeddingWarmer {
 			}
 		}
 
-		// Filter out songs we already have an embedding for, and songs
-		// we recently failed on. Bulk fetches so we don't make one
-		// SwiftData round-trip per candidate.
+		// A song is eligible if either signal is missing — embedding
+		// or BPM. `ensureCached` decides per-song between "full
+		// pipeline" (no embedding yet) and "BPM-only backfill"
+		// (embedding cached but BPM nil). Recently-failed songs are
+		// skipped at both layers.
 		let cached = await EmbeddingStore.shared.embeddings(for: union.map(\.id))
-		let cachedIDs = Set(cached.keys.map(\.rawValue))
+		let cachedEmbeddingIDs = Set(cached.keys.map(\.rawValue))
+		let cachedBPMIDs = Set(
+			await EmbeddingStore.shared.bpms(for: union.map(\.id)).keys.map(\.rawValue)
+		)
 		let failedIDs = await EmbeddingStore.shared.recentFailures(within: Self.failureRetryAfter)
 		return union.filter { song in
 			let raw = song.id.rawValue
-			return !cachedIDs.contains(raw) && !failedIDs.contains(raw)
+			if failedIDs.contains(raw) { return false }
+			let hasEmbedding = cachedEmbeddingIDs.contains(raw)
+			let hasBPM = cachedBPMIDs.contains(raw)
+			return !(hasEmbedding && hasBPM)
 		}
 	}
 

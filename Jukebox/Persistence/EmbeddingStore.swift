@@ -139,6 +139,42 @@ actor EmbeddingStore {
 		}
 	}
 
+	/// Whether the row for `songID` has a non-nil BPM. The library
+	/// warmer uses this to decide between "compute embedding + BPM"
+	/// (no row yet) and "BPM-only refresh" (row exists, BPM nil) —
+	/// without it we'd either re-download for the full embed pipeline
+	/// every time, or never backfill BPM on legacy rows.
+	func hasBPM(for songID: MusicItemID) -> Bool {
+		do { try ensureLoaded() } catch { return false }
+		guard let context else { return false }
+
+		let id = songID.rawValue
+		let version = Self.currentModelVersion
+		let descriptor = FetchDescriptor<SongEmbedding>(
+			predicate: #Predicate { $0.songID == id && $0.modelVersion == version }
+		)
+		guard let row = try? context.fetch(descriptor).first else { return false }
+		return row.bpm != nil
+	}
+
+	/// Update only the BPM fields on an existing row. Used by the
+	/// library warmer when backfilling BPM for a song whose embedding
+	/// was previously cached without it (e.g. processed by the
+	/// foreground deck warm, which skips BPM detection to stay quick).
+	func updateBPM(bpm: Double, bpmConfidence: Float, for songID: MusicItemID) {
+		do { try ensureLoaded() } catch { return }
+		guard let context else { return }
+
+		let id = songID.rawValue
+		let descriptor = FetchDescriptor<SongEmbedding>(
+			predicate: #Predicate { $0.songID == id }
+		)
+		guard let existing = try? context.fetch(descriptor).first else { return }
+		existing.bpm = bpm
+		existing.bpmConfidence = bpmConfidence
+		try? context.save()
+	}
+
 	/// Bulk BPM lookup. Mirrors `embeddings(for:)` — single SwiftData
 	/// fetch for all matching rows. Returns only songs that have a
 	/// non-nil BPM cached; the walk uses this to decide whether to
