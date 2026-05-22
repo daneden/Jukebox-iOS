@@ -25,18 +25,43 @@ struct CoverArtView: View {
 	var body: some View {
 		if let artwork {
 			let request = requestedWidth ?? width
-			ArtworkImage(artwork, width: request, height: request)
-				.scaleEffect(width / request, anchor: .center)
-				.frame(width: width, height: width)
-				.clipShape(clipShape)
-				.overlay {
-					clipShape
-						.fill(.clear)
-						.strokeBorder(Color.white.opacity(0.2), lineWidth: 1.0 / displayScale)
-						.blendMode(.plusLighter)
+			let pixels = Int((request * displayScale).rounded())
+			ZStack {
+				// Backdrop fill matching the album's predominant color, so a
+				// half-loaded cover during a fast spin reads as "this album"
+				// rather than the music-note placeholder. Falls through to
+				// material when MusicKit didn't supply a backgroundColor.
+				if let cgColor = artwork.backgroundColor {
+					Color(cgColor: cgColor)
+				} else {
+					Rectangle().fill(.regularMaterial)
 				}
-				.drawingGroup()
-				.background(.regularMaterial, in: clipShape)
+
+				// AsyncImage (rather than ArtworkImage) so we can observe the
+				// load phase and fade the image in over the colored backdrop —
+				// ArtworkImage snap-replaces its internal placeholder.
+				// `requestedWidth` still controls pixel-buffer size via the URL.
+				if let url = artwork.url(width: pixels, height: pixels) {
+					AsyncImage(
+						url: url,
+						transaction: Transaction(animation: .easeOut(duration: 0.25))
+					) { phase in
+						if case let .success(image) = phase {
+							image
+								.resizable()
+								.transition(.opacity)
+						}
+					}
+				}
+			}
+			.frame(width: width, height: width)
+			.clipShape(clipShape)
+			.overlay {
+				clipShape
+					.fill(.clear)
+					.strokeBorder(Color.white.opacity(0.2), lineWidth: 1.0 / displayScale)
+					.blendMode(.plusLighter)
+			}
 		} else {
 			clipShape
 				.fill(.regularMaterial)
