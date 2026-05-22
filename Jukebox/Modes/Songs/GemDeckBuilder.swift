@@ -83,17 +83,20 @@ enum GemDeckBuilder {
 		return last ?? BuildResult(deck: [], scannedCount: 0, libraryDecadeBounds: nil)
 	}
 
-	/// Streaming API: yields a partial deck as soon as the nostalgia pool
-	/// returns (scored on nostalgia alone), then yields a final deck once
-	/// the discovery pool joins. SongsView consumes this so the dial
-	/// becomes interactive at roughly half the cold-launch wait — the
-	/// final deck slides in via the lift-out transition when ready.
+	/// Builds the deck end-to-end: all three pools fetched in parallel,
+	/// deduped, scored, capped, and walk-ordered. Yields exactly once
+	/// with the finished deck. (Earlier versions yielded a nostalgia-
+	/// only partial before the full union arrived, to make the dial
+	/// interactive sooner on cold launch. The visible swap when the
+	/// final landed was jarring — particularly once the freshness pool
+	/// joined and the three-pool score normalisation diverged from the
+	/// nostalgia-only one — so the partial yield was removed and the
+	/// dial now waits behind the loading overlay for the full deck.)
 	///
-	/// Why nostalgia-first rather than first-completed: both pools take
-	/// similar time (both do a full-library sort + 1500-row hydrate), and
-	/// the partial deck built on nostalgia alone skews to "songs you used
-	/// to play a lot," which is a reasonable thing to land on while
-	/// discovery is still arriving.
+	/// Wrapped in `AsyncThrowingStream` rather than `async throws` so
+	/// `onTermination` can cancel the underlying fetch task when the
+	/// caller bails (the previous streaming consumer relied on this and
+	/// the cancellation hook is still useful even with a single yield).
 	/// Multiplier on `deckSize` used as the candidate slice when
 	/// `wideSample: true`. Larger = more variety in super-shuffle, at
 	/// the cost of letting lower-scored gems into the deck.
@@ -122,9 +125,6 @@ enum GemDeckBuilder {
 						now: now,
 						recentPlays: recentPlays
 					)
-					// Session-stable seed: partial and final share it so the
-					// walk starts in the same neighborhood for both yields,
-					// reducing churn across the partial → final swap.
 					let seed = UInt64.random(in: 0 ... UInt64.max)
 
 					let limit = poolSize(for: controls)
@@ -133,16 +133,6 @@ enum GemDeckBuilder {
 					async let freshnessTask = fetchPool(sort: .libraryAddedDate, ascending: false, limit: limit)
 
 					let nostalgia = try await nostalgiaTask
-					continuation.yield(await rank(
-						songs: nostalgia,
-						scorer: scorer,
-						seed: seed,
-						controls: controls,
-						wideSample: wideSample,
-						avoidDecade: avoidDecade,
-						avoidArtist: avoidArtist
-					))
-
 					let discovery = try await discoveryTask
 					let freshness = try await freshnessTask
 					let union = dedupeUnion(nostalgia: nostalgia, discovery: discovery, freshness: freshness)

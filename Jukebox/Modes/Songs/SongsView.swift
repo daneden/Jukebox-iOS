@@ -34,8 +34,8 @@ struct SongsView: View {
 	/// the user actually changed anything and skip the rebuild if not.
 	@State private var walkControlsAtOpen: WalkControls?
 	/// True while a shuffle-driven rebuild is in flight. The dial is
-	/// pulled offscreen for the duration so partial/final deck swaps
-	/// don't visibly thrash; a loading view sits in its place.
+	/// pulled offscreen for the duration so the deck swap doesn't
+	/// visibly thrash; a loading view sits in its place.
 	@State private var isReshuffling = false
 	/// Previous shuffle's seed neighbourhood. Passed back into the
 	/// next shuffle so the walk's seed picker actively jumps away —
@@ -208,9 +208,10 @@ struct SongsView: View {
 			}
 			.sensoryFeedback(.impact(weight: .medium), trigger: dial.spinLandTick)
 			// Trigger on the focused song's *id*, not its index — a
-			// reanchor (e.g. partial → final deck swap during streaming)
-			// changes the index while keeping the same song focused, and
-			// the user shouldn't feel a haptic for that.
+			// reanchor (e.g. walk-controls change keeping the same song
+			// focused at a new position) changes the index while
+			// keeping the same song focused, and the user shouldn't
+			// feel a haptic for that.
 			.sensoryFeedback(.selection, trigger: dial.focusedItemID)
 			.sensoryFeedback(.start, trigger: dial.playbackTick)
 			.onChange(of: MusicAuthorization.currentStatus) { _, newValue in
@@ -273,10 +274,9 @@ struct SongsView: View {
 		avoidDecade: Int? = nil,
 		avoidArtist: String? = nil
 	) async {
-		// Stream partial → final from GemDeckBuilder. The first emission is
-		// the nostalgia-only deck (lands fast, dial becomes interactive);
-		// the second is the full nostalgia+discovery deck (lift-out
-		// transition swaps it in when ready).
+		// `buildStreaming` yields exactly once with the finished deck.
+		// The for-await shape is kept so cancellation still propagates
+		// through `onTermination` if the task is cancelled mid-build.
 		do {
 			for try await result in GemDeckBuilder.buildStreaming(
 				wideSample: wideSample,
