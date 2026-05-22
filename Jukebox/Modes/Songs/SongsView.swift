@@ -372,6 +372,20 @@ struct SongsView: View {
 		return ((offset % count) + count) % count
 	}
 
+	/// Move the dial to a fresh landing on the current deck. Used by
+	/// shuffle to override `applyDeck`'s reanchor when the previously-
+	/// focused song happens to survive the new deck. Safe to call while
+	/// the dial is hidden behind the reshuffle overlay — rotation is set
+	/// without animation, so it's the position that's revealed when the
+	/// overlay clears.
+	private func relandRandomly() {
+		guard !deck.isEmpty else { return }
+		let landingIdx = Self.randomLandingIndex(count: deck.count)
+		dial.focusedIndex = landingIdx
+		dial.rotation = .degrees(-Double(landingIdx) * DialTunables.stepVisual)
+		dial.focusedItemID = deck[landingIdx].id
+	}
+
 	// MARK: - Shuffle
 
 	/// Songs-mode shuffle = full deck rebuild. Spinning the wheel within
@@ -392,6 +406,16 @@ struct SongsView: View {
 			avoidDecade: avoidDecade,
 			avoidArtist: avoidArtist
 		)
+		// Force a fresh landing. `applyDeck`'s reanchor branch keeps
+		// focus on the previously-focused song whenever it survives the
+		// new wide-sample deck — fine during the partial→final swap
+		// (dial is hidden), but it defeats the whole point of shuffle.
+		// On an unfiltered library the previously-focused song is
+		// almost always in the new top 300 (high gem score → in widePool
+		// → ~50% inclusion probability; if `capPerArtistAndAlbum`
+		// trims widePool to ≤300 the inclusion becomes deterministic),
+		// so shuffle would feel like a no-op without this.
+		relandRandomly()
 		withAnimation(.smooth(duration: 0.45)) { isReshuffling = false }
 		// Record the *focused* song — what the dial actually landed on —
 		// not `deck.first`. The user sees `deck[landingIdx]`, which sits
