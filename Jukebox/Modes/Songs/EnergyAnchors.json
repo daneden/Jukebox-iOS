@@ -1,0 +1,79 @@
+{
+  "_about": "Hand-picked album anchors lifted from flowstate.daneden.me and broadened for cross-genre coverage. Each anchor carries a band + Apple-taxonomy-aligned subStyle so the builder produces one centroid per (band, subStyle) — single-centroid mean-pooling collapsed mellow/energetic/intense on top of each other in embedding space (inter-centroid cosine 0.96–0.99, above their own self-thresholds). Sub-style slugs match Apple's genreNames vocabulary (lowercased, _-separated) so library songs' Apple tags can map directly to a sub-style. The same Apple tag can appear under multiple bands (e.g. classical under both glacial and mellow) — disambiguation falls to the embedding cosine. Run the debug Build Energy Centroids action after editing.",
+  "anchors": [
+    { "band": "glacial",   "subStyle": "ambient",            "artist": "Brian Eno",        "album": "Ambient 1: Music for Airports" },
+    { "band": "glacial",   "subStyle": "ambient",            "artist": "Jon Hopkins",      "album": "Asleep Versions" },
+    { "band": "glacial",   "subStyle": "ambient",            "artist": "Bibio",            "album": "Phantom Brickworks" },
+    { "band": "glacial",   "subStyle": "ambient",            "artist": "Hiroshi Yoshimura","album": "Music for Nine Post Cards" },
+
+    { "band": "glacial",   "subStyle": "singer_songwriter",  "artist": "Adrianne Lenker",  "album": "instrumentals" },
+    { "band": "glacial",   "subStyle": "singer_songwriter",  "artist": "Grouper",          "album": "Ruins" },
+    { "band": "glacial",   "subStyle": "singer_songwriter",  "artist": "James Blake",      "album": "Wind Down" },
+
+    { "band": "glacial",   "subStyle": "classical",          "artist": "Stars of the Lid", "album": "And Their Refinement of the Decline" },
+    { "band": "glacial",   "subStyle": "classical",          "artist": "Max Richter",      "album": "Sleep" },
+    { "band": "glacial",   "subStyle": "classical",          "artist": "Nils Frahm",       "album": "Spaces" },
+    { "band": "glacial",   "subStyle": "classical",          "artist": "Steve Reich",      "album": "Music for 18 Musicians" },
+    { "band": "glacial",   "subStyle": "classical",          "artist": "Gidon Kremer",     "album": "Tabula Rasa" },
+    { "band": "glacial",   "subStyle": "classical",          "artist": "Dawn Upshaw",      "album": "Górecki: Symphony No. 3" },
+    { "band": "glacial",   "subStyle": "classical",          "artist": "Pascal Rogé",      "album": "Satie: Gymnopédies & Gnossiennes" },
+
+    { "band": "mellow",    "subStyle": "downtempo",          "artist": "Bonobo",          "album": "Late Night Tales: Bonobo" },
+    { "band": "mellow",    "subStyle": "downtempo",          "artist": "Groove Armada",   "album": "Late Night Tales Presents Automatic Soul" },
+    { "band": "mellow",    "subStyle": "downtempo",          "artist": "Moodymann",       "album": "DJ-Kicks (Moodymann)" },
+    { "band": "mellow",    "subStyle": "downtempo",          "artist": "Monster Rally",   "album": "Mystery Cove" },
+    { "band": "mellow",    "subStyle": "downtempo",          "artist": "Franz Ferdinand", "album": "Late Night Tales: Franz Ferdinand" },
+
+    { "band": "mellow",    "subStyle": "electronic",         "artist": "Floating Points",        "album": "Shadows" },
+
+    { "band": "mellow",    "subStyle": "indie_pop",          "artist": "Khruangbin",             "album": "Mordechai" },
+    { "band": "mellow",    "subStyle": "indie_pop",          "artist": "Beach House",            "album": "Bloom" },
+
+    { "band": "mellow",    "subStyle": "jazz",               "artist": "Sam Gendel & Sam Wilkes","album": "Music for Saxofone & Bass Guitar" },
+    { "band": "mellow",    "subStyle": "jazz",               "artist": "Woody Goss",             "album": "High Loon!" },
+    { "band": "mellow",    "subStyle": "jazz",               "artist": "Miles Davis",            "album": "Kind of Blue" },
+
+    { "band": "mellow",    "subStyle": "soul",               "artist": "D'Angelo",       "album": "Voodoo" },
+    { "band": "mellow",    "subStyle": "soul",               "artist": "Marvin Gaye",    "album": "What's Going On" },
+
+    { "band": "mellow",    "subStyle": "singer_songwriter",  "artist": "Joni Mitchell",  "album": "Blue" },
+
+    { "band": "mellow",    "subStyle": "classical",          "artist": "Yo-Yo Ma",       "album": "Bach: The Cello Suites" },
+    { "band": "mellow",    "subStyle": "classical",          "artist": "Janine Jansen",  "album": "Vivaldi: The Four Seasons" },
+
+    { "band": "energetic", "subStyle": "dance",              "artist": "Four Tet",         "album": "0181" },
+    { "band": "energetic", "subStyle": "dance",              "artist": "Leon Vynehall",    "album": "fabric presents Leon Vynehall" },
+    { "band": "energetic", "subStyle": "dance",              "artist": "Floating Points",  "album": "King Bromeliad / Montparnasse" },
+    { "band": "energetic", "subStyle": "dance",              "artist": "LCD Soundsystem",  "album": "Sound of Silver" },
+
+    { "band": "energetic", "subStyle": "hip_hop",            "artist": "The Avalanches",   "album": "Since I Left You" },
+    { "band": "energetic", "subStyle": "hip_hop",            "artist": "Dirty Art Club",   "album": "Heavy Starch" },
+    { "band": "energetic", "subStyle": "hip_hop",            "artist": "J Dilla",          "album": "Donuts" },
+    { "band": "energetic", "subStyle": "hip_hop",            "artist": "Doechii",          "album": "Alligator Bites Never Heal" },
+    { "band": "energetic", "subStyle": "hip_hop",            "artist": "Outkast",          "album": "Stankonia" },
+
+    { "band": "energetic", "subStyle": "funk",               "artist": "Fela Kuti",      "album": "Zombie" },
+    { "band": "energetic", "subStyle": "funk",               "artist": "Talking Heads",  "album": "Remain in Light" },
+    { "band": "energetic", "subStyle": "funk",               "artist": "Stevie Wonder",  "album": "Innervisions" },
+
+    { "band": "energetic", "subStyle": "jazz",               "artist": "John Coltrane",  "album": "A Love Supreme" },
+
+    { "band": "intense",   "subStyle": "metal",              "artist": "Metallica",      "album": "Master of Puppets" },
+    { "band": "intense",   "subStyle": "metal",              "artist": "Black Sabbath",  "album": "Paranoid" },
+    { "band": "intense",   "subStyle": "metal",              "artist": "Sleep",          "album": "Dopesmoker" },
+    { "band": "intense",   "subStyle": "metal",              "artist": "Mastodon",       "album": "Crack the Skye" },
+
+    { "band": "intense",   "subStyle": "hard_rock",          "artist": "Refused",        "album": "The Shape of Punk to Come" },
+    { "band": "intense",   "subStyle": "hard_rock",          "artist": "IDLES",          "album": "Joy as an Act of Resistance" },
+    { "band": "intense",   "subStyle": "hard_rock",          "artist": "Swans",          "album": "To Be Kind" },
+
+    { "band": "intense",   "subStyle": "industrial",         "artist": "Nine Inch Nails","album": "The Downward Spiral" },
+
+    { "band": "intense",   "subStyle": "electronic",         "artist": "Mount Kimbie",   "album": "DJ-Kicks (Mount Kimbie)" },
+    { "band": "intense",   "subStyle": "electronic",         "artist": "Clark",          "album": "Death Peak" },
+
+    { "band": "intense",   "subStyle": "hip_hop",            "artist": "Death Grips",    "album": "The Money Store" },
+
+    { "band": "intense",   "subStyle": "classical",          "artist": "Pierre Boulez",  "album": "Stravinsky: The Rite of Spring" }
+  ]
+}

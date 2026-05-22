@@ -15,6 +15,7 @@ struct SettingsMenu: View {
 	@State private var showingHowItWorks = false
 	#if DEBUG
 		@State private var showingEmbeddingSpike = false
+		@State private var showingCentroidBuilder = false
 	#endif
 
 	var body: some View {
@@ -33,6 +34,11 @@ struct SettingsMenu: View {
 				} label: {
 					Label("Embedding Spike", systemImage: "waveform.and.magnifyingglass")
 				}
+				Button {
+					showingCentroidBuilder = true
+				} label: {
+					Label("Build Energy Centroids", systemImage: "scope")
+				}
 			#endif
 		} label: {
 			Label("Settings", systemImage: "gearshape")
@@ -43,6 +49,9 @@ struct SettingsMenu: View {
 		#if DEBUG
 		.sheet(isPresented: $showingEmbeddingSpike) {
 				EmbeddingSpikeView()
+			}
+			.sheet(isPresented: $showingCentroidBuilder) {
+				EnergyCentroidBuilderView()
 			}
 		#endif
 	}
