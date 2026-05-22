@@ -23,12 +23,15 @@ import MusicKit
 /// three* axes can miss every pool and never appear. Worth it.
 enum GemDeckBuilder {
 	/// Baseline per-pool fetch limit when no walk filters are active.
-	/// ~1500 each gives a healthy union (~2-3k after dedupe) for scoring
-	/// without scanning the whole library. When the user narrows the
-	/// pool via energy/decade filters, `poolSize(for:)` scales this up
-	/// so the post-filter candidate set has enough material to score
-	/// and walk against.
-	static let basePoolSize = 1500
+	/// 1000 each gives a healthy three-pool union (~2-2.5k after
+	/// dedupe) for scoring without scanning the whole library. Down
+	/// from 1500 with two pools: with three pools the previous size
+	/// pulled ~50% more MusicKit hydration than needed, and shuffle
+	/// times stretched well past the user's tolerance. When the user
+	/// narrows the pool via energy/decade filters, `poolSize(for:)`
+	/// scales this up so the post-filter candidate set has enough
+	/// material to score and walk against.
+	static let basePoolSize = 1000
 	/// Hard ceiling on a single pool fetch even with the most restrictive
 	/// filters active. Set to 4× the baseline — much higher and we start
 	/// approaching a full-library scan for heavy users (50k libraries),
@@ -378,9 +381,12 @@ enum GemDeckBuilder {
 						EmbeddingProgress.shared.recordProcessed(song.id)
 					}
 				}
-				// Small breath between requests so we don't hammer the
-				// network or the user's battery in one burst.
-				try? await Task.sleep(for: .milliseconds(200))
+				// 500ms breath matches the library warmer's cadence and
+				// stops the deck-warm from hammering MusicKit's catalog
+				// endpoints (each embed can make 2-3 catalog calls in
+				// `previewURL(for:)` before downloading) while the user
+				// is mid-shuffle.
+				try? await Task.sleep(for: .milliseconds(500))
 			}
 
 			// Deck is fully warm (or as warm as it'll get this session).

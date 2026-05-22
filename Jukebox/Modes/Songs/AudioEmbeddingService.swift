@@ -23,6 +23,22 @@ import Foundation
 import MusicKit
 
 enum AudioEmbeddingService {
+	/// Dedicated URLSession for embedding work — preview MP3 downloads
+	/// and the iTunes Search API fallback. Separate from
+	/// `URLSession.shared` (which `AsyncImage` uses for album art) so
+	/// the warmer's stream of preview downloads doesn't tie up the
+	/// artwork loader's connection pool. The per-host limit keeps us
+	/// from monopolising connections to Apple's preview CDN; the
+	/// `.background` service type signals to QoS-aware routing that
+	/// these requests can yield to user-initiated traffic.
+	private static let session: URLSession = {
+		let config = URLSessionConfiguration.default
+		config.httpMaximumConnectionsPerHost = 2
+		config.networkServiceType = .background
+		config.waitsForConnectivity = true
+		return URLSession(configuration: config)
+	}()
+
 	enum EmbedError: Error, LocalizedError {
 		case noCatalogMatch
 		case noPreview
@@ -134,7 +150,7 @@ enum AudioEmbeddingService {
 		]
 		guard let url = components.url else { return nil }
 
-		let (data, _) = try await URLSession.shared.data(from: url)
+		let (data, _) = try await session.data(from: url)
 		let response = try JSONDecoder().decode(ITunesSearchResponse.self, from: data)
 
 		let needle = artist.lowercased()
@@ -161,7 +177,7 @@ enum AudioEmbeddingService {
 	static func embed(previewURL: URL) async throws -> [Float] {
 		let localURL: URL
 		do {
-			let (tempURL, _) = try await URLSession.shared.download(from: previewURL)
+			let (tempURL, _) = try await session.download(from: previewURL)
 			localURL = tempURL
 		} catch {
 			throw EmbedError.downloadFailed(error)
