@@ -26,9 +26,9 @@ struct DecadeRangeSlider: View {
 	// Thumb is a capsule, 2× wider than tall — keeps the silhouette
 	// distinct from the round Play/Shuffle buttons next to it while
 	// still reading as a draggable handle.
-	private static let thumbWidth: CGFloat = 40
-	private static let thumbHeight: CGFloat = 20
-	private static let trackHeight: CGFloat = 4
+	private static let thumbWidth: CGFloat = 36
+	private static let thumbHeight: CGFloat = 24
+	private static let trackHeight: CGFloat = 6
 	private static let coordinateSpaceName = "DecadeRangeSliderTrack"
 
 	// Per-thumb interaction state — drives the inner white fill's
@@ -85,7 +85,7 @@ struct DecadeRangeSlider: View {
 
 		return ZStack(alignment: .leading) {
 			Capsule()
-				.fill(.quaternary)
+				.fill(.quinary)
 				.frame(height: Self.trackHeight)
 				.padding(.horizontal, Self.thumbWidth / 2)
 
@@ -126,6 +126,8 @@ struct DecadeRangeSlider: View {
 				}
 			}
 		}
+		.animation(.snappy, value: lowerX)
+		.animation(.snappy, value: upperX)
 	}
 
 	private func thumb(active: Bool) -> some View {
@@ -139,13 +141,20 @@ struct DecadeRangeSlider: View {
 		// thumb on press without re-laying-out its position — the
 		// .offset that places it on the track stays anchored to the
 		// thumb's centre. Spring is intentionally bouncy.
-		Capsule()
-			.fill(.white)
-			.opacity(active ? 0 : 1)
-			.frame(width: Self.thumbWidth, height: Self.thumbHeight)
-			.glassEffect(.clear.interactive(), in: .capsule)
-			.scaleEffect(active ? 1.5 : 1)
-			.animation(.spring(duration: 0.45, bounce: 0.45), value: active)
+		ZStack {
+			Capsule()
+				.fill(.white)
+				.opacity(active ? 0 : 1)
+
+			Capsule()
+				.fill(.clear)
+				.glassEffect(.clear.tint(.black.opacity(active ? 0.025 : 0)).interactive(), in: .capsule)
+				.opacity(active ? 1 : 0)
+		}
+		.shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 2)
+		.frame(width: Self.thumbWidth, height: Self.thumbHeight)
+		.scaleEffect(active ? 1.5 : 1)
+		.animation(active ? .interactiveSpring.delay(0.2) : .smooth(duration: 0.2), value: active)
 	}
 
 	private func position(for decade: Int, usable: CGFloat) -> CGFloat {
@@ -194,12 +203,45 @@ struct DecadeRangeSlider: View {
 	}
 }
 
-#Preview {
-	@Previewable @State var range = DecadeRange(lower: 1970, upper: 2000)
-	return Form {
-		Section("Decade range") {
-			DecadeRangeSlider(range: $range, bounds: 1960 ... 2020)
+/// Preview wrapper as a real View instead of inline `@Previewable @State`
+/// declarations — two @Previewables in one #Preview body have been
+/// reliably crashing the preview agent on this Xcode toolchain (SIGSEGV
+/// at module init, pointer-auth pattern in the report). Owning state
+/// in a small host view sidesteps the macro entirely.
+private struct DecadeRangeSliderPreviewHost: View {
+	@State private var range = DecadeRange(lower: 1970, upper: 2000)
+	@State private var nativeValue: Double = 1980
+
+	var body: some View {
+		Form {
+			Section("Custom range slider") {
+				DecadeRangeSlider(range: $range, bounds: 1960 ... 2020)
+			}
+			Section("Native SwiftUI Slider (reference)") {
+				// Same numeric range and step so the track height,
+				// thumb size, and tick spacing line up visually
+				// with the custom slider above. Use this to A/B
+				// the rendering and tune until the two read as
+				// siblings.
+				Slider(
+					value: $nativeValue,
+					in: 1960 ... 2020,
+					step: 10
+				) {
+					Text("Year")
+				} minimumValueLabel: {
+					Text("1960s")
+						.font(.callout.monospacedDigit().weight(.medium))
+				} maximumValueLabel: {
+					Text("2020s")
+						.font(.callout.monospacedDigit().weight(.medium))
+				}
+			}
 		}
+		.formStyle(.grouped)
 	}
-	.formStyle(.grouped)
+}
+
+#Preview {
+	DecadeRangeSliderPreviewHost()
 }
