@@ -259,7 +259,10 @@ struct SongsView: View {
 		// renders at its final position the moment the overlay clears.
 		// Guard: only on first build, so pull-to-refresh doesn't re-randomize.
 		if dial.focusedItemID == nil {
-			let offset = Int.random(in: -Self.landingSpread ... Self.landingSpread)
+			// Cold-launch pre-position uses the base spread — we don't know
+			// the deck count yet, and this is a one-shot landing (the
+			// shuffle path is what `landingSpread(forCount:)` widens).
+			let offset = Int.random(in: -Self.baseLandingSpread ... Self.baseLandingSpread)
 			dial.rotation = .degrees(-Double(offset) * DialTunables.stepVisual)
 		}
 		await runBuild(wideSample: false)
@@ -347,15 +350,25 @@ struct SongsView: View {
 	}
 
 	/// How far around the walk's seed the dial may land on a fresh deck.
-	/// Tunable; 6 keeps the landing in the seed's similarity neighborhood
-	/// (the first ~6 walk steps are all close to the seed) while giving
-	/// 13 possible landing slots — enough variety that consecutive
-	/// reshuffles feel different.
-	private static let landingSpread = 6
+	/// Originally a flat 6, which gave 13 landing slots regardless of
+	/// deck size — fine for a 300-song deck on the default filters but
+	/// thin under "energy + narrow decade," where the surviving pool
+	/// might only be ~100 songs and the user kept seeing the same
+	/// cluster head shuffle after shuffle. Scale with deck size so the
+	/// landing window grows as the deck does, capped so the dial still
+	/// drops the user somewhere in the walk's early section rather
+	/// than into the dissimilar tail.
+	private static let baseLandingSpread = 6
+	private static let maxLandingSpread = 40
+
+	private static func landingSpread(forCount count: Int) -> Int {
+		max(baseLandingSpread, min(count / 6, maxLandingSpread))
+	}
 
 	private static func randomLandingIndex(count: Int) -> Int {
 		guard count > 1 else { return 0 }
-		let offset = Int.random(in: -Self.landingSpread ... Self.landingSpread)
+		let spread = landingSpread(forCount: count)
+		let offset = Int.random(in: -spread ... spread)
 		return ((offset % count) + count) % count
 	}
 
@@ -380,11 +393,15 @@ struct SongsView: View {
 			avoidArtist: avoidArtist
 		)
 		withAnimation(.smooth(duration: 0.45)) { isReshuffling = false }
-		// Record the new seed (deck[0]) so the next shuffle jumps away
-		// from it too.
-		if let seed = deck.first {
-			lastShuffleDecade = seed.releaseDecade
-			lastShuffleArtist = seed.artistName
+		// Record the *focused* song — what the dial actually landed on —
+		// not `deck.first`. The user sees `deck[landingIdx]`, which sits
+		// in the walk's first-few-positions cluster but often differs in
+		// artist/decade from the seed. Tracking the seed instead meant
+		// the next shuffle could jump the *seed*'s neighbourhood while
+		// still landing the user back in the same cluster head.
+		if let focused = focusedSong {
+			lastShuffleDecade = focused.releaseDecade
+			lastShuffleArtist = focused.artistName
 		}
 		// Detached: same rationale as PlaylistsView.shuffle — the rebuild is
 		// the visible work; the queue handoff to MusicPlayback shouldn't
