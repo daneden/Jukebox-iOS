@@ -29,6 +29,10 @@ struct DecadeRangeSlider: View {
 	private static let thumbWidth: CGFloat = 36
 	private static let thumbHeight: CGFloat = 24
 	private static let trackHeight: CGFloat = 6
+	private static let tickSize: CGFloat = 3
+	/// Distance from track centre to the tick row, so the dots sit
+	/// just below the track edge without overlapping it.
+	private static let tickGapBelowTrack: CGFloat = 6
 	private static let coordinateSpaceName = "DecadeRangeSliderTrack"
 
 	// Per-thumb interaction state — drives the inner white fill's
@@ -37,6 +41,25 @@ struct DecadeRangeSlider: View {
 	// ends or is cancelled (more reliable than tracking with @State).
 	@GestureState private var lowerActive = false
 	@GestureState private var upperActive = false
+	/// Raw distance (pts) the user has dragged each thumb past its
+	/// outer bound — lower past min, upper past max. Auto-resets on
+	/// gesture end, which combined with the spring `.animation` on
+	/// the rubber-band scale gives a clean snap-back to identity.
+	@GestureState private var lowerOverdrag: CGFloat = 0
+	@GestureState private var upperOverdrag: CGFloat = 0
+
+	/// Cap on visible stretch. The rubber-band function asymptotes
+	/// to this value no matter how far the finger pulls.
+	private static let maxStretchPts: CGFloat = 40
+	/// Reference width used to convert the damped stretch (in pts)
+	/// into a scaleEffect factor. Not the actual slider width — a
+	/// fixed baseline so the horizontal stretch reads consistently
+	/// regardless of the popover/sheet's actual frame. Higher value
+	/// = stiffer-feeling band (less scaleX per pt of overdrag).
+	private static let stretchReferenceWidth: CGFloat = 320
+	/// Minimum visible track height as it gets pulled thin. The
+	/// rubber-band metaphor — the band thins as it stretches.
+	private static let minTrackHeight: CGFloat = 2
 
 	private var effectiveBounds: ClosedRange<Int> {
 		bounds ?? (DecadeRange.minDecade ... DecadeRange.maxDecade)
@@ -44,6 +67,17 @@ struct DecadeRangeSlider: View {
 
 	private var spanDecades: Int {
 		effectiveBounds.upperBound - effectiveBounds.lowerBound
+	}
+
+	/// Every decade detent in the effective bounds, inclusive on
+	/// both ends. The boundary ticks land directly under the resting
+	/// positions of the thumbs at min/max.
+	private var decadeStops: [Int] {
+		Array(stride(
+			from: effectiveBounds.lowerBound,
+			through: effectiveBounds.upperBound,
+			by: DecadeRange.step
+		))
 	}
 
 	/// Range clamped into the slider's effective bounds — used for
@@ -61,73 +95,188 @@ struct DecadeRangeSlider: View {
 	}
 
 	var body: some View {
-		VStack(spacing: 6) {
-			HStack {
-				Text(formatDecade(clampedRange.lower))
-				Spacer()
-				Text(formatDecade(clampedRange.upper))
-			}
-			.font(.callout.monospacedDigit().weight(.medium))
-			.foregroundStyle(isAtBounds ? .secondary : .primary)
+		HStack(spacing: -10) {
+			Text(formatDecade(clampedRange.lower))
+				// Visible labels are decorative — the same values are
+				// surfaced via the container's accessibilityValue and
+				// each thumb's accessibilityValue, so announcing them
+				// here too would just triple the read-out.
+				.accessibilityHidden(true)
 
 			GeometryReader { geo in
 				track(in: geo.size.width)
 			}
 			.frame(height: Self.thumbHeight)
 			.coordinateSpace(name: Self.coordinateSpaceName)
+			// Rubber-band stretch when a thumb is dragged past its
+			// bound. Scoped to just the track/thumbs/ticks so the
+			// flanking labels stay put — only the band itself
+			// deforms. Two stacked scaleEffects: lower-overdrag pulls
+			// the band leftward (anchored at trailing), upper-overdrag
+			// pulls it rightward (anchored at leading). GestureState
+			// resets to 0 on release; the spring animation runs the
+			// snap-back automatically.
+			.scaleEffect(
+				x: 1 + rubberBand(lowerOverdrag) / Self.stretchReferenceWidth,
+				anchor: .trailing
+			)
+			.scaleEffect(
+				x: 1 + rubberBand(upperOverdrag) / Self.stretchReferenceWidth,
+				anchor: .leading
+			)
+			.animation(.spring(response: 0.35, dampingFraction: 0.65), value: lowerOverdrag)
+			.animation(.spring(response: 0.35, dampingFraction: 0.65), value: upperOverdrag)
+
+			Text(formatDecade(clampedRange.upper))
+				.accessibilityHidden(true)
 		}
+		.font(.callout.monospacedDigit().weight(.medium))
+		.foregroundStyle(isAtBounds ? .secondary : .primary)
+		// `.contain` makes the whole control a labelled accessibility
+		// container that still exposes each thumb as an independently
+		// focusable adjustable element underneath. VoiceOver users
+		// land on the container first, hear a one-shot summary of the
+		// current range, then navigate into either thumb to adjust.
+		.accessibilityElement(children: .contain)
+		.accessibilityLabel("Decade range")
+		.accessibilityValue(accessibilityRangeValue)
+	}
+
+	/// iOS-style asymptotic damping. Pulls at near-1:1 for small
+	/// overdrag, then resists progressively, never exceeding
+	/// `maxStretchPts` no matter how far the finger travels.
+	private func rubberBand(_ overdrag: CGFloat) -> CGFloat {
+		guard overdrag > 0 else { return 0 }
+		return Self.maxStretchPts * (1 - 1 / (overdrag / Self.maxStretchPts + 1))
+	}
+
+	/// Track height that shrinks as the band is pulled — same
+	/// damped-overdrag drive as the horizontal stretch, so the
+	/// thinning and the widening are coupled. At rest = trackHeight;
+	/// at full stretch = `minTrackHeight`.
+	private var dynamicTrackHeight: CGFloat {
+		let damped = rubberBand(lowerOverdrag) + rubberBand(upperOverdrag)
+		let shrinkFactor = min(1, damped / Self.maxStretchPts)
+		return Self.trackHeight - (Self.trackHeight - Self.minTrackHeight) * shrinkFactor
+	}
+
+	private var accessibilityRangeValue: String {
+		"\(formatDecade(clampedRange.lower)) to \(formatDecade(clampedRange.upper))"
 	}
 
 	private func track(in width: CGFloat) -> some View {
-		let usable = max(0, width - Self.thumbWidth)
-		let lowerX = position(for: clampedRange.lower, usable: usable)
-		let upperX = position(for: clampedRange.upper, usable: usable)
+		// `usable` is the span the thumb's leading-edge offset
+		// travels. The thumbs edge-align with the track at the
+		// extremes: at min, the lower thumb's leading edge sits
+		// flush with the track's leading edge; at max, the upper
+		// thumb's trailing edge sits flush with the track's
+		// trailing edge. Track edges live `thumbWidth/2` inside the
+		// container (the `.padding` on the track Capsule), so the
+		// thumb's leading-edge travel is the track interior minus
+		// another thumb width — `width - 2 × thumbWidth` — and the
+		// offset starts at `thumbWidth/2` instead of 0.
+		let usable = max(0, width - 2 * Self.thumbWidth)
+		let lowerX = Self.thumbWidth / 2 + position(for: clampedRange.lower, usable: usable)
+		let upperX = Self.thumbWidth / 2 + position(for: clampedRange.upper, usable: usable)
 
 		return ZStack(alignment: .leading) {
-			Capsule()
-				.fill(.quinary)
-				.frame(height: Self.trackHeight)
-				.padding(.horizontal, Self.thumbWidth / 2)
+			// Tick marks at every decade detent — small circles
+			// rendered below the track in z-order *and* positioned
+			// vertically below the track line, so they read as a
+			// ruler underneath rather than competing with the track
+			// or fill. Tick centre = thumb centre at that decade =
+			// `thumbWidth + position`, so the tick lands directly
+			// under where the thumb would sit if it snapped there.
+			ForEach(decadeStops, id: \.self) { decade in
+				Circle()
+					.fill(.tertiary)
+					.frame(width: Self.tickSize, height: Self.tickSize)
+					.offset(
+						x: Self.thumbWidth + position(for: decade, usable: usable) - Self.tickSize / 2,
+						y: Self.trackHeight / 2 + Self.tickGapBelowTrack
+					)
+			}
 
 			Capsule()
+				.fill(.quinary)
+				.frame(height: dynamicTrackHeight)
+				.padding(.horizontal, Self.thumbWidth / 2)
+
+			// Fill normally spans thumb-centre → thumb-centre. When a
+			// thumb is parked at its bound, the fill extends out to
+			// that thumb's *outer* edge instead — so a full-range
+			// selection visually fills the entire track, and a
+			// thumb-at-min reads as "everything from the very start"
+			// rather than "from the middle of the thumb."
+			let lowerAtBound = clampedRange.lower <= effectiveBounds.lowerBound
+			let upperAtBound = clampedRange.upper >= effectiveBounds.upperBound
+			let fillLeading = lowerAtBound ? lowerX : lowerX + Self.thumbWidth / 2
+			let fillTrailing = upperAtBound ? upperX + Self.thumbWidth : upperX + Self.thumbWidth / 2
+			Capsule()
 				.fill(.tint)
-				.frame(width: max(0, upperX - lowerX), height: Self.trackHeight)
-				.offset(x: lowerX + Self.thumbWidth / 2)
+				.frame(width: max(0, fillTrailing - fillLeading), height: dynamicTrackHeight)
+				.offset(x: fillLeading)
 
 			GlassEffectContainer {
 				ZStack(alignment: .leading) {
-					thumb(active: lowerActive)
-						.offset(x: lowerX)
-						.gesture(
-							DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpaceName))
-								.updating($lowerActive) { _, state, _ in state = true }
-								.onChanged { value in handleDrag(value: value, usable: usable, isLower: true) }
-						)
-						.accessibilityElement()
-						.accessibilityLabel("Decade range start")
-						.accessibilityValue(formatDecade(clampedRange.lower))
-						.accessibilityAdjustableAction { direction in
-							adjust(isLower: true, increment: direction == .increment)
-						}
-
-					thumb(active: upperActive)
-						.offset(x: upperX)
-						.gesture(
-							DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpaceName))
-								.updating($upperActive) { _, state, _ in state = true }
-								.onChanged { value in handleDrag(value: value, usable: usable, isLower: false) }
-						)
-						.accessibilityElement()
-						.accessibilityLabel("Decade range end")
-						.accessibilityValue(formatDecade(clampedRange.upper))
-						.accessibilityAdjustableAction { direction in
-							adjust(isLower: false, increment: direction == .increment)
-						}
+					thumbView(
+						isLower: true,
+						active: $lowerActive,
+						overdrag: $lowerOverdrag,
+						xOffset: lowerX,
+						usable: usable
+					)
+					thumbView(
+						isLower: false,
+						active: $upperActive,
+						overdrag: $upperOverdrag,
+						xOffset: upperX,
+						usable: usable
+					)
 				}
 			}
 		}
 		.animation(.snappy, value: lowerX)
 		.animation(.snappy, value: upperX)
+	}
+
+	/// Constructs one thumb at the given offset, parameterised by
+	/// which end of the range it represents. Both thumbs share
+	/// identical gesture, accessibility, and styling shapes — only
+	/// the active/overdrag GestureStates, the offset, the
+	/// announcement strings, sort priority, and the overdrag
+	/// direction differ. `isLower` switches the touch-overdrag sign:
+	/// the lower thumb overshoots past the *leading* edge, the upper
+	/// past the *trailing* edge.
+	private func thumbView(
+		isLower: Bool,
+		active: GestureState<Bool>,
+		overdrag: GestureState<CGFloat>,
+		xOffset: CGFloat,
+		usable: CGFloat
+	) -> some View {
+		thumb(active: active.wrappedValue)
+			.offset(x: xOffset)
+			.gesture(
+				DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coordinateSpaceName))
+					.updating(active) { _, state, _ in state = true }
+					.updating(overdrag) { value, state, _ in
+						let touchX = value.location.x - Self.thumbWidth
+						state = max(0, isLower ? -touchX : touchX - usable)
+					}
+					.onChanged { value in handleDrag(value: value, usable: usable, isLower: isLower) }
+			)
+			.accessibilityElement()
+			.accessibilityLabel(isLower ? "Earliest decade" : "Latest decade")
+			.accessibilityValue(formatDecade(isLower ? clampedRange.lower : clampedRange.upper))
+			.accessibilityAdjustableAction { direction in
+				adjust(isLower: isLower, increment: direction == .increment)
+			}
+			// Higher sort priority reads first. ZStack with absolute
+			// offsets doesn't give SwiftUI a reliable layout order
+			// to derive reading order from — make it explicit so
+			// lower is always announced before upper.
+			.accessibilitySortPriority(isLower ? 2 : 1)
 	}
 
 	private func thumb(active: Bool) -> some View {
@@ -146,15 +295,16 @@ struct DecadeRangeSlider: View {
 				.fill(.white)
 				.opacity(active ? 0 : 1)
 
-			Capsule()
-				.fill(.clear)
-				.glassEffect(.clear.tint(.black.opacity(active ? 0.025 : 0)).interactive(), in: .capsule)
-				.opacity(active ? 1 : 0)
+			if active {
+				Capsule()
+					.fill(.clear)
+					.glassEffect(.clear.tint(.primary.opacity(0.0125)).interactive(), in: .capsule)
+			}
 		}
 		.shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 2)
 		.frame(width: Self.thumbWidth, height: Self.thumbHeight)
 		.scaleEffect(active ? 1.5 : 1)
-		.animation(active ? .interactiveSpring.delay(0.2) : .smooth(duration: 0.2), value: active)
+		.animation(active ? .interactiveSpring(duration: 0.18, extraBounce: 0.15).delay(0.2) : .smooth(duration: 0.2), value: active)
 	}
 
 	private func position(for decade: Int, usable: CGFloat) -> CGFloat {
@@ -169,7 +319,12 @@ struct DecadeRangeSlider: View {
 	// the track's frame regardless of which thumb's gesture is
 	// firing.
 	private func handleDrag(value: DragGesture.Value, usable: CGFloat, isLower: Bool) {
-		let touchX = value.location.x - Self.thumbWidth / 2
+		// Thumb centre follows the finger, so its leading edge is
+		// `touch.x - thumbWidth/2`. Subtract a further `thumbWidth/2`
+		// to get the position into the new [0, usable] space — which
+		// is offset by `thumbWidth/2` inside the container so the
+		// thumb edge-aligns with the track edge at the extremes.
+		let touchX = value.location.x - Self.thumbWidth
 		let clampedX = max(0, min(usable, touchX))
 		let fraction = usable > 0 ? Double(clampedX / usable) : 0
 		let stops = max(1, spanDecades / DecadeRange.step)

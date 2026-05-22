@@ -145,9 +145,9 @@ struct SongsView: View {
 						walkControlsAtOpen = walkControls
 						showingWalkControls = true
 					} label: {
-						Label("Walk controls", systemImage: "dial.medium")
+						Label("Walk controls", systemImage: "slider.vertical.3")
+							.imageScale(.large)
 							.labelStyle(.iconOnly)
-							.symbolVariant(walkControls == WalkControls.default ? .none : .fill)
 					}
 					.buttonStyle(.glass)
 					.buttonBorderShape(.circle)
