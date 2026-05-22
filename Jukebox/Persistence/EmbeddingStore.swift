@@ -92,7 +92,12 @@ actor EmbeddingStore {
 		return result
 	}
 
-	func store(_ embedding: [Float], for songID: MusicItemID) {
+	func store(
+		_ embedding: [Float],
+		bpm: Double? = nil,
+		bpmConfidence: Float? = nil,
+		for songID: MusicItemID
+	) {
 		do { try ensureLoaded() } catch { return }
 		guard let context else { return }
 
@@ -105,12 +110,23 @@ actor EmbeddingStore {
 			existing.vector = data
 			existing.modelVersion = Self.currentModelVersion
 			existing.computedAt = Date()
+			// Only overwrite BPM when we have a fresh value — otherwise
+			// preserve whatever was already cached. This keeps a known-
+			// good BPM from a previous embed pass from being wiped if
+			// the next pass's detector returns nil (e.g. transient
+			// inference flakiness).
+			if let bpm {
+				existing.bpm = bpm
+				existing.bpmConfidence = bpmConfidence
+			}
 		} else {
 			let new = SongEmbedding(
 				songID: id,
 				vector: data,
 				modelVersion: Self.currentModelVersion,
-				computedAt: Date()
+				computedAt: Date(),
+				bpm: bpm,
+				bpmConfidence: bpmConfidence
 			)
 			context.insert(new)
 		}
@@ -121,6 +137,31 @@ actor EmbeddingStore {
 		Task { @MainActor in
 			EmbeddingProgress.shared.recordProcessed(songID)
 		}
+	}
+
+	/// Bulk BPM lookup. Mirrors `embeddings(for:)` — single SwiftData
+	/// fetch for all matching rows. Returns only songs that have a
+	/// non-nil BPM cached; the walk uses this to decide whether to
+	/// include a BPM-similarity term for each candidate pair.
+	func bpms(for songIDs: [MusicItemID]) -> [MusicItemID: Double] {
+		do { try ensureLoaded() } catch { return [:] }
+		guard let context else { return [:] }
+
+		let rawIDs = Set(songIDs.map(\.rawValue))
+		let version = Self.currentModelVersion
+		let descriptor = FetchDescriptor<SongEmbedding>(
+			predicate: #Predicate { rawIDs.contains($0.songID) && $0.modelVersion == version }
+		)
+		guard let rows = try? context.fetch(descriptor) else { return [:] }
+
+		var result: [MusicItemID: Double] = [:]
+		result.reserveCapacity(rows.count)
+		for row in rows {
+			if let bpm = row.bpm {
+				result[MusicItemID(row.songID)] = bpm
+			}
+		}
+		return result
 	}
 
 	/// Mark a song as having permanently failed to embed. Subsequent

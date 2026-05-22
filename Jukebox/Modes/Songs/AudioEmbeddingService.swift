@@ -71,9 +71,14 @@ enum AudioEmbeddingService {
 		}
 		do {
 			let url = try await previewURL(for: song)
-			let computed = try await embed(previewURL: url)
-			await EmbeddingStore.shared.store(computed, for: song.id)
-			return computed
+			let (vector, bpm) = try await embed(previewURL: url)
+			await EmbeddingStore.shared.store(
+				vector,
+				bpm: bpm?.bpm,
+				bpmConfidence: bpm?.confidence,
+				for: song.id
+			)
+			return vector
 		} catch let error as EmbedError {
 			// Negative-cache permanent failures so the library warmer
 			// doesn't redo `noCatalogMatch` work for the same song on
@@ -172,9 +177,12 @@ enum AudioEmbeddingService {
 		}
 	}
 
-	/// Download → decode → AudioFeaturePrint → mean-pool. Returns a 512-d
-	/// (the documented `SOUND_VERSION_1` output dim) Float vector.
-	static func embed(previewURL: URL) async throws -> [Float] {
+	/// Download → decode → AudioFeaturePrint → mean-pool, plus a
+	/// BPMDetector pass over the same downloaded file. Returns the
+	/// 512-d (`SOUND_VERSION_1` output dim) mean-pooled embedding
+	/// and a BPM detection (nil for tracks whose audio defeats the
+	/// detector — ambient, classical, free-time).
+	static func embed(previewURL: URL) async throws -> (vector: [Float], bpm: BPMDetector.Detection?) {
 		let localURL: URL
 		do {
 			let (tempURL, _) = try await session.download(from: previewURL)
@@ -206,7 +214,16 @@ enum AudioEmbeddingService {
 
 		guard count > 0, !sum.isEmpty else { throw EmbedError.emptyOutput }
 		let inv = 1.0 / Float(count)
-		return sum.map { $0 * inv }
+		let vector = sum.map { $0 * inv }
+
+		// BPM detection on the same local file. Re-reading via
+		// AVAudioFile is cheaper than restructuring AudioReader's
+		// stream into raw PCM, and `BPMDetector.detect` returns nil
+		// rather than throwing on any decode hiccup — so a BPM
+		// failure can't fail the embedding alongside it.
+		let bpm = BPMDetector.detect(audioFileURL: localURL)
+
+		return (vector, bpm)
 	}
 
 	/// Cosine similarity in [-1, 1]; 1.0 = identical direction in embedding
