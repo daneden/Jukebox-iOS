@@ -101,6 +101,8 @@ private struct WalkControlsForm: View {
 			// macOS `.destructiveAction` keeps the role semantics in
 			// the toolbar without the iOS bottom bar.
 			#if os(iOS)
+			ToolbarSpacer(placement: .bottomBar)
+			
 				ToolbarItem(placement: .bottomBar) {
 					resetButton
 				}
