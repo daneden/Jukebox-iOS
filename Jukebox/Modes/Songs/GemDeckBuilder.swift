@@ -10,17 +10,17 @@ import MusicKit
 
 /// Builds the "hidden gems" deck for Songs mode.
 ///
-/// Strategy: fetch two complementary candidate pools from MusicKit
-/// (nostalgia: highest playCount; discovery: oldest libraryAddedDate),
-/// merge & dedupe, score with `GemScorer`, keep the top N, then shuffle
-/// within that top-N so the user sees variety per session instead of the
-/// same #1 every time.
+/// Strategy: fetch three complementary candidate pools from MusicKit
+/// (nostalgia: highest playCount; discovery: oldest libraryAddedDate;
+/// freshness: newest libraryAddedDate), merge & dedupe, score with
+/// `GemScorer`, keep the top N, then shuffle within that top-N so the
+/// user sees variety per session instead of the same #1 every time.
 ///
-/// Why two pools instead of scanning the whole library: a heavy user has
-/// 5k–50k library songs. Paging the entire library on every Songs-tab
-/// appearance is wasteful (and user has flagged unbounded scans before).
-/// The cost we accept: a song that's middling on *both* axes can miss
-/// both pools and never appear. Worth it.
+/// Why three pools instead of scanning the whole library: a heavy user
+/// has 5k–50k library songs. Paging the entire library on every
+/// Songs-tab appearance is wasteful (and user has flagged unbounded
+/// scans before). The cost we accept: a song that's middling on *all
+/// three* axes can miss every pool and never appear. Worth it.
 enum GemDeckBuilder {
 	/// Baseline per-pool fetch limit when no walk filters are active.
 	/// ~1500 each gives a healthy union (~2-3k after dedupe) for scoring
@@ -130,6 +130,7 @@ enum GemDeckBuilder {
 					let limit = poolSize(for: controls)
 					async let nostalgiaTask = fetchPool(sort: .playCount, ascending: false, limit: limit)
 					async let discoveryTask = fetchPool(sort: .libraryAddedDate, ascending: true, limit: limit)
+					async let freshnessTask = fetchPool(sort: .libraryAddedDate, ascending: false, limit: limit)
 
 					let nostalgia = try await nostalgiaTask
 					continuation.yield(await rank(
@@ -143,7 +144,8 @@ enum GemDeckBuilder {
 					))
 
 					let discovery = try await discoveryTask
-					let union = dedupeUnion(nostalgia: nostalgia, discovery: discovery)
+					let freshness = try await freshnessTask
+					let union = dedupeUnion(nostalgia: nostalgia, discovery: discovery, freshness: freshness)
 					let final = await rank(
 						songs: union,
 						scorer: scorer,
@@ -402,14 +404,17 @@ enum GemDeckBuilder {
 		}
 	}
 
-	private static func dedupeUnion(nostalgia: [Song], discovery: [Song]) -> [Song] {
+	private static func dedupeUnion(nostalgia: [Song], discovery: [Song], freshness: [Song]) -> [Song] {
 		var seen = Set<MusicItemID>()
 		var union: [Song] = []
-		union.reserveCapacity(nostalgia.count + discovery.count)
+		union.reserveCapacity(nostalgia.count + discovery.count + freshness.count)
 		for song in nostalgia where seen.insert(song.id).inserted {
 			union.append(song)
 		}
 		for song in discovery where seen.insert(song.id).inserted {
+			union.append(song)
+		}
+		for song in freshness where seen.insert(song.id).inserted {
 			union.append(song)
 		}
 		return union

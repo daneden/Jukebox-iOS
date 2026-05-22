@@ -233,8 +233,12 @@ actor LibraryEmbeddingWarmer {
 	}
 
 	private func eligibleSongs() async throws -> [Song] {
+		// Mirror the deck builder's three pools so embeddings are
+		// pre-cached for the songs each axis will surface — including
+		// the freshness axis (recently-added + played + dormant).
 		async let nostalgia = fetchPool(sort: .playCount, ascending: false)
 		async let discovery = fetchPool(sort: .libraryAddedDate, ascending: true)
+		async let freshness = fetchPool(sort: .libraryAddedDate, ascending: false)
 
 		var seen = Set<MusicItemID>()
 		var union: [Song] = []
@@ -245,6 +249,12 @@ actor LibraryEmbeddingWarmer {
 		}
 		if union.count < Self.libraryCap {
 			for song in try await discovery where seen.insert(song.id).inserted {
+				union.append(song)
+				if union.count >= Self.libraryCap { break }
+			}
+		}
+		if union.count < Self.libraryCap {
+			for song in try await freshness where seen.insert(song.id).inserted {
 				union.append(song)
 				if union.count >= Self.libraryCap { break }
 			}
