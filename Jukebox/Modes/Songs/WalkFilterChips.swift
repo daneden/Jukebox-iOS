@@ -109,7 +109,6 @@ private struct ResetChip: View {
 			Label("Reset", systemImage: "arrow.counterclockwise")
 				.fontWeight(.semibold)
 		}
-		.controlSize(.large)
 		.buttonStyle(.glass)
 		.labelStyle(.iconOnly)
 		.buttonBorderShape(.circle)
