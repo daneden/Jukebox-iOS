@@ -62,17 +62,11 @@ private struct WalkControlsForm: View {
 			}
 
 			Section {
-				Picker("Decade span", selection: $controls.decadeSpan) {
-					ForEach(DecadeSpan.allCases) { span in
-						Text(span.displayName).tag(span)
-					}
-				}
-				.pickerStyle(.segmented)
-				.labelsHidden()
+				DecadeRangeSlider(range: $controls.decadeRange)
 			} header: {
-				Text("Decade span")
+				Text("Decade range")
 			} footer: {
-				Text("How willing the walk is to bridge eras. Same era keeps consecutive songs close in time.")
+				Text("Only songs released in this range make it into the deck. Drag both thumbs to the ends for no filter.")
 			}
 		}
 		.formStyle(.grouped)
@@ -101,8 +95,8 @@ private struct WalkControlsForm: View {
 			// macOS `.destructiveAction` keeps the role semantics in
 			// the toolbar without the iOS bottom bar.
 			#if os(iOS)
-			ToolbarSpacer(placement: .bottomBar)
-			
+				ToolbarSpacer(placement: .bottomBar)
+
 				ToolbarItem(placement: .bottomBar) {
 					resetButton
 				}

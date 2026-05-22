@@ -5,13 +5,14 @@
 //  Created by Daniel Eden on 21/05/2026.
 //
 //  User-facing knobs that compose over the Songs walk. Three orthogonal
-//  axes — meander, energy, decade span — exposed via the bottom-bar
+//  axes — meander, energy, decade range — exposed via the bottom-bar
 //  popover. Defaults match the curated app behaviour so "reset" returns
 //  control to the algorithm.
 //
-//  Storage is split across three @AppStorage primitives (one per axis)
-//  rather than a JSON blob so the keys are debuggable and the defaults
-//  decode cleanly when a new field is added later.
+//  Storage is split across primitive @AppStorage keys (one per axis,
+//  two for the decade range endpoints) rather than a JSON blob so
+//  the keys are debuggable and the defaults decode cleanly when a
+//  new field is added later.
 //
 
 import SwiftUI
@@ -23,12 +24,15 @@ struct WalkControls: Equatable {
 	/// rather than greedy. Zero reproduces the current default.
 	var meander: Double
 	var energy: EnergyBand
-	var decadeSpan: DecadeSpan
+	/// Inclusive decade range applied as a hard filter on the candidate
+	/// pool. Default spans `DecadeRange.fullRange` so "no filter" is
+	/// just leaving both thumbs at the extremes.
+	var decadeRange: DecadeRange
 
 	static let `default` = WalkControls(
 		meander: 0,
 		energy: .any,
-		decadeSpan: .balanced
+		decadeRange: .fullRange
 	)
 
 	/// Cohesion weight `g` in [0, 1] passed to the per-step score blend
@@ -100,37 +104,29 @@ enum EnergyBand: Int, CaseIterable, Identifiable {
 	}
 }
 
-/// How far the walk is willing to bridge era gaps. Maps to the
-/// halflife (in years) of the exponential decay in
-/// `SongDeckWalk.eraProximity`. Lower halflife → tighter same-era
-/// pairings.
-enum DecadeSpan: Int, CaseIterable, Identifiable {
-	case tight = 0
-	case balanced = 1
-	case broad = 2
-	case anytime = 3
+/// Inclusive decade range (e.g. 1970...2000 = 1970s, 1980s, 1990s, 2000s).
+/// Both endpoints are decade starts — 1970 means "1970s," not "1970."
+struct DecadeRange: Equatable {
+	var lower: Int
+	var upper: Int
 
-	var id: Int {
-		rawValue
+	/// Library bounds the range slider operates in. Songs predate 1900
+	/// extremely rarely; 2030 covers the current decade with a couple
+	/// of years of headroom.
+	static let minDecade = 1900
+	static let maxDecade = 2030
+	static let step = 10
+
+	static let fullRange = DecadeRange(lower: minDecade, upper: maxDecade)
+
+	/// True when the range covers everything — no filtering needed.
+	var isUnbounded: Bool {
+		lower <= Self.minDecade && upper >= Self.maxDecade
 	}
 
-	var displayName: String {
-		switch self {
-		case .tight: "Same era"
-		case .balanced: "Balanced"
-		case .broad: "Wide"
-		case .anytime: "Any era"
-		}
-	}
-
-	/// Era-proximity halflife in years. `anytime` uses a huge value so
-	/// the decay is effectively flat (every pair scores ~1.0 on era).
-	var eraHalflifeYears: Double {
-		switch self {
-		case .tight: 8
-		case .balanced: 20
-		case .broad: 40
-		case .anytime: 1_000_000
-		}
+	/// Inclusive containment test. Used to filter candidates by their
+	/// `releaseDecade`.
+	func contains(_ decade: Int) -> Bool {
+		decade >= lower && decade <= upper
 	}
 }

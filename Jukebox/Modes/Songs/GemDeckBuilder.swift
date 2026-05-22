@@ -174,21 +174,38 @@ enum GemDeckBuilder {
 		// nil and we fall through to the keyword filter; if *that* is
 		// empty we fall through to the unfiltered pool. Soft-fail at
 		// every step so a misconfigured band can't produce a blank deck.
-		let pool: [Song]
+		let energyPool: [Song]
 		if controls.energy == .any {
-			pool = songs
+			energyPool = songs
 		} else if let emb = poolEmbeddings,
 		          let centroidFiltered = EnergyClassifier.filter(songs, band: controls.energy, embeddings: emb),
 		          !centroidFiltered.isEmpty
 		{
-			pool = centroidFiltered
+			energyPool = centroidFiltered
 		} else if let keywordFiltered = filterByEnergy(songs, energy: controls.energy),
 		          !keywordFiltered.isEmpty
 		{
-			pool = keywordFiltered
+			energyPool = keywordFiltered
 		} else {
-			pool = songs
+			energyPool = songs
 		}
+
+		// Decade range: hard filter on candidate releaseDecade. Songs
+		// without a release date pass through (don't punish missing
+		// metadata). Skip the filter when the range covers everything
+		// (default); soft-fall-back to the un-decade-filtered pool if
+		// the user's range matches nothing.
+		let pool: [Song]
+		if controls.decadeRange.isUnbounded {
+			pool = energyPool
+		} else {
+			let decadeFiltered = energyPool.filter { song in
+				guard let decade = song.releaseDecade else { return true }
+				return controls.decadeRange.contains(decade)
+			}
+			pool = decadeFiltered.isEmpty ? energyPool : decadeFiltered
+		}
+
 		let ranked = scorer.scoreAndRank(pool)
 		let top: [Song]
 		if wideSample {

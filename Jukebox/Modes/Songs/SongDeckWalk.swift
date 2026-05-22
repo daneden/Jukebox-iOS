@@ -81,7 +81,6 @@ enum SongDeckWalk {
 
 		let g = Float(controls.seedGravity)
 		let temperature = controls.stepTemperature
-		let eraHalflife = controls.decadeSpan.eraHalflifeYears
 		let seedSong = ordered[0]
 
 		while !remaining.isEmpty {
@@ -104,18 +103,10 @@ enum SongDeckWalk {
 					if !isEligible(candidate: candidate, history: history, relaxLevel: relaxLevel) {
 						continue
 					}
-					let simPrev = similarity(
-						candidate, previous,
-						embeddings: embeddings,
-						eraHalflife: eraHalflife
-					)
+					let simPrev = similarity(candidate, previous, embeddings: embeddings)
 					let score: Float
 					if g > 0 {
-						let simSeed = similarity(
-							candidate, seedSong,
-							embeddings: embeddings,
-							eraHalflife: eraHalflife
-						)
+						let simSeed = similarity(candidate, seedSong, embeddings: embeddings)
 						score = (1 - g) * simPrev + g * simSeed
 					} else {
 						score = simPrev
@@ -229,11 +220,10 @@ enum SongDeckWalk {
 	static func similarity(
 		_ a: Song,
 		_ b: Song,
-		embeddings: [MusicItemID: [Float]],
-		eraHalflife: Double = 20
+		embeddings: [MusicItemID: [Float]]
 	) -> Float {
 		let genre = GenreSimilarity.score(a.genreNames, b.genreNames)
-		let era = eraProximity(a, b, halflifeYears: eraHalflife)
+		let era = eraProximity(a, b)
 
 		if let eA = embeddings[a.id], let eB = embeddings[b.id] {
 			let cosine = AudioEmbeddingService.cosineSimilarity(eA, eB)
@@ -262,12 +252,12 @@ enum SongDeckWalk {
 	/// 0.35 weight keeps that mistake from dominating the blend on its
 	/// own, but back-to-back remasters of decades-apart originals will
 	/// still register as same-era.
-	private static func eraProximity(_ a: Song, _ b: Song, halflifeYears: Double) -> Float {
+	private static func eraProximity(_ a: Song, _ b: Song) -> Float {
 		guard let aDate = a.releaseDate, let bDate = b.releaseDate else {
 			return 0.5
 		}
 		let yearsApart = abs(aDate.timeIntervalSince(bDate)) / (365.25 * 86400)
-		return Float(exp(-yearsApart / halflifeYears))
+		return Float(exp(-yearsApart / 20))
 	}
 }
 

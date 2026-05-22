@@ -19,7 +19,8 @@ struct SongsView: View {
 	@AppStorage(SettingsKeys.autoplay) private var autoplay: Bool = true
 	@AppStorage(SettingsKeys.walkMeander) private var meander: Double = WalkControls.default.meander
 	@AppStorage(SettingsKeys.walkEnergy) private var energyRaw: Int = WalkControls.default.energy.rawValue
-	@AppStorage(SettingsKeys.walkDecadeSpan) private var decadeSpanRaw: Int = WalkControls.default.decadeSpan.rawValue
+	@AppStorage(SettingsKeys.walkDecadeLower) private var decadeLower: Int = WalkControls.default.decadeRange.lower
+	@AppStorage(SettingsKeys.walkDecadeUpper) private var decadeUpper: Int = WalkControls.default.decadeRange.upper
 
 	@State private var deck: MusicItemCollection<Song> = []
 	@State private var dial = DialState()
@@ -47,7 +48,7 @@ struct SongsView: View {
 		WalkControls(
 			meander: meander,
 			energy: EnergyBand(rawValue: energyRaw) ?? .any,
-			decadeSpan: DecadeSpan(rawValue: decadeSpanRaw) ?? .balanced
+			decadeRange: DecadeRange(lower: decadeLower, upper: decadeUpper)
 		)
 	}
 
@@ -57,7 +58,8 @@ struct SongsView: View {
 			set: { new in
 				meander = new.meander
 				energyRaw = new.energy.rawValue
-				decadeSpanRaw = new.decadeSpan.rawValue
+				decadeLower = new.decadeRange.lower
+				decadeUpper = new.decadeRange.upper
 			}
 		)
 	}
