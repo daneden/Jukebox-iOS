@@ -76,15 +76,29 @@ enum EnergyBand: Int, CaseIterable, Identifiable {
 		}
 	}
 
-	/// Lifted from flowstate's band palette so the popover's chips
-	/// match the reference design the user pointed at.
+	/// Tint applied to the energy chip's glass background. System
+	/// colors so they harmonise with the rest of the SwiftUI palette
+	/// across light/dark.
 	var tint: Color {
 		switch self {
 		case .any: .secondary
-		case .glacial: Color(red: 94 / 255, green: 92 / 255, blue: 230 / 255)
-		case .mellow: Color(red: 10 / 255, green: 132 / 255, blue: 255 / 255)
-		case .energetic: Color(red: 191 / 255, green: 90 / 255, blue: 242 / 255)
-		case .intense: Color(red: 255 / 255, green: 45 / 255, blue: 85 / 255)
+		case .glacial: .purple
+		case .mellow: .blue
+		case .energetic: .pink
+		case .intense: .red
+		}
+	}
+
+	/// Font width used on the energy chip — turns the label into a
+	/// visual cue for intensity (expanded reads calmer, compressed
+	/// reads tighter/more urgent).
+	var fontWidth: Font.Width {
+		switch self {
+		case .any: .standard
+		case .glacial: .expanded
+		case .mellow: .standard
+		case .energetic: .condensed
+		case .intense: .compressed
 		}
 	}
 

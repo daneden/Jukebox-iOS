@@ -93,6 +93,11 @@ struct SongsView: View {
 
 				Spacer(minLength: 0)
 
+				WalkFilterChips(controls: walkControls) {
+					walkControlsBinding.wrappedValue = .default
+					Task { await rebuildForWalkControlsChange() }
+				}
+
 				ZStack {
 					if isReshuffling {
 						reshuffleLoadingView
