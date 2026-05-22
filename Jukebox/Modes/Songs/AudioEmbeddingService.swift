@@ -53,10 +53,29 @@ enum AudioEmbeddingService {
 		if let cached = await EmbeddingStore.shared.embedding(for: song.id) {
 			return cached
 		}
-		let url = try await previewURL(for: song)
-		let computed = try await embed(previewURL: url)
-		await EmbeddingStore.shared.store(computed, for: song.id)
-		return computed
+		do {
+			let url = try await previewURL(for: song)
+			let computed = try await embed(previewURL: url)
+			await EmbeddingStore.shared.store(computed, for: song.id)
+			return computed
+		} catch let error as EmbedError {
+			// Negative-cache permanent failures so the library warmer
+			// doesn't redo `noCatalogMatch` work for the same song on
+			// every pass. `downloadFailed` is left uncached on purpose
+			// — it covers network-transient and stale-URL alike; the
+			// retry cost is small compared to over-permanently-failing
+			// a song that would succeed on the next attempt.
+			switch error {
+			case .noCatalogMatch, .noPreview, .emptyOutput:
+				await EmbeddingStore.shared.recordFailure(
+					songID: song.id,
+					reason: error.errorDescription ?? "\(error)"
+				)
+			case .downloadFailed:
+				break
+			}
+			throw error
+		}
 	}
 
 	private static func previewURL(for song: Song) async throws -> URL {

@@ -360,13 +360,21 @@ enum GemDeckBuilder {
 			// low-QoS queries inside the actor.
 			let cached = await EmbeddingStore.shared.embeddings(for: deck.map(\.id))
 			let cachedIDs = Set(cached.keys)
+			// Songs we've permanently failed to embed get marked processed
+			// up-front so the toolbar indicator's denominator reflects what
+			// can actually finish in this pass — and so we don't burn the
+			// 200ms breath re-attempting them.
+			let failedIDs = await EmbeddingStore.shared.recentFailures(
+				within: LibraryEmbeddingWarmer.failureRetryAfter
+			)
+			let skipIDs = cachedIDs.union(deck.map(\.id).filter { failedIDs.contains($0.rawValue) })
 			await MainActor.run {
-				for id in cachedIDs {
+				for id in skipIDs {
 					EmbeddingProgress.shared.recordProcessed(id)
 				}
 			}
 
-			for song in deck where !cachedIDs.contains(song.id) {
+			for song in deck where !skipIDs.contains(song.id) {
 				do {
 					_ = try await AudioEmbeddingService.embed(song: song)
 					// `EmbeddingStore.store` already fired `recordProcessed`.
@@ -382,6 +390,15 @@ enum GemDeckBuilder {
 				// network or the user's battery in one burst.
 				try? await Task.sleep(for: .milliseconds(200))
 			}
+
+			// Deck is fully warm (or as warm as it'll get this session).
+			// Hand off to the library warmer for the long tail — it
+			// self-gates on WiFi + power, so this is cheap if conditions
+			// aren't favourable.
+			await LibraryEmbeddingWarmer.shared.runWarmPass()
+			#if os(iOS)
+				LibraryEmbeddingWarmer.scheduleNextBackgroundTask()
+			#endif
 		}
 	}
 

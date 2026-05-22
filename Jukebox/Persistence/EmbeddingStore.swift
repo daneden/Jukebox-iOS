@@ -44,7 +44,7 @@ actor EmbeddingStore {
 
 	private func ensureLoaded() throws {
 		if container != nil { return }
-		let schema = Schema([SongEmbedding.self])
+		let schema = Schema([SongEmbedding.self, EmbeddingFailure.self])
 		// Named so this store gets its own sqlite file rather than
 		// fighting `HistoryStore` and `TransitionFeedbackStore` over
 		// the default unnamed `default.store`. Three actors opening
@@ -121,6 +121,42 @@ actor EmbeddingStore {
 		Task { @MainActor in
 			EmbeddingProgress.shared.recordProcessed(songID)
 		}
+	}
+
+	/// Mark a song as having permanently failed to embed. Subsequent
+	/// `recentFailures` queries within the retry window will include
+	/// this song, so the library warmer skips it. A successful embed
+	/// later (or another failure) overwrites the row in place.
+	func recordFailure(songID: MusicItemID, reason: String) {
+		do { try ensureLoaded() } catch { return }
+		guard let context else { return }
+
+		let id = songID.rawValue
+		let descriptor = FetchDescriptor<EmbeddingFailure>(
+			predicate: #Predicate { $0.songID == id }
+		)
+		if let existing = try? context.fetch(descriptor).first {
+			existing.failedAt = Date()
+			existing.reason = reason
+		} else {
+			context.insert(EmbeddingFailure(songID: id, failedAt: Date(), reason: reason))
+		}
+		try? context.save()
+	}
+
+	/// Song IDs that failed permanently within the last `window` seconds.
+	/// Used by the library warmer to skip songs we know we can't embed
+	/// yet — without this they'd be retried on every warm pass forever.
+	func recentFailures(within window: TimeInterval) -> Set<String> {
+		do { try ensureLoaded() } catch { return [] }
+		guard let context else { return [] }
+
+		let cutoff = Date(timeIntervalSinceNow: -window)
+		let descriptor = FetchDescriptor<EmbeddingFailure>(
+			predicate: #Predicate { $0.failedAt > cutoff }
+		)
+		guard let rows = try? context.fetch(descriptor) else { return [] }
+		return Set(rows.map(\.songID))
 	}
 
 	/// Vector ↔ Data is raw little-endian Float32 bytes. iOS runs on
