@@ -22,12 +22,45 @@ import MusicKit
 /// The cost we accept: a song that's middling on *both* axes can miss
 /// both pools and never appear. Worth it.
 enum GemDeckBuilder {
-	/// Per-pool fetch limit. ~1500 each gives a healthy union (~2-3k after
-	/// dedupe) for scoring without scanning the whole library.
-	static let poolSize = 1500
+	/// Baseline per-pool fetch limit when no walk filters are active.
+	/// ~1500 each gives a healthy union (~2-3k after dedupe) for scoring
+	/// without scanning the whole library. When the user narrows the
+	/// pool via energy/decade filters, `poolSize(for:)` scales this up
+	/// so the post-filter candidate set has enough material to score
+	/// and walk against.
+	static let basePoolSize = 1500
+	/// Hard ceiling on a single pool fetch even with the most restrictive
+	/// filters active. Set to 4× the baseline — much higher and we start
+	/// approaching a full-library scan for heavy users (50k libraries),
+	/// which past incidents have flagged as wasteful.
+	static let maxPoolSize = 6000
 	/// Top-N kept after scoring. The deck is then shuffled so the actual
 	/// playback order varies per session.
 	static let deckSize = 300
+
+	/// Per-pool fetch limit adapted to the active filters. MusicKit can't
+	/// range-filter on releaseDate and the energy classifier needs an
+	/// unfiltered pool to centroid-score against, so both filters must
+	/// run client-side post-fetch — but with a 1500-cap fetch a strict
+	/// "1960s Glacial" query can collapse the candidate set to a
+	/// handful of songs. Growing the fetch when filters narrow the pool
+	/// pushes the filter as high as we can practically apply it: same
+	/// MusicLibraryRequest, just with more raw material so the filter
+	/// has more to bite into.
+	///
+	/// Multipliers compound, capped at `maxPoolSize`:
+	///  - energy != .any        → ×2
+	///  - decade range narrow   → ×3 (span ≤ 30 years, i.e. ≤ 3 decades)
+	///  - decade range bounded  → ×2 (4+ decades but not the full range)
+	static func poolSize(for controls: WalkControls) -> Int {
+		var multiplier = 1
+		if controls.energy != .any { multiplier *= 2 }
+		if !controls.decadeRange.isUnbounded {
+			let span = controls.decadeRange.upper - controls.decadeRange.lower
+			multiplier *= (span <= 30 ? 3 : 2)
+		}
+		return min(basePoolSize * multiplier, maxPoolSize)
+	}
 
 	struct BuildResult {
 		let deck: [Song]
@@ -94,8 +127,9 @@ enum GemDeckBuilder {
 					// reducing churn across the partial → final swap.
 					let seed = UInt64.random(in: 0 ... UInt64.max)
 
-					async let nostalgiaTask = fetchPool(sort: .playCount, ascending: false)
-					async let discoveryTask = fetchPool(sort: .libraryAddedDate, ascending: true)
+					let limit = poolSize(for: controls)
+					async let nostalgiaTask = fetchPool(sort: .playCount, ascending: false, limit: limit)
+					async let discoveryTask = fetchPool(sort: .libraryAddedDate, ascending: true, limit: limit)
 
 					let nostalgia = try await nostalgiaTask
 					continuation.yield(await rank(
@@ -371,7 +405,7 @@ enum GemDeckBuilder {
 		case libraryAddedDate
 	}
 
-	private static func fetchPool(sort: PoolSort, ascending: Bool) async throws -> [Song] {
+	private static func fetchPool(sort: PoolSort, ascending: Bool, limit: Int) async throws -> [Song] {
 		var request = MusicLibraryRequest<Song>()
 		switch sort {
 		case .playCount:
@@ -379,7 +413,7 @@ enum GemDeckBuilder {
 		case .libraryAddedDate:
 			request.sort(by: \.libraryAddedDate, ascending: ascending)
 		}
-		request.limit = poolSize
+		request.limit = limit
 		let response = try await request.response()
 		return Array(response.items)
 	}
