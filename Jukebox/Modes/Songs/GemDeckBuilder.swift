@@ -279,12 +279,18 @@ enum GemDeckBuilder {
 		} else {
 			embeddings = await EmbeddingStore.shared.embeddings(for: top.map(\.id))
 		}
+		// BPM data isn't pool-wide cached (we don't use it for
+		// energy classification), so always fetch fresh for the
+		// top-N. Returns only songs with a non-nil BPM; the walk's
+		// similarity blend gates on per-pair coverage.
+		let bpms = await EmbeddingStore.shared.bpms(for: top.map(\.id))
 		// Pull the user's blocked-pair feedback so the walk avoids
 		// recreating transitions they've explicitly rejected.
 		let blockedPairs = await TransitionFeedbackStore.shared.allBlockedPairs()
 		let deck = SongDeckWalk.walk(
 			songs: top,
 			embeddings: embeddings,
+			bpms: bpms,
 			blockedPairs: blockedPairs,
 			seed: seed,
 			controls: controls,
