@@ -96,7 +96,7 @@ struct EnergyCurveEditor: View {
 					startPoint: .top,
 					endPoint: .bottom
 				),
-				style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+				style: StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round)
 			)
 			.shadow(color: .black.opacity(0.1), radius: 6, y: 2)
 			.allowsHitTesting(false)
