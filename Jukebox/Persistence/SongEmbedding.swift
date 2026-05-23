@@ -14,6 +14,14 @@
 //  embedding model later (e.g. AudioFeaturePrint → CLAP). Bump the
 //  constant in EmbeddingStore and old entries are ignored on read,
 //  treated as misses; they get overwritten on the next embed.
+//
+//  `bpm` + `bpmConfidence` are populated by `BPMDetector` during the
+//  same embed pass, sharing the preview download. Nil for both means
+//  either a legacy row (embedded before BPM detection landed) or a
+//  song whose audio defeated the detector (ambient, classical,
+//  free-time). The walk treats missing BPM as "no signal" rather
+//  than a penalty, so we leave legacy rows alone instead of forcing
+//  a re-download for backfill.
 
 import Foundation
 import SwiftData
@@ -24,11 +32,22 @@ final class SongEmbedding {
 	var vector: Data
 	var modelVersion: Int
 	var computedAt: Date
+	var bpm: Double?
+	var bpmConfidence: Float?
 
-	init(songID: String, vector: Data, modelVersion: Int, computedAt: Date) {
+	init(
+		songID: String,
+		vector: Data,
+		modelVersion: Int,
+		computedAt: Date,
+		bpm: Double? = nil,
+		bpmConfidence: Float? = nil
+	) {
 		self.songID = songID
 		self.vector = vector
 		self.modelVersion = modelVersion
 		self.computedAt = computedAt
+		self.bpm = bpm
+		self.bpmConfidence = bpmConfidence
 	}
 }

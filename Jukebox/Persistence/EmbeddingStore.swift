@@ -44,7 +44,7 @@ actor EmbeddingStore {
 
 	private func ensureLoaded() throws {
 		if container != nil { return }
-		let schema = Schema([SongEmbedding.self])
+		let schema = Schema([SongEmbedding.self, EmbeddingFailure.self])
 		// Named so this store gets its own sqlite file rather than
 		// fighting `HistoryStore` and `TransitionFeedbackStore` over
 		// the default unnamed `default.store`. Three actors opening
@@ -92,7 +92,12 @@ actor EmbeddingStore {
 		return result
 	}
 
-	func store(_ embedding: [Float], for songID: MusicItemID) {
+	func store(
+		_ embedding: [Float],
+		bpm: Double? = nil,
+		bpmConfidence: Float? = nil,
+		for songID: MusicItemID
+	) {
 		do { try ensureLoaded() } catch { return }
 		guard let context else { return }
 
@@ -105,12 +110,23 @@ actor EmbeddingStore {
 			existing.vector = data
 			existing.modelVersion = Self.currentModelVersion
 			existing.computedAt = Date()
+			// Only overwrite BPM when we have a fresh value — otherwise
+			// preserve whatever was already cached. This keeps a known-
+			// good BPM from a previous embed pass from being wiped if
+			// the next pass's detector returns nil (e.g. transient
+			// inference flakiness).
+			if let bpm {
+				existing.bpm = bpm
+				existing.bpmConfidence = bpmConfidence
+			}
 		} else {
 			let new = SongEmbedding(
 				songID: id,
 				vector: data,
 				modelVersion: Self.currentModelVersion,
-				computedAt: Date()
+				computedAt: Date(),
+				bpm: bpm,
+				bpmConfidence: bpmConfidence
 			)
 			context.insert(new)
 		}
@@ -121,6 +137,103 @@ actor EmbeddingStore {
 		Task { @MainActor in
 			EmbeddingProgress.shared.recordProcessed(songID)
 		}
+	}
+
+	/// Whether the row for `songID` has a non-nil BPM. The library
+	/// warmer uses this to decide between "compute embedding + BPM"
+	/// (no row yet) and "BPM-only refresh" (row exists, BPM nil) —
+	/// without it we'd either re-download for the full embed pipeline
+	/// every time, or never backfill BPM on legacy rows.
+	func hasBPM(for songID: MusicItemID) -> Bool {
+		do { try ensureLoaded() } catch { return false }
+		guard let context else { return false }
+
+		let id = songID.rawValue
+		let version = Self.currentModelVersion
+		let descriptor = FetchDescriptor<SongEmbedding>(
+			predicate: #Predicate { $0.songID == id && $0.modelVersion == version }
+		)
+		guard let row = try? context.fetch(descriptor).first else { return false }
+		return row.bpm != nil
+	}
+
+	/// Update only the BPM fields on an existing row. Used by the
+	/// library warmer when backfilling BPM for a song whose embedding
+	/// was previously cached without it (e.g. processed by the
+	/// foreground deck warm, which skips BPM detection to stay quick).
+	func updateBPM(bpm: Double, bpmConfidence: Float, for songID: MusicItemID) {
+		do { try ensureLoaded() } catch { return }
+		guard let context else { return }
+
+		let id = songID.rawValue
+		let descriptor = FetchDescriptor<SongEmbedding>(
+			predicate: #Predicate { $0.songID == id }
+		)
+		guard let existing = try? context.fetch(descriptor).first else { return }
+		existing.bpm = bpm
+		existing.bpmConfidence = bpmConfidence
+		try? context.save()
+	}
+
+	/// Bulk BPM lookup. Mirrors `embeddings(for:)` — single SwiftData
+	/// fetch for all matching rows. Returns only songs that have a
+	/// non-nil BPM cached; the walk uses this to decide whether to
+	/// include a BPM-similarity term for each candidate pair.
+	func bpms(for songIDs: [MusicItemID]) -> [MusicItemID: Double] {
+		do { try ensureLoaded() } catch { return [:] }
+		guard let context else { return [:] }
+
+		let rawIDs = Set(songIDs.map(\.rawValue))
+		let version = Self.currentModelVersion
+		let descriptor = FetchDescriptor<SongEmbedding>(
+			predicate: #Predicate { rawIDs.contains($0.songID) && $0.modelVersion == version }
+		)
+		guard let rows = try? context.fetch(descriptor) else { return [:] }
+
+		var result: [MusicItemID: Double] = [:]
+		result.reserveCapacity(rows.count)
+		for row in rows {
+			if let bpm = row.bpm {
+				result[MusicItemID(row.songID)] = bpm
+			}
+		}
+		return result
+	}
+
+	/// Mark a song as having permanently failed to embed. Subsequent
+	/// `recentFailures` queries within the retry window will include
+	/// this song, so the library warmer skips it. A successful embed
+	/// later (or another failure) overwrites the row in place.
+	func recordFailure(songID: MusicItemID, reason: String) {
+		do { try ensureLoaded() } catch { return }
+		guard let context else { return }
+
+		let id = songID.rawValue
+		let descriptor = FetchDescriptor<EmbeddingFailure>(
+			predicate: #Predicate { $0.songID == id }
+		)
+		if let existing = try? context.fetch(descriptor).first {
+			existing.failedAt = Date()
+			existing.reason = reason
+		} else {
+			context.insert(EmbeddingFailure(songID: id, failedAt: Date(), reason: reason))
+		}
+		try? context.save()
+	}
+
+	/// Song IDs that failed permanently within the last `window` seconds.
+	/// Used by the library warmer to skip songs we know we can't embed
+	/// yet — without this they'd be retried on every warm pass forever.
+	func recentFailures(within window: TimeInterval) -> Set<String> {
+		do { try ensureLoaded() } catch { return [] }
+		guard let context else { return [] }
+
+		let cutoff = Date(timeIntervalSinceNow: -window)
+		let descriptor = FetchDescriptor<EmbeddingFailure>(
+			predicate: #Predicate { $0.failedAt > cutoff }
+		)
+		guard let rows = try? context.fetch(descriptor) else { return [] }
+		return Set(rows.map(\.songID))
 	}
 
 	/// Vector ↔ Data is raw little-endian Float32 bytes. iOS runs on

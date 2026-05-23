@@ -47,6 +47,7 @@ enum SongDeckWalk {
 	static func walk(
 		songs: [Song],
 		embeddings: [MusicItemID: [Float]],
+		bpms: [MusicItemID: Double] = [:],
 		blockedPairs: Set<String> = [],
 		seed: UInt64,
 		controls: WalkControls = .default,
@@ -103,10 +104,10 @@ enum SongDeckWalk {
 					if !isEligible(candidate: candidate, history: history, relaxLevel: relaxLevel) {
 						continue
 					}
-					let simPrev = similarity(candidate, previous, embeddings: embeddings)
+					let simPrev = similarity(candidate, previous, embeddings: embeddings, bpms: bpms)
 					let score: Float
 					if g > 0 {
-						let simSeed = similarity(candidate, seedSong, embeddings: embeddings)
+						let simSeed = similarity(candidate, seedSong, embeddings: embeddings, bpms: bpms)
 						score = (1 - g) * simPrev + g * simSeed
 					} else {
 						score = simPrev
@@ -207,7 +208,12 @@ enum SongDeckWalk {
 	/// use to make meaningful next-song decisions.
 	///
 	/// We compensate by blending the cosine with metadata signals we have
-	/// at near-total coverage (genre 99.9%, releaseDate close to 100%).
+	/// at near-total coverage (genre 99.9%, releaseDate close to 100%)
+	/// and — when both sides have BPM cached — a tempo-proximity term
+	/// that captures the rhythmic dimension the timbral embedding
+	/// flattens. BPM coverage is partial (legacy embeddings have nil
+	/// BPM, ambient/classical defeats the detector), so pairs without
+	/// it fall through to the no-BPM blend.
 	///
 	/// Era is weighted heavily because the embedding flattens decades —
 	/// without it, the walk happily pairs e.g. 1940s vocal-jazz with
@@ -220,17 +226,39 @@ enum SongDeckWalk {
 	static func similarity(
 		_ a: Song,
 		_ b: Song,
-		embeddings: [MusicItemID: [Float]]
+		embeddings: [MusicItemID: [Float]],
+		bpms: [MusicItemID: Double] = [:]
 	) -> Float {
 		let genre = GenreSimilarity.score(a.genreNames, b.genreNames)
 		let era = eraProximity(a, b)
 
 		if let eA = embeddings[a.id], let eB = embeddings[b.id] {
 			let cosine = AudioEmbeddingService.cosineSimilarity(eA, eB)
+			if let bA = bpms[a.id], let bB = bpms[b.id] {
+				let tempo = bpmProximity(bA, bB)
+				// 0.35 cos + 0.20 tempo + 0.20 genre + 0.25 era.
+				// Cosine keeps the most weight, era stays heavy to
+				// police cross-decade jumps, and tempo + genre share
+				// what's left. Sums to 1.00.
+				return 0.35 * cosine + 0.20 * tempo + 0.20 * genre + 0.25 * era
+			}
 			return 0.4 * cosine + 0.25 * genre + 0.35 * era
 		}
 		// No cached embedding for at least one side — metadata only.
 		return 0.5 * genre + 0.5 * era
+	}
+
+	/// Tempo similarity in [0, 1] with octave folding. A 70 BPM ballad
+	/// and a 140 BPM rock track share the same pulse subdivision, so
+	/// pairs at 2× / ½× the detected BPM are treated as identical
+	/// rhythmically. Exponential decay with a ~30 BPM half-life: 0
+	/// diff → 1.0, 30 → 0.37, 60 → 0.14.
+	private static func bpmProximity(_ a: Double, _ b: Double) -> Float {
+		let direct = abs(a - b)
+		let doubled = abs(a - 2 * b)
+		let halved = abs(a - b / 2)
+		let diff = min(direct, doubled, halved)
+		return Float(exp(-diff / 30.0))
 	}
 
 	/// Exponential decay with a ~20-year halflife. Linear clamping at 30

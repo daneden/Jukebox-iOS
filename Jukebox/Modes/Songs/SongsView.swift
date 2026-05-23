@@ -34,8 +34,8 @@ struct SongsView: View {
 	/// the user actually changed anything and skip the rebuild if not.
 	@State private var walkControlsAtOpen: WalkControls?
 	/// True while a shuffle-driven rebuild is in flight. The dial is
-	/// pulled offscreen for the duration so partial/final deck swaps
-	/// don't visibly thrash; a loading view sits in its place.
+	/// pulled offscreen for the duration so the deck swap doesn't
+	/// visibly thrash; a loading view sits in its place.
 	@State private var isReshuffling = false
 	/// Previous shuffle's seed neighbourhood. Passed back into the
 	/// next shuffle so the walk's seed picker actively jumps away —
@@ -208,9 +208,10 @@ struct SongsView: View {
 			}
 			.sensoryFeedback(.impact(weight: .medium), trigger: dial.spinLandTick)
 			// Trigger on the focused song's *id*, not its index — a
-			// reanchor (e.g. partial → final deck swap during streaming)
-			// changes the index while keeping the same song focused, and
-			// the user shouldn't feel a haptic for that.
+			// reanchor (e.g. walk-controls change keeping the same song
+			// focused at a new position) changes the index while
+			// keeping the same song focused, and the user shouldn't
+			// feel a haptic for that.
 			.sensoryFeedback(.selection, trigger: dial.focusedItemID)
 			.sensoryFeedback(.start, trigger: dial.playbackTick)
 			.onChange(of: MusicAuthorization.currentStatus) { _, newValue in
@@ -259,7 +260,10 @@ struct SongsView: View {
 		// renders at its final position the moment the overlay clears.
 		// Guard: only on first build, so pull-to-refresh doesn't re-randomize.
 		if dial.focusedItemID == nil {
-			let offset = Int.random(in: -Self.landingSpread ... Self.landingSpread)
+			// Cold-launch pre-position uses the base spread — we don't know
+			// the deck count yet, and this is a one-shot landing (the
+			// shuffle path is what `landingSpread(forCount:)` widens).
+			let offset = Int.random(in: -Self.baseLandingSpread ... Self.baseLandingSpread)
 			dial.rotation = .degrees(-Double(offset) * DialTunables.stepVisual)
 		}
 		await runBuild(wideSample: false)
@@ -270,10 +274,9 @@ struct SongsView: View {
 		avoidDecade: Int? = nil,
 		avoidArtist: String? = nil
 	) async {
-		// Stream partial → final from GemDeckBuilder. The first emission is
-		// the nostalgia-only deck (lands fast, dial becomes interactive);
-		// the second is the full nostalgia+discovery deck (lift-out
-		// transition swaps it in when ready).
+		// `buildStreaming` yields exactly once with the finished deck.
+		// The for-await shape is kept so cancellation still propagates
+		// through `onTermination` if the task is cancelled mid-build.
 		do {
 			for try await result in GemDeckBuilder.buildStreaming(
 				wideSample: wideSample,
@@ -347,16 +350,40 @@ struct SongsView: View {
 	}
 
 	/// How far around the walk's seed the dial may land on a fresh deck.
-	/// Tunable; 6 keeps the landing in the seed's similarity neighborhood
-	/// (the first ~6 walk steps are all close to the seed) while giving
-	/// 13 possible landing slots — enough variety that consecutive
-	/// reshuffles feel different.
-	private static let landingSpread = 6
+	/// Originally a flat 6, which gave 13 landing slots regardless of
+	/// deck size — fine for a 300-song deck on the default filters but
+	/// thin under "energy + narrow decade," where the surviving pool
+	/// might only be ~100 songs and the user kept seeing the same
+	/// cluster head shuffle after shuffle. Scale with deck size so the
+	/// landing window grows as the deck does, capped so the dial still
+	/// drops the user somewhere in the walk's early section rather
+	/// than into the dissimilar tail.
+	private static let baseLandingSpread = 6
+	private static let maxLandingSpread = 40
+
+	private static func landingSpread(forCount count: Int) -> Int {
+		max(baseLandingSpread, min(count / 6, maxLandingSpread))
+	}
 
 	private static func randomLandingIndex(count: Int) -> Int {
 		guard count > 1 else { return 0 }
-		let offset = Int.random(in: -Self.landingSpread ... Self.landingSpread)
+		let spread = landingSpread(forCount: count)
+		let offset = Int.random(in: -spread ... spread)
 		return ((offset % count) + count) % count
+	}
+
+	/// Move the dial to a fresh landing on the current deck. Used by
+	/// shuffle to override `applyDeck`'s reanchor when the previously-
+	/// focused song happens to survive the new deck. Safe to call while
+	/// the dial is hidden behind the reshuffle overlay — rotation is set
+	/// without animation, so it's the position that's revealed when the
+	/// overlay clears.
+	private func relandRandomly() {
+		guard !deck.isEmpty else { return }
+		let landingIdx = Self.randomLandingIndex(count: deck.count)
+		dial.focusedIndex = landingIdx
+		dial.rotation = .degrees(-Double(landingIdx) * DialTunables.stepVisual)
+		dial.focusedItemID = deck[landingIdx].id
 	}
 
 	// MARK: - Shuffle
@@ -379,12 +406,26 @@ struct SongsView: View {
 			avoidDecade: avoidDecade,
 			avoidArtist: avoidArtist
 		)
+		// Force a fresh landing. `applyDeck`'s reanchor branch keeps
+		// focus on the previously-focused song whenever it survives the
+		// new wide-sample deck — fine during the partial→final swap
+		// (dial is hidden), but it defeats the whole point of shuffle.
+		// On an unfiltered library the previously-focused song is
+		// almost always in the new top 300 (high gem score → in widePool
+		// → ~50% inclusion probability; if `capPerArtistAndAlbum`
+		// trims widePool to ≤300 the inclusion becomes deterministic),
+		// so shuffle would feel like a no-op without this.
+		relandRandomly()
 		withAnimation(.smooth(duration: 0.45)) { isReshuffling = false }
-		// Record the new seed (deck[0]) so the next shuffle jumps away
-		// from it too.
-		if let seed = deck.first {
-			lastShuffleDecade = seed.releaseDecade
-			lastShuffleArtist = seed.artistName
+		// Record the *focused* song — what the dial actually landed on —
+		// not `deck.first`. The user sees `deck[landingIdx]`, which sits
+		// in the walk's first-few-positions cluster but often differs in
+		// artist/decade from the seed. Tracking the seed instead meant
+		// the next shuffle could jump the *seed*'s neighbourhood while
+		// still landing the user back in the same cluster head.
+		if let focused = focusedSong {
+			lastShuffleDecade = focused.releaseDecade
+			lastShuffleArtist = focused.artistName
 		}
 		// Detached: same rationale as PlaylistsView.shuffle — the rebuild is
 		// the visible work; the queue handoff to MusicPlayback shouldn't

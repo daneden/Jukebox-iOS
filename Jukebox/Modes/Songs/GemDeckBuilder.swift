@@ -10,25 +10,28 @@ import MusicKit
 
 /// Builds the "hidden gems" deck for Songs mode.
 ///
-/// Strategy: fetch two complementary candidate pools from MusicKit
-/// (nostalgia: highest playCount; discovery: oldest libraryAddedDate),
-/// merge & dedupe, score with `GemScorer`, keep the top N, then shuffle
-/// within that top-N so the user sees variety per session instead of the
-/// same #1 every time.
+/// Strategy: fetch three complementary candidate pools from MusicKit
+/// (nostalgia: highest playCount; discovery: oldest libraryAddedDate;
+/// freshness: newest libraryAddedDate), merge & dedupe, score with
+/// `GemScorer`, keep the top N, then shuffle within that top-N so the
+/// user sees variety per session instead of the same #1 every time.
 ///
-/// Why two pools instead of scanning the whole library: a heavy user has
-/// 5k–50k library songs. Paging the entire library on every Songs-tab
-/// appearance is wasteful (and user has flagged unbounded scans before).
-/// The cost we accept: a song that's middling on *both* axes can miss
-/// both pools and never appear. Worth it.
+/// Why three pools instead of scanning the whole library: a heavy user
+/// has 5k–50k library songs. Paging the entire library on every
+/// Songs-tab appearance is wasteful (and user has flagged unbounded
+/// scans before). The cost we accept: a song that's middling on *all
+/// three* axes can miss every pool and never appear. Worth it.
 enum GemDeckBuilder {
 	/// Baseline per-pool fetch limit when no walk filters are active.
-	/// ~1500 each gives a healthy union (~2-3k after dedupe) for scoring
-	/// without scanning the whole library. When the user narrows the
-	/// pool via energy/decade filters, `poolSize(for:)` scales this up
-	/// so the post-filter candidate set has enough material to score
-	/// and walk against.
-	static let basePoolSize = 1500
+	/// 1000 each gives a healthy three-pool union (~2-2.5k after
+	/// dedupe) for scoring without scanning the whole library. Down
+	/// from 1500 with two pools: with three pools the previous size
+	/// pulled ~50% more MusicKit hydration than needed, and shuffle
+	/// times stretched well past the user's tolerance. When the user
+	/// narrows the pool via energy/decade filters, `poolSize(for:)`
+	/// scales this up so the post-filter candidate set has enough
+	/// material to score and walk against.
+	static let basePoolSize = 1000
 	/// Hard ceiling on a single pool fetch even with the most restrictive
 	/// filters active. Set to 4× the baseline — much higher and we start
 	/// approaching a full-library scan for heavy users (50k libraries),
@@ -83,17 +86,20 @@ enum GemDeckBuilder {
 		return last ?? BuildResult(deck: [], scannedCount: 0, libraryDecadeBounds: nil)
 	}
 
-	/// Streaming API: yields a partial deck as soon as the nostalgia pool
-	/// returns (scored on nostalgia alone), then yields a final deck once
-	/// the discovery pool joins. SongsView consumes this so the dial
-	/// becomes interactive at roughly half the cold-launch wait — the
-	/// final deck slides in via the lift-out transition when ready.
+	/// Builds the deck end-to-end: all three pools fetched in parallel,
+	/// deduped, scored, capped, and walk-ordered. Yields exactly once
+	/// with the finished deck. (Earlier versions yielded a nostalgia-
+	/// only partial before the full union arrived, to make the dial
+	/// interactive sooner on cold launch. The visible swap when the
+	/// final landed was jarring — particularly once the freshness pool
+	/// joined and the three-pool score normalisation diverged from the
+	/// nostalgia-only one — so the partial yield was removed and the
+	/// dial now waits behind the loading overlay for the full deck.)
 	///
-	/// Why nostalgia-first rather than first-completed: both pools take
-	/// similar time (both do a full-library sort + 1500-row hydrate), and
-	/// the partial deck built on nostalgia alone skews to "songs you used
-	/// to play a lot," which is a reasonable thing to land on while
-	/// discovery is still arriving.
+	/// Wrapped in `AsyncThrowingStream` rather than `async throws` so
+	/// `onTermination` can cancel the underlying fetch task when the
+	/// caller bails (the previous streaming consumer relied on this and
+	/// the cancellation hook is still useful even with a single yield).
 	/// Multiplier on `deckSize` used as the candidate slice when
 	/// `wideSample: true`. Larger = more variety in super-shuffle, at
 	/// the cost of letting lower-scored gems into the deck.
@@ -122,28 +128,17 @@ enum GemDeckBuilder {
 						now: now,
 						recentPlays: recentPlays
 					)
-					// Session-stable seed: partial and final share it so the
-					// walk starts in the same neighborhood for both yields,
-					// reducing churn across the partial → final swap.
 					let seed = UInt64.random(in: 0 ... UInt64.max)
 
 					let limit = poolSize(for: controls)
 					async let nostalgiaTask = fetchPool(sort: .playCount, ascending: false, limit: limit)
 					async let discoveryTask = fetchPool(sort: .libraryAddedDate, ascending: true, limit: limit)
+					async let freshnessTask = fetchPool(sort: .libraryAddedDate, ascending: false, limit: limit)
 
 					let nostalgia = try await nostalgiaTask
-					continuation.yield(await rank(
-						songs: nostalgia,
-						scorer: scorer,
-						seed: seed,
-						controls: controls,
-						wideSample: wideSample,
-						avoidDecade: avoidDecade,
-						avoidArtist: avoidArtist
-					))
-
 					let discovery = try await discoveryTask
-					let union = dedupeUnion(nostalgia: nostalgia, discovery: discovery)
+					let freshness = try await freshnessTask
+					let union = dedupeUnion(nostalgia: nostalgia, discovery: discovery, freshness: freshness)
 					let final = await rank(
 						songs: union,
 						scorer: scorer,
@@ -284,12 +279,18 @@ enum GemDeckBuilder {
 		} else {
 			embeddings = await EmbeddingStore.shared.embeddings(for: top.map(\.id))
 		}
+		// BPM data isn't pool-wide cached (we don't use it for
+		// energy classification), so always fetch fresh for the
+		// top-N. Returns only songs with a non-nil BPM; the walk's
+		// similarity blend gates on per-pair coverage.
+		let bpms = await EmbeddingStore.shared.bpms(for: top.map(\.id))
 		// Pull the user's blocked-pair feedback so the walk avoids
 		// recreating transitions they've explicitly rejected.
 		let blockedPairs = await TransitionFeedbackStore.shared.allBlockedPairs()
 		let deck = SongDeckWalk.walk(
 			songs: top,
 			embeddings: embeddings,
+			bpms: bpms,
 			blockedPairs: blockedPairs,
 			seed: seed,
 			controls: controls,
@@ -360,13 +361,21 @@ enum GemDeckBuilder {
 			// low-QoS queries inside the actor.
 			let cached = await EmbeddingStore.shared.embeddings(for: deck.map(\.id))
 			let cachedIDs = Set(cached.keys)
+			// Songs we've permanently failed to embed get marked processed
+			// up-front so the toolbar indicator's denominator reflects what
+			// can actually finish in this pass — and so we don't burn the
+			// 200ms breath re-attempting them.
+			let failedIDs = await EmbeddingStore.shared.recentFailures(
+				within: LibraryEmbeddingWarmer.failureRetryAfter
+			)
+			let skipIDs = cachedIDs.union(deck.map(\.id).filter { failedIDs.contains($0.rawValue) })
 			await MainActor.run {
-				for id in cachedIDs {
+				for id in skipIDs {
 					EmbeddingProgress.shared.recordProcessed(id)
 				}
 			}
 
-			for song in deck where !cachedIDs.contains(song.id) {
+			for song in deck where !skipIDs.contains(song.id) {
 				do {
 					_ = try await AudioEmbeddingService.embed(song: song)
 					// `EmbeddingStore.store` already fired `recordProcessed`.
@@ -378,21 +387,36 @@ enum GemDeckBuilder {
 						EmbeddingProgress.shared.recordProcessed(song.id)
 					}
 				}
-				// Small breath between requests so we don't hammer the
-				// network or the user's battery in one burst.
-				try? await Task.sleep(for: .milliseconds(200))
+				// 500ms breath matches the library warmer's cadence and
+				// stops the deck-warm from hammering MusicKit's catalog
+				// endpoints (each embed can make 2-3 catalog calls in
+				// `previewURL(for:)` before downloading) while the user
+				// is mid-shuffle.
+				try? await Task.sleep(for: .milliseconds(500))
 			}
+
+			// Deck is fully warm (or as warm as it'll get this session).
+			// Hand off to the library warmer for the long tail — it
+			// self-gates on WiFi + power, so this is cheap if conditions
+			// aren't favourable.
+			await LibraryEmbeddingWarmer.shared.runWarmPass()
+			#if os(iOS)
+				LibraryEmbeddingWarmer.scheduleNextBackgroundTask()
+			#endif
 		}
 	}
 
-	private static func dedupeUnion(nostalgia: [Song], discovery: [Song]) -> [Song] {
+	private static func dedupeUnion(nostalgia: [Song], discovery: [Song], freshness: [Song]) -> [Song] {
 		var seen = Set<MusicItemID>()
 		var union: [Song] = []
-		union.reserveCapacity(nostalgia.count + discovery.count)
+		union.reserveCapacity(nostalgia.count + discovery.count + freshness.count)
 		for song in nostalgia where seen.insert(song.id).inserted {
 			union.append(song)
 		}
 		for song in discovery where seen.insert(song.id).inserted {
+			union.append(song)
+		}
+		for song in freshness where seen.insert(song.id).inserted {
 			union.append(song)
 		}
 		return union
