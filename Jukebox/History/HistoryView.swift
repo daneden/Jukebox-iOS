@@ -118,7 +118,7 @@ private struct HistoryRow: View {
 	}
 }
 
-private struct HistoryDetailView: View {
+struct HistoryDetailView: View {
 	@Environment(\.colorScheme) private var colorScheme
 	let entry: HistoryEntrySnapshot
 	let onChange: () -> Void

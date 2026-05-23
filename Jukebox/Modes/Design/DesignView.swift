@@ -21,7 +21,7 @@ struct DesignView: View {
 	@State private var curve: EnergyCurve = .default
 	@State private var isGenerating = false
 	@State private var generationError: String?
-	@State private var result: DesignedPlaylistResult?
+	@State private var generatedEntry: HistoryEntrySnapshot?
 
 	var body: some View {
 		NavigationStack {
@@ -54,13 +54,18 @@ struct DesignView: View {
 				#endif
 			}
 			.task { restoreCurveIfNeeded() }
-			.sheet(item: $result) { result in
-				DesignedPlaylistSheet(
-					curve: result.curve,
-					songs: result.songs,
-					bandsUsed: result.bandsUsed,
-					suggestedName: result.name
-				)
+			.sheet(item: $generatedEntry) { entry in
+				NavigationStack {
+					HistoryDetailView(entry: entry, onChange: {})
+						.toolbar {
+							ToolbarItem(placement: .cancellationAction) {
+								Button(role: .close) { generatedEntry = nil }
+							}
+						}
+				}
+				#if os(macOS)
+				.frame(minWidth: 420, idealWidth: 480, minHeight: 480, idealHeight: 600)
+				#endif
 			}
 			.alert(
 				"Couldn't generate",
@@ -196,44 +201,28 @@ struct DesignView: View {
 		isGenerating = true
 		defer { isGenerating = false }
 		do {
-			let built = try await DesignedPlaylistBuilder.build(curve: curve, count: songCount)
-			guard !built.songs.isEmpty else {
+			let songs = try await DesignedPlaylistBuilder.build(curve: curve, count: songCount)
+			guard let firstSong = songs.first else {
 				generationError = "Couldn't pick any songs for this curve."
 				return
 			}
-			let name = PlaylistNamer.suggestedName(seedArtist: built.songs.first?.artistName)
-			let snapshots = built.songs.map(SongSnapshot.init(song:))
-			// Record before presenting so a quick dismiss still leaves a
-			// row in history — matches the Songs-mode contract.
-			if let seed = snapshots.first {
-				await HistoryStore.shared.record(
-					name: name,
-					seed: seed,
-					runway: snapshots
-				)
-			}
-			result = DesignedPlaylistResult(
-				curve: curve,
-				songs: built.songs,
-				bandsUsed: built.bandsUsed,
-				name: name
+			let name = PlaylistNamer.suggestedName(seedArtist: firstSong.artistName)
+			let snapshots = songs.map(SongSnapshot.init(song:))
+			await HistoryStore.shared.record(
+				name: name,
+				seed: snapshots[0],
+				runway: snapshots
 			)
+			// Pull the row back out — `record` may merge into an existing
+			// entry, so we can't construct the snapshot client-side.
+			// `recent(limit: 1)` is sorted by playedAt desc, and `record`
+			// sets playedAt = now on both insert and merge paths, so the
+			// just-touched row is always first.
+			generatedEntry = await HistoryStore.shared.recent(limit: 1).first
 		} catch {
 			generationError = error.localizedDescription
 		}
 	}
-}
-
-/// Wrapper so `.sheet(item:)` has a single Identifiable handle. The
-/// curve travels with the result so the sheet's preview matches the
-/// curve the songs were generated against, even if the user drags a
-/// new shape while the sheet is open.
-struct DesignedPlaylistResult: Identifiable {
-	let id = UUID()
-	let curve: EnergyCurve
-	let songs: [Song]
-	let bandsUsed: [EnergyBand]
-	let name: String
 }
 
 #Preview {

@@ -37,16 +37,7 @@ enum DesignedPlaylistBuilder {
 		}
 	}
 
-	struct Result {
-		let songs: [Song]
-		/// Per-slot band actually used (may differ from the requested
-		/// band when a fallback to an adjacent band fired). Exposed so
-		/// the result sheet can plot what was achieved next to what was
-		/// asked for.
-		let bandsUsed: [EnergyBand]
-	}
-
-	static func build(curve: EnergyCurve, count: Int) async throws -> Result {
+	static func build(curve: EnergyCurve, count: Int) async throws -> [Song] {
 		// Two pools in parallel — same strategy as GemDeckBuilder. Heavy
 		// users have 5k–50k library songs so a full scan is wasteful; the
 		// nostalgia + discovery union covers both "songs you play" and
@@ -82,25 +73,22 @@ enum DesignedPlaylistBuilder {
 
 		var selected: [Song] = []
 		var usedIDs = Set<MusicItemID>()
-		var bandsUsed: [EnergyBand] = []
 		selected.reserveCapacity(count)
-		bandsUsed.reserveCapacity(count)
 
 		for i in 0 ..< count {
 			let t = count == 1 ? 0.5 : Double(i) / Double(count - 1)
 			let y = curve.sample(at: t)
 			let requestedBand = EnergyBand.forCurveValue(y)
-			if let pick = pop(
+			if let song = pop(
 				preferredBand: requestedBand,
 				usedIDs: &usedIDs,
 				byBand: &byBand
 			) {
-				selected.append(pick.song)
-				bandsUsed.append(pick.band)
+				selected.append(song)
 			}
 		}
 
-		return Result(songs: selected, bandsUsed: bandsUsed)
+		return selected
 	}
 
 	/// Try the preferred band first, then spiral outward to neighbouring
@@ -111,7 +99,7 @@ enum DesignedPlaylistBuilder {
 		preferredBand: EnergyBand,
 		usedIDs: inout Set<MusicItemID>,
 		byBand: inout [EnergyBand: [Song]]
-	) -> (song: Song, band: EnergyBand)? {
+	) -> Song? {
 		let order = EnergyBand.concreteOrdered
 		guard let preferredIdx = order.firstIndex(of: preferredBand) else { return nil }
 		for offset in 0 ..< order.count {
@@ -122,7 +110,7 @@ enum DesignedPlaylistBuilder {
 				while var pool = byBand[band], let candidate = pool.popLast() {
 					byBand[band] = pool
 					if usedIDs.insert(candidate.id).inserted {
-						return (candidate, band)
+						return candidate
 					}
 				}
 			}
