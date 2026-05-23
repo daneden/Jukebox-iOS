@@ -63,4 +63,6 @@ enum SettingsKeys {
 	static let walkEnergy = "walkControls.energy"
 	static let walkDecadeLower = "walkControls.decadeLower"
 	static let walkDecadeUpper = "walkControls.decadeUpper"
+	static let designCurveData = "design.curveData"
+	static let designSongCount = "design.songCount"
 }

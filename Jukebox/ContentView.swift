@@ -36,6 +36,12 @@ struct ContentView: View {
 					Label("Playlists", systemImage: "music.note.list")
 				}
 				.tag(AppTab.playlists)
+
+			DesignView()
+				.tabItem {
+					Label("Design", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+				}
+				.tag(AppTab.design)
 		}
 		.sheet(isPresented: $showOnboarding) {
 			OnboardingView {
@@ -63,6 +69,7 @@ struct ContentView: View {
 enum AppTab: String, CaseIterable {
 	case playlists
 	case songs
+	case design
 }
 
 #Preview {
