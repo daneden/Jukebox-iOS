@@ -38,6 +38,9 @@ struct DesignView: View {
 					.padding(.vertical, 8)
 					.onChange(of: curve) { _, newValue in persist(newValue) }
 
+
+				Divider()
+				
 				songCountSlider
 
 				Spacer(minLength: 0)
@@ -93,11 +96,9 @@ struct DesignView: View {
 		VStack(spacing: 4) {
 			HStack {
 				Text("Songs")
-					.font(.subheadline)
 				Spacer()
 				Text("\(songCount)")
-					.font(.subheadline.monospacedDigit())
-					.contentTransition(.numericText())
+					.monospacedDigit()
 			}
 			Slider(
 				value: Binding(
@@ -105,13 +106,13 @@ struct DesignView: View {
 					set: { songCount = Int($0.rounded()) }
 				),
 				in: 10 ... 50,
-				step: 1
+				step: 5
 			) {
 				Text("Number of songs")
 			} minimumValueLabel: {
-				Text("10").font(.caption)
+				Text("10").foregroundStyle(.secondary)
 			} maximumValueLabel: {
-				Text("50").font(.caption)
+				Text("50").foregroundStyle(.secondary)
 			}
 		}
 		.padding(.horizontal)
