@@ -121,7 +121,7 @@ struct DesignView: View {
 		GlassEffectContainer(spacing: 8) {
 			HStack(spacing: 8) {
 				Button {
-					withAnimation(.smooth(duration: 0.5)) {
+					withAnimation(.smooth) {
 						curve = .random()
 					}
 				} label: {
