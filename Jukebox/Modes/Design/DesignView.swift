@@ -38,8 +38,6 @@ struct DesignView: View {
 					.padding(.vertical, 8)
 					.onChange(of: curve) { _, newValue in persist(newValue) }
 
-				bandAxisLegend
-
 				songCountSlider
 
 				Spacer(minLength: 0)
@@ -89,25 +87,6 @@ struct DesignView: View {
 				.multilineTextAlignment(.center)
 				.padding(.horizontal, 24)
 		}
-	}
-
-	/// Tiny key for the vertical axis. Repeats the EnergyBand tints so the
-	/// curve's gradient reads as a band scale rather than abstract colour.
-	private var bandAxisLegend: some View {
-		HStack(spacing: 8) {
-			ForEach(EnergyBand.concreteOrdered) { band in
-				HStack(spacing: 4) {
-					Circle()
-						.fill(band.tint)
-						.frame(width: 8, height: 8)
-					Text(band.displayName)
-						.font(.caption)
-						.fontWidth(band.fontWidth)
-				}
-			}
-		}
-		.foregroundStyle(.secondary)
-		.padding(.horizontal)
 	}
 
 	private var songCountSlider: some View {

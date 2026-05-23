@@ -2,15 +2,16 @@
 //  EnergyCurveEditor.swift
 //  Jukebox
 //
-//  Interactive editor for the five-point energy curve. The stroked curve
-//  fills with a vertical gradient running from intense (top) to glacial
-//  (bottom) — matching the EnergyBand tints used elsewhere — so the
-//  shape's height maps visually to its musical meaning.
+//  Interactive editor for the five-point energy curve. The stroked
+//  Catmull-Rom spline passes through every anchor, with a vertical
+//  gradient running from intense (top) to glacial (bottom) — matching
+//  the EnergyBand tints used elsewhere — so the shape's height maps
+//  visually to its musical meaning.
 //
-//  The five control points are Liquid Glass capsules that drag only
-//  along Y. X is fixed at evenly spaced positions so the curve stays a
-//  well-formed quartic Bézier (monotonic in X) regardless of how the
-//  user pulls them.
+//  The five control points are 44pt Liquid Glass circles that drag
+//  only along Y. X is fixed at evenly spaced positions so the spline
+//  stays a well-formed function of X regardless of how the user pulls
+//  the anchors around.
 //
 
 import SwiftUI
@@ -20,13 +21,14 @@ struct EnergyCurveEditor: View {
 
 	/// Inner padding so the leading/trailing control points aren't clipped
 	/// when they sit flush with the editor's left/right edges. Half the
-	/// thumb width plus a hair of breathing room.
+	/// thumb plus a hair of breathing room.
 	private static let horizontalInset: CGFloat = 28
 	/// Vertical inset so a control point pinned at y=0 or y=1 isn't
-	/// half-clipped by the editor's top/bottom edges.
-	private static let verticalInset: CGFloat = 20
-	private static let thumbWidth: CGFloat = 44
-	private static let thumbHeight: CGFloat = 28
+	/// half-clipped, and so the axis labels have somewhere to sit.
+	private static let verticalInset: CGFloat = 28
+	/// 44pt circle — meets Apple's minimum touch target. Smaller and
+	/// the user reported them as fiddly to grab.
+	private static let thumbSize: CGFloat = 44
 	private static let coordinateSpaceName = "EnergyCurveEditor"
 
 	/// One @GestureState per control point so the press effect lifts only
@@ -37,12 +39,13 @@ struct EnergyCurveEditor: View {
 	var body: some View {
 		GeometryReader { geo in
 			ZStack {
-				bandGuides(in: geo.size)
 				curvePath(in: geo.size)
 				controlPoints(in: geo.size)
 			}
 			.frame(width: geo.size.width, height: geo.size.height)
 			.coordinateSpace(name: Self.coordinateSpaceName)
+			.overlay(alignment: .topLeading) { axisLabel("Intense", tint: EnergyBand.intense.tint) }
+			.overlay(alignment: .bottomLeading) { axisLabel("Glacial", tint: EnergyBand.glacial.tint) }
 		}
 		.frame(minHeight: 240)
 		.accessibilityElement(children: .contain)
@@ -67,22 +70,14 @@ struct EnergyCurveEditor: View {
 		return CGPoint(x: x, y: y)
 	}
 
-	// MARK: - Band guides
+	// MARK: - Axis labels
 
-	/// Faint horizontal bands behind the curve so the user can tell which
-	/// quarter of the editor maps to which EnergyBand. Subtle enough that
-	/// the curve remains the focal point.
-	private func bandGuides(in size: CGSize) -> some View {
-		let rect = canvasRect(in: size)
-		return ZStack(alignment: .topLeading) {
-			ForEach(Array(EnergyBand.concreteOrdered.reversed().enumerated()), id: \.element.id) { idx, band in
-				Rectangle()
-					.fill(band.tint.opacity(0.06))
-					.frame(width: rect.width, height: rect.height / 4)
-					.offset(x: rect.minX, y: rect.minY + CGFloat(idx) * rect.height / 4)
-			}
-		}
-		.allowsHitTesting(false)
+	private func axisLabel(_ text: String, tint: Color) -> some View {
+		Text(text)
+			.font(.caption2.weight(.semibold))
+			.foregroundStyle(tint)
+			.padding(.horizontal, 4)
+			.allowsHitTesting(false)
 	}
 
 	// MARK: - Curve
@@ -122,21 +117,21 @@ struct EnergyCurveEditor: View {
 	private func controlPoint(at index: Int, in size: CGSize) -> some View {
 		let pos = pointPosition(index, in: size)
 		let active = activePoint == index
-		// Liquid Glass capsule. `.regular.interactive()` gives the
+		// 44pt Liquid Glass circle. `.regular.interactive()` gives the
 		// material backdrop + system-driven shimmer on touch; the small
 		// inner dot is a non-functional centre cue so the thumb reads
 		// as a discrete handle rather than an abstract glass blob.
-		return Capsule()
+		return Circle()
 			.fill(.clear)
-			.frame(width: Self.thumbWidth, height: Self.thumbHeight)
-			.glassEffect(.regular.interactive(), in: .capsule)
+			.frame(width: Self.thumbSize, height: Self.thumbSize)
+			.glassEffect(.regular.interactive(), in: .circle)
 			.overlay(
 				Circle()
 					.fill(.primary.opacity(0.5))
-					.frame(width: 4, height: 4)
+					.frame(width: 6, height: 6)
 			)
 			.shadow(color: .black.opacity(0.18), radius: 8, y: 2)
-			.scaleEffect(active ? 1.35 : 1)
+			.scaleEffect(active ? 1.2 : 1)
 			.animation(active
 				? .interactiveSpring(duration: 0.18, extraBounce: 0.2)
 				: .smooth(duration: 0.22), value: active)
@@ -166,13 +161,15 @@ struct EnergyCurveEditor: View {
 	}
 }
 
-/// Sample the quartic Bézier at a dense set of t values and stroke
-/// through them. Animatable over each control point so the stroke
-/// interpolates smoothly when randomise runs `withAnimation`.
+/// Stroke the Catmull-Rom spline as four cubic-Bézier segments — one
+/// per pair of consecutive anchors. The Bézier control points are
+/// derived from the same Catmull-Rom-to-cubic formula `EnergyCurve.sample`
+/// uses, so the on-screen stroke matches the values fed into the
+/// playlist builder exactly. Animatable over the five Y values so a
+/// randomise transition tweens through intermediate curve shapes.
 struct CurveShape: Shape {
 	var curve: EnergyCurve
 	let rect: CGRect
-	var resolution: Int = 96
 
 	var animatableData: AnimatablePointFive {
 		get {
@@ -192,16 +189,41 @@ struct CurveShape: Shape {
 	func path(in _: CGRect) -> Path {
 		var path = Path()
 		guard rect.width > 0, rect.height > 0 else { return path }
-		for i in 0 ... resolution {
-			let t = Double(i) / Double(resolution)
-			let y = curve.sample(at: t)
-			let px = rect.minX + rect.width * CGFloat(t)
-			let py = rect.minY + rect.height * (1 - CGFloat(y))
-			if i == 0 {
-				path.move(to: CGPoint(x: px, y: py))
-			} else {
-				path.addLine(to: CGPoint(x: px, y: py))
-			}
+		let n = curve.points.count
+		guard n >= 2 else { return path }
+		let segments = n - 1
+		let segmentWidth = rect.width / CGFloat(segments)
+
+		func screenPoint(index: Int) -> CGPoint {
+			let cx = rect.minX + segmentWidth * CGFloat(index)
+			let cy = rect.minY + rect.height * (1 - CGFloat(curve.points[index]))
+			return CGPoint(x: cx, y: cy)
+		}
+
+		path.move(to: screenPoint(index: 0))
+		for seg in 0 ..< segments {
+			let p1 = curve.points[seg]
+			let p2 = curve.points[seg + 1]
+			// Reflect missing neighbours at the endpoints so the first
+			// and last segments inherit a sensible tangent direction.
+			let pPrev = seg == 0 ? (2 * p1 - p2) : curve.points[seg - 1]
+			let pNext = seg == segments - 1 ? (2 * p2 - p1) : curve.points[seg + 2]
+
+			let b1y = p1 + (p2 - pPrev) / 6
+			let b2y = p2 - (pNext - p1) / 6
+			// X handles sit at 1/3 and 2/3 across the segment — derived
+			// from the same Catmull-Rom formula assuming uniform X
+			// spacing (which we enforce).
+			let b1x = rect.minX + segmentWidth * (CGFloat(seg) + 1.0 / 3.0)
+			let b2x = rect.minX + segmentWidth * (CGFloat(seg) + 2.0 / 3.0)
+			let b1ScreenY = rect.minY + rect.height * (1 - CGFloat(b1y))
+			let b2ScreenY = rect.minY + rect.height * (1 - CGFloat(b2y))
+
+			path.addCurve(
+				to: screenPoint(index: seg + 1),
+				control1: CGPoint(x: b1x, y: b1ScreenY),
+				control2: CGPoint(x: b2x, y: b2ScreenY)
+			)
 		}
 		return path
 	}

@@ -23,24 +23,40 @@ struct EnergyCurve: Equatable, Codable {
 
 	static let pointCount = 5
 
-	/// Quartic Bézier on the five Y values. Returned value is clamped to
-	/// [0, 1] — degree-4 evaluation can drift fractions of a percent
-	/// outside the convex hull due to float rounding, and the EnergyBand
-	/// mapping relies on a clean [0, 1] domain.
+	/// Catmull-Rom interpolation through the five Y values. Unlike a
+	/// quartic Bézier (where only P0 and P4 lie on the curve), this
+	/// passes through *every* anchor — what the user dragged is what
+	/// they get. Tension τ = 0.5 (standard Catmull-Rom); endpoints are
+	/// handled by reflecting the missing neighbour (P_-1 = 2·P0 - P1)
+	/// so the curve enters/leaves along the natural extension of the
+	/// first/last segment.
+	///
+	/// The cubic-Bézier conversion below is mathematically identical to
+	/// evaluating the Catmull-Rom basis directly — we use it because
+	/// SwiftUI's Path also speaks cubic Béziers, so the on-screen
+	/// stroke and the sampled energy values stay in lockstep.
 	func sample(at t: Double) -> Double {
 		guard points.count == Self.pointCount else { return 0.5 }
-		let s = 1 - t
-		let s2 = s * s
-		let s3 = s2 * s
-		let s4 = s3 * s
-		let t2 = t * t
-		let t3 = t2 * t
-		let t4 = t3 * t
-		let y = s4 * points[0]
-			+ 4 * s3 * t * points[1]
-			+ 6 * s2 * t2 * points[2]
-			+ 4 * s * t3 * points[3]
-			+ t4 * points[4]
+		let segments = Self.pointCount - 1
+		let clamped = min(1, max(0, t))
+		let scaled = clamped * Double(segments)
+		var segIdx = Int(scaled.rounded(.down))
+		if segIdx >= segments { segIdx = segments - 1 }
+		let localT = max(0, min(1, scaled - Double(segIdx)))
+
+		let p1 = points[segIdx]
+		let p2 = points[segIdx + 1]
+		let pPrev = segIdx == 0 ? (2 * p1 - p2) : points[segIdx - 1]
+		let pNext = segIdx == segments - 1 ? (2 * p2 - p1) : points[segIdx + 2]
+
+		let b1 = p1 + (p2 - pPrev) / 6
+		let b2 = p2 - (pNext - p1) / 6
+
+		let s = 1 - localT
+		let y = s * s * s * p1
+			+ 3 * s * s * localT * b1
+			+ 3 * s * localT * localT * b2
+			+ localT * localT * localT * p2
 		return min(1, max(0, y))
 	}
 
