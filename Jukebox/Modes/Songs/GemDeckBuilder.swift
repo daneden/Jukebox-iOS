@@ -134,11 +134,18 @@ enum GemDeckBuilder {
 					async let nostalgiaTask = fetchPool(sort: .playCount, ascending: false, limit: limit)
 					async let discoveryTask = fetchPool(sort: .libraryAddedDate, ascending: true, limit: limit)
 					async let freshnessTask = fetchPool(sort: .libraryAddedDate, ascending: false, limit: limit)
+					// Targeted slice for the requested band — fixes the
+					// case where a mellow-leaning library would otherwise
+					// post-filter the three base pools to almost nothing
+					// when the user asks for Intense or Energetic. No-ops
+					// when the filter is `.any`.
+					async let bandSliceTask = fetchOptionalGenreSlice(for: controls.energy)
 
 					let nostalgia = try await nostalgiaTask
 					let discovery = try await discoveryTask
 					let freshness = try await freshnessTask
-					let union = dedupeUnion(nostalgia: nostalgia, discovery: discovery, freshness: freshness)
+					let bandSlice = await bandSliceTask
+					let union = dedupeUnion(nostalgia, discovery, freshness, bandSlice)
 					let final = await rank(
 						songs: union,
 						scorer: scorer,
@@ -167,6 +174,30 @@ enum GemDeckBuilder {
 			continuation.onTermination = { _ in task.cancel() }
 		}
 	}
+
+	/// Per-band fetch limit for the genre-keyword slice fetched
+	/// alongside the three base pools when the user's walk filter
+	/// targets a non-`.any` energy band. The base pools are sorted by
+	/// playCount / libraryAddedDate, which inherit whatever bias the
+	/// user's listening habits carry — a strictly mellow listener
+	/// never sees their long-tail intense tracks surface through those
+	/// alone. A targeted `filter(text:)` slice keyed off the selected
+	/// band guarantees the post-classifier set has something to walk.
+	static let bandSliceLimit = 500
+
+	/// Most-distinctive genre keyword per band. Each band's
+	/// `genreKeywords` array carries broader-coverage terms (e.g.
+	/// "pop"/"rock") that would over-fetch into the wrong bucket; this
+	/// picks the narrowest term that still has realistic library
+	/// coverage. Mirrors `DesignedPlaylistBuilder.primarySliceKeyword`
+	/// — duplicated rather than shared so each builder owns its own
+	/// filtering policy.
+	private static let primarySliceKeyword: [EnergyBand: String] = [
+		.glacial: "ambient",
+		.mellow: "soul",
+		.energetic: "dance",
+		.intense: "metal",
+	]
 
 	/// Cap on how many tracks from a single artist enter the deck. The
 	/// walk's artist-lookback (≤2) only prevents adjacency; if the
@@ -406,18 +437,14 @@ enum GemDeckBuilder {
 		}
 	}
 
-	private static func dedupeUnion(nostalgia: [Song], discovery: [Song], freshness: [Song]) -> [Song] {
+	private static func dedupeUnion(_ pools: [Song]...) -> [Song] {
 		var seen = Set<MusicItemID>()
 		var union: [Song] = []
-		union.reserveCapacity(nostalgia.count + discovery.count + freshness.count)
-		for song in nostalgia where seen.insert(song.id).inserted {
-			union.append(song)
-		}
-		for song in discovery where seen.insert(song.id).inserted {
-			union.append(song)
-		}
-		for song in freshness where seen.insert(song.id).inserted {
-			union.append(song)
+		union.reserveCapacity(pools.reduce(0) { $0 + $1.count })
+		for pool in pools {
+			for song in pool where seen.insert(song.id).inserted {
+				union.append(song)
+			}
 		}
 		return union
 	}
@@ -440,5 +467,28 @@ enum GemDeckBuilder {
 		request.limit = limit
 		let response = try await request.response()
 		return Array(response.items)
+	}
+
+	/// Top-played library songs whose metadata matches the requested
+	/// band's primary keyword. `filter(text:)` is a full-field search
+	/// so the slice can include false positives, but the downstream
+	/// energy classifier is what decides what each song's band
+	/// actually is — this only widens the raw material.
+	///
+	/// Returns `[]` for `.any` (the base pools already cover everything)
+	/// or when MusicKit fails the request; the union just absorbs the
+	/// empty contribution without affecting the build's success.
+	private static func fetchOptionalGenreSlice(for band: EnergyBand) async -> [Song] {
+		guard band != .any, let keyword = primarySliceKeyword[band] else { return [] }
+		var request = MusicLibraryRequest<Song>()
+		request.filter(text: keyword)
+		request.sort(by: \.playCount, ascending: false)
+		request.limit = bandSliceLimit
+		do {
+			let response = try await request.response()
+			return Array(response.items)
+		} catch {
+			return []
+		}
 	}
 }
