@@ -23,6 +23,27 @@ enum DesignedPlaylistBuilder {
 	/// every energy band has dozens of candidates after classification.
 	static let poolLimit = 2000
 
+	/// Per-band fetch limit for the genre-keyword slices. The two base
+	/// pools (top-played + recently-added) bias toward the user's
+	/// listening habits, so a strictly mellow listener never sees their
+	/// long-tail intense tracks surface. Each band gets a separate
+	/// `filter(text:)` slice sorted by play count, sized to capture the
+	/// user's full affinity for that band without ballooning memory.
+	static let bandSliceLimit = 500
+
+	/// The single most-distinctive genre keyword per band — the one we
+	/// use for the supplementary `filter(text:)` slice. Each band's
+	/// `genreKeywords` array carries broader-coverage terms (e.g.
+	/// "pop"/"rock") that would either over-fetch or pull material into
+	/// the wrong band; this picks the narrowest term that still has
+	/// realistic library coverage.
+	private static let primarySliceKeyword: [EnergyBand: String] = [
+		.glacial: "ambient",
+		.mellow: "soul",
+		.energetic: "dance",
+		.intense: "metal",
+	]
+
 	enum BuildError: Error, LocalizedError {
 		case emptyPool
 		case noBandHasCandidates
@@ -38,13 +59,37 @@ enum DesignedPlaylistBuilder {
 	}
 
 	static func build(curve: EnergyCurve, count: Int) async throws -> [Song] {
-		// Two pools in parallel — same strategy as GemDeckBuilder. Heavy
-		// users have 5k–50k library songs so a full scan is wasteful; the
-		// nostalgia + discovery union covers both "songs you play" and
-		// "songs you forgot about" without paging everything.
-		async let nostalgiaTask = fetchPool(sort: .playCount, ascending: false)
-		async let discoveryTask = fetchPool(sort: .libraryAddedDate, ascending: false)
-		let pool = dedupe(try await nostalgiaTask + (try await discoveryTask))
+		// Two base pools + one slice per concrete band, all in parallel.
+		// The base pools (top-played + recently-added) carry the bias of
+		// the user's listening habits — a strictly mellow listener never
+		// surfaces their long-tail intense tracks through those alone.
+		// The per-band `filter(text:)` slices guarantee every band has
+		// genuine library candidates regardless of that bias; their
+		// downstream classification still flows through the same
+		// centroid/keyword path, so misfiles don't slip into the wrong
+		// bucket.
+		let pool = try await withThrowingTaskGroup(of: [Song].self) { group in
+			group.addTask {
+				try await fetchPool(sort: .playCount, ascending: false)
+			}
+			group.addTask {
+				try await fetchPool(sort: .libraryAddedDate, ascending: false)
+			}
+			for band in EnergyBand.concreteOrdered {
+				group.addTask {
+					// Band slices are best-effort: a keyword with zero
+					// library matches just contributes nothing. Letting
+					// one slice failure abort the whole build would be
+					// too brittle for a five-fetch fan-out.
+					(try? await fetchGenreSlice(band: band, limit: bandSliceLimit)) ?? []
+				}
+			}
+			var all: [Song] = []
+			for try await chunk in group {
+				all.append(contentsOf: chunk)
+			}
+			return dedupe(all)
+		}
 		guard !pool.isEmpty else { throw BuildError.emptyPool }
 
 		// Embeddings drive the centroid classifier. Cache lookups only —
@@ -171,6 +216,23 @@ enum DesignedPlaylistBuilder {
 		case .libraryAddedDate: request.sort(by: \.libraryAddedDate, ascending: ascending)
 		}
 		request.limit = poolLimit
+		let response = try await request.response()
+		return Array(response.items)
+	}
+
+	/// Top-played library songs whose metadata matches the band's primary
+	/// keyword. `MusicLibraryRequest.filter(text:)` is a full-field
+	/// search (title/artist/album/genre), so a "metal" filter pulls in
+	/// the occasional false positive — but the downstream centroid
+	/// classifier is what actually decides what ends up in each band's
+	/// bucket, and this is only here to *broaden* the candidate set
+	/// past what playCount+libraryAddedDate alone surface.
+	private static func fetchGenreSlice(band: EnergyBand, limit: Int) async throws -> [Song] {
+		guard let keyword = primarySliceKeyword[band] else { return [] }
+		var request = MusicLibraryRequest<Song>()
+		request.filter(text: keyword)
+		request.sort(by: \.playCount, ascending: false)
+		request.limit = limit
 		let response = try await request.response()
 		return Array(response.items)
 	}
