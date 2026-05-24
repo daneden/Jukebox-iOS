@@ -128,16 +128,29 @@ struct HistoryDetailView: View {
 	@State private var showingSaveDialog = false
 	@State private var draftName: String = ""
 	@State private var saveError: String?
+	@State private var coverPalette: [Color]?
+	/// Pre-rendered PNG for `ShareLink`. Stays nil until palette + render
+	/// finish so the share affordance only enables when the bytes exist.
+	@State private var coverShare: PlaylistCoverImage?
 
 	var body: some View {
 		List {
-			ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-				row(index: index, song: song)
+			Section {
+				coverArtRow
+					.listRowSeparator(.hidden)
+					.listRowBackground(Color.clear)
+					.listRowInsets(EdgeInsets(top: 12, leading: 0, bottom: 12, trailing: 0))
+			}
+			Section {
+				ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
+					row(index: index, song: song)
+				}
 			}
 		}
 		.task {
 			songs = entry.songs
 			feedback = entry.feedback
+			await loadCoverArt()
 		}
 		.onDisappear { onChange() }
 		.navigationTitle(entry.displayName)
@@ -188,6 +201,46 @@ struct HistoryDetailView: View {
 				.scenePadding(.bottom)
 			#endif
 		}
+	}
+
+	/// Generated cover art for this history playlist. Tap to share/save —
+	/// MusicKit's library API can't apply custom artwork to a saved
+	/// playlist (see `project-musickit-no-artwork`), so this is a manual
+	/// hand-off via the system share sheet.
+	@ViewBuilder
+	private var coverArtRow: some View {
+		let cover = PlaylistCoverArt(title: entry.displayName, palette: coverPalette)
+		HStack {
+			Spacer(minLength: 0)
+			if let coverShare {
+				ShareLink(
+					item: coverShare,
+					preview: SharePreview(entry.displayName)
+				) {
+					cover
+				}
+				.buttonStyle(.plain)
+			} else {
+				cover
+			}
+			Spacer(minLength: 0)
+		}
+	}
+
+	/// Pull a handful of dominant colors from the runway's leading songs,
+	/// then bake a PNG via `ImageRenderer` for sharing. The displayed
+	/// view picks up the palette as soon as it's available; the share
+	/// affordance lights up after the PNG finishes.
+	private func loadCoverArt() async {
+		let resolved = (try? await fetchSongs()) ?? []
+		let palette = await PlaylistCoverPalette.extract(from: resolved, maxColors: 4)
+		let paletteForRender = palette.isEmpty ? nil : palette
+		coverPalette = paletteForRender
+		guard let png = PlaylistCoverRenderer.renderPNG(
+			title: entry.displayName,
+			palette: paletteForRender
+		) else { return }
+		coverShare = PlaylistCoverImage(title: entry.displayName, pngData: png)
 	}
 
 	private var feedbackMenu: some View {
