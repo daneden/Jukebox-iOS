@@ -39,13 +39,14 @@ struct EnergyCurveEditor: View {
 	var body: some View {
 		GeometryReader { geo in
 			ZStack {
+				backdrop(in: geo.size)
 				curvePath(in: geo.size)
 				controlPoints(in: geo.size)
 			}
 			.frame(width: geo.size.width, height: geo.size.height)
 			.coordinateSpace(name: Self.coordinateSpaceName)
-			.overlay(alignment: .topLeading) { axisLabel("Intense", tint: EnergyBand.intense.tint) }
-			.overlay(alignment: .bottomLeading) { axisLabel("Glacial", tint: EnergyBand.glacial.tint) }
+			.overlay(alignment: .topLeading) { axisLabel("INTENSE") }
+			.overlay(alignment: .bottomLeading) { axisLabel("GLACIAL") }
 		}
 		.frame(minHeight: 240)
 		.accessibilityElement(children: .contain)
@@ -70,13 +71,58 @@ struct EnergyCurveEditor: View {
 		return CGPoint(x: x, y: y)
 	}
 
+	// MARK: - Backdrop
+
+	/// Rounded-rectangle container with a subtle centred dot grid, sized
+	/// to `canvasRect` so the visual edge of the editor matches the
+	/// region the thumbs are actually free to roam. Inspired by Photos'
+	/// photographic-style selector — gives the editor a sense of being
+	/// a distinct surface rather than free-floating sketch space.
+	private func backdrop(in size: CGSize) -> some View {
+		let rect = canvasRect(in: size)
+		let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+		return shape
+			.fill(.quaternary.opacity(0.6))
+			.overlay {
+				Canvas { context, canvasSize in
+					let spacing: CGFloat = 14
+					let dotRadius: CGFloat = 1.25
+					// Centre the grid so the leftover sliver from a non-
+					// divisible width splits evenly across both edges.
+					let cols = Int(canvasSize.width / spacing)
+					let rows = Int(canvasSize.height / spacing)
+					let originX = (canvasSize.width - CGFloat(cols) * spacing) / 2
+					let originY = (canvasSize.height - CGFloat(rows) * spacing) / 2
+					for r in 0 ... rows {
+						let cy = originY + CGFloat(r) * spacing
+						for c in 0 ... cols {
+							let cx = originX + CGFloat(c) * spacing
+							let dot = Path(ellipseIn: CGRect(
+								x: cx - dotRadius,
+								y: cy - dotRadius,
+								width: dotRadius * 2,
+								height: dotRadius * 2
+							))
+							context.fill(dot, with: .color(.primary.opacity(0.18)))
+						}
+					}
+				}
+				.clipShape(shape)
+			}
+			.frame(width: rect.width, height: rect.height)
+			.position(x: rect.midX, y: rect.midY)
+			.allowsHitTesting(false)
+	}
+
 	// MARK: - Axis labels
 
-	private func axisLabel(_ text: String, tint: Color) -> some View {
+	private func axisLabel(_ text: String) -> some View {
 		Text(text)
 			.font(.caption2.weight(.semibold))
-			.foregroundStyle(tint)
-			.padding(.horizontal, 4)
+			.tracking(1)
+			.foregroundStyle(.secondary)
+			.padding(.horizontal, 8)
+			.padding(.vertical, 4)
 			.allowsHitTesting(false)
 	}
 
