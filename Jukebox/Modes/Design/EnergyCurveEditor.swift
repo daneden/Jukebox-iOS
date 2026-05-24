@@ -24,13 +24,11 @@ struct EnergyCurveEditor: View {
 	/// am I asking for" without leaving the canvas.
 	var songCount: Int = 20
 
-	/// Inner padding so the leading/trailing control points aren't clipped
-	/// when they sit flush with the editor's left/right edges. Half the
-	/// thumb plus a hair of breathing room.
-	private static let horizontalInset: CGFloat = 28
-	/// Vertical inset so a control point pinned at y=0 or y=1 isn't
-	/// half-clipped, and so the axis labels have somewhere to sit.
-	private static let verticalInset: CGFloat = 28
+	/// Distance from the grid edge to the thumb-centre track. The grid
+	/// itself fills the editor's frame; this inset only governs where
+	/// the thumb centres can travel, so the 44pt thumbs always sit
+	/// visually inside the grid rather than hanging off the edges.
+	private static let thumbInset: CGFloat = 32
 	/// 44pt circle — meets Apple's minimum touch target. Smaller and
 	/// the user reported them as fiddly to grab.
 	private static let thumbSize: CGFloat = 44
@@ -44,7 +42,7 @@ struct EnergyCurveEditor: View {
 	var body: some View {
 		GeometryReader { geo in
 			ZStack {
-				backdrop(in: geo.size)
+				backdrop
 				curvePath(in: geo.size)
 				controlPoints(in: geo.size)
 			}
@@ -60,12 +58,15 @@ struct EnergyCurveEditor: View {
 
 	// MARK: - Layout
 
+	/// Region the thumb centres can travel — inset from the editor frame
+	/// so the 44pt thumbs sit visually inside the grid (which itself
+	/// fills the full frame).
 	private func canvasRect(in size: CGSize) -> CGRect {
 		CGRect(
-			x: Self.horizontalInset,
-			y: Self.verticalInset,
-			width: max(0, size.width - 2 * Self.horizontalInset),
-			height: max(0, size.height - 2 * Self.verticalInset)
+			x: Self.thumbInset,
+			y: Self.thumbInset,
+			width: max(0, size.width - 2 * Self.thumbInset),
+			height: max(0, size.height - 2 * Self.thumbInset)
 		)
 	}
 
@@ -78,14 +79,13 @@ struct EnergyCurveEditor: View {
 
 	// MARK: - Backdrop
 
-	/// Rounded-rectangle container with a square dot grid sized to the
-	/// song count: a 30-song playlist gets a 30×30 grid (900 dots). The
-	/// dots are drawn via a single `Canvas` so a 50×50 grid (2500 dots)
-	/// stays cheap — the cell size is derived from the canvas's actual
-	/// dimensions at draw time, so the grid still redistributes as the
-	/// editor resizes without any hard-coded spacing.
-	private func backdrop(in size: CGSize) -> some View {
-		let rect = canvasRect(in: size)
+	/// Rounded-rectangle container filling the editor's frame, with a
+	/// square dot grid sized to the song count: a 30-song playlist
+	/// gets a 30×30 grid (900 dots). The dots are drawn via a single
+	/// `Canvas` so a 50×50 grid (2500 dots) stays cheap; cell size is
+	/// derived from the canvas's actual dimensions at draw time, so
+	/// the grid redistributes as the editor resizes.
+	private var backdrop: some View {
 		let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
 		let count = max(1, songCount)
 		return shape
@@ -115,8 +115,6 @@ struct EnergyCurveEditor: View {
 				}
 				.clipShape(shape)
 			}
-			.frame(width: rect.width, height: rect.height)
-			.position(x: rect.midX, y: rect.midY)
 			.allowsHitTesting(false)
 	}
 
@@ -127,8 +125,8 @@ struct EnergyCurveEditor: View {
 			.font(.caption2.weight(.semibold))
 			.tracking(1)
 			.foregroundStyle(.secondary)
-			.padding(.horizontal, 8)
-			.padding(.vertical, 4)
+			.padding(.horizontal, 14)
+			.padding(.vertical, 10)
 			.allowsHitTesting(false)
 	}
 
