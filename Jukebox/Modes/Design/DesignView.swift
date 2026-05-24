@@ -25,7 +25,7 @@ struct DesignView: View {
 
 	var body: some View {
 		NavigationStack {
-			VStack(spacing: 16) {
+			VStack(spacing: 24) {
 				#if os(macOS)
 					ToolbarLogo()
 						.padding(.top, 8)
@@ -35,8 +35,6 @@ struct DesignView: View {
 					.padding(.horizontal)
 					.padding(.vertical, 8)
 					.onChange(of: curve) { _, newValue in persist(newValue) }
-
-				Divider()
 
 				songCountSlider
 
@@ -77,13 +75,14 @@ struct DesignView: View {
 	}
 
 	private var songCountSlider: some View {
-		VStack(spacing: 4) {
-			HStack {
-				Text("Songs")
-				Spacer()
-				Text("\(songCount)")
+		VStack(spacing: 12) {
+			LabeledContent {
+				Text("\(songCount) song\(songCount == 1 ? "" : "s")")
 					.monospacedDigit()
+			} label: {
+				Text("Playlist length")
 			}
+			
 			Slider(
 				value: Binding(
 					get: { Double(songCount) },
