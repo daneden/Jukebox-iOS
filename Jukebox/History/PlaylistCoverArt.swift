@@ -29,41 +29,80 @@ import UniformTypeIdentifiers
 /// (share/export).
 struct PlaylistCoverArt: View {
 	let title: String
-	/// Four colors used as the mesh corners (top-leading, top-trailing,
-	/// bottom-leading, bottom-trailing). Pass fewer and the palette
-	/// cycles; pass nil to use the neutral fallback.
+	/// Up to four base colors; cycled across the 3×3 mesh after a
+	/// seed-driven shuffle. Pass nil to use the neutral fallback.
 	let palette: [Color]?
+	/// Deterministic seed for the mesh layout — the same value always
+	/// produces the same gradient, so every playlist gets its own shape
+	/// while a single playlist stays visually stable across renders.
+	var seed: UInt64 = 0
 	var size: CGFloat = 280
 
-	private var cornerColors: [Color] {
+	private var basePalette: [Color] {
 		guard let palette, !palette.isEmpty else {
 			return PlaylistCoverPalette.fallback
 		}
 		return (0 ..< 4).map { palette[$0 % palette.count] }
 	}
 
-	/// Splits "phrase ft. artist" into (phrase, artist). Older history
-	/// rows that fell back to `seedTitle` won't carry the marker — those
-	/// render as a single headline with no subline.
-	private var titleParts: (headline: String, subline: String?) {
-		if let range = title.range(of: " ft. ") {
-			let headline = String(title[..<range.lowerBound])
-			let artist = String(title[range.upperBound...])
-			return (headline, "ft. \(artist)")
-		}
-		return (title, nil)
+	/// Effective seed — `0` is treated as "unseeded" and falls back to a
+	/// fixed value so the preview canvas in Xcode doesn't reroll on
+	/// every redraw.
+	private var effectiveSeed: UInt64 {
+		seed == 0 ? 0xC0FFEE : seed
+	}
+
+	/// 9 mesh points laid out 3×3. Corners are pinned to the rect edges
+	/// (so the gradient covers the full canvas); edge midpoints jitter
+	/// along their edge, and the center can roam within the middle
+	/// third. Jitter magnitudes are deliberately small — too much and
+	/// the gradient pinches into visible seams.
+	private var meshPoints: [SIMD2<Float>] {
+		var rng = SeededGenerator(seed: effectiveSeed)
+		let topMid = SIMD2<Float>(jitter(around: 0.5, range: 0.25, &rng), 0.0)
+		let leftMid = SIMD2<Float>(0.0, jitter(around: 0.5, range: 0.25, &rng))
+		let center = SIMD2<Float>(
+			jitter(around: 0.5, range: 0.20, &rng),
+			jitter(around: 0.5, range: 0.20, &rng)
+		)
+		let rightMid = SIMD2<Float>(1.0, jitter(around: 0.5, range: 0.25, &rng))
+		let bottomMid = SIMD2<Float>(jitter(around: 0.5, range: 0.25, &rng), 1.0)
+		return [
+			[0.0, 0.0], topMid, [1.0, 0.0],
+			leftMid, center, rightMid,
+			[0.0, 1.0], bottomMid, [1.0, 1.0],
+		]
+	}
+
+	/// 9 colors over the 3×3 mesh. The palette is seed-shuffled and then
+	/// cycled in a pattern that avoids putting the same palette entry in
+	/// adjacent cells, so the blend has texture rather than reading as
+	/// a single wash.
+	private var meshColors: [Color] {
+		var rng = SeededGenerator(seed: effectiveSeed &+ 0x9E37)
+		let shuffled = basePalette.shuffled(using: &rng)
+		let pattern = [0, 2, 1,
+		               3, 0, 2,
+		               1, 3, 0]
+		return pattern.map { shuffled[$0 % shuffled.count] }
+	}
+
+	private func jitter(
+		around center: Float,
+		range: Float,
+		_ rng: inout SeededGenerator
+	) -> Float {
+		let unit = Float(rng.next() >> 11) / Float(UInt64(1) << 53)
+		return center + (unit - 0.5) * 2 * range
 	}
 
 	var body: some View {
 		ZStack {
 			MeshGradient(
-				width: 2,
-				height: 2,
-				points: [
-					[0.0, 0.0], [1.0, 0.0],
-					[0.0, 1.0], [1.0, 1.0],
-				],
-				colors: cornerColors
+				width: 3,
+				height: 3,
+				points: meshPoints,
+				colors: meshColors
 			)
 
 			// Subtle inner shading so the title stays readable even when
@@ -75,21 +114,13 @@ struct PlaylistCoverArt: View {
 			)
 			.blendMode(.multiply)
 
-			VStack(alignment: .leading, spacing: size * 0.02) {
-				Text(titleParts.headline)
-					.font(.system(size: size * 0.14, weight: .semibold, design: .default))
-					.lineLimit(4)
-					.minimumScaleFactor(0.5)
-					.foregroundStyle(.white)
-				if let subline = titleParts.subline {
-					Text(subline)
-						.font(.system(size: size * 0.055, weight: .medium, design: .default))
-						.foregroundStyle(.white.opacity(0.75))
-						.lineLimit(2)
-				}
-			}
-			.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-			.padding(size * 0.075)
+			Text(title)
+				.font(.system(size: size * 0.115, weight: .semibold, design: .default).leading(.tight))
+				.lineLimit(5)
+				.minimumScaleFactor(0.5)
+				.foregroundStyle(.white)
+				.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+				.padding(size * 0.075)
 
 			VStack(spacing: 0) {
 				Spacer(minLength: 0)
@@ -108,6 +139,29 @@ struct PlaylistCoverArt: View {
 		.frame(width: size, height: size)
 		.clipShape(RoundedRectangle(cornerRadius: size * 0.045))
 		.compositingGroup()
+	}
+}
+
+// MARK: - Seeded RNG
+
+/// SplitMix64 — tiny, fast, and good enough for picking gradient
+/// positions. We need *deterministic* per-playlist randomness so the
+/// preview, the rendered PNG, and any later re-render all land on the
+/// same layout; Swift's default `SystemRandomNumberGenerator` would
+/// reshuffle on every redraw.
+struct SeededGenerator: RandomNumberGenerator {
+	private var state: UInt64
+
+	init(seed: UInt64) {
+		state = seed
+	}
+
+	mutating func next() -> UInt64 {
+		state &+= 0x9E37_79B9_7F4A_7C15
+		var z = state
+		z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+		z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+		return z ^ (z >> 31)
 	}
 }
 
@@ -202,9 +256,15 @@ enum PlaylistCoverRenderer {
 	static func renderPNG(
 		title: String,
 		palette: [Color]?,
+		seed: UInt64,
 		pixelSize: CGFloat = 1024
 	) -> Data? {
-		let view = PlaylistCoverArt(title: title, palette: palette, size: pixelSize)
+		let view = PlaylistCoverArt(
+			title: title,
+			palette: palette,
+			seed: seed,
+			size: pixelSize
+		)
 		let renderer = ImageRenderer(content: view)
 		renderer.scale = 1
 		renderer.proposedSize = ProposedViewSize(width: pixelSize, height: pixelSize)
@@ -261,6 +321,7 @@ struct PlaylistCoverImage: Transferable {
 			Color(red: 0.95, green: 0.55, blue: 0.25),
 			Color(red: 0.15, green: 0.25, blue: 0.55),
 		],
+		seed: 0xA1B2_C3D4,
 		size: 320
 	)
 	.padding()
@@ -270,15 +331,17 @@ struct PlaylistCoverImage: Transferable {
 	PlaylistCoverArt(
 		title: "Afternoon drift ft. Caroline Polachek",
 		palette: nil,
+		seed: 0xDEAD_BEEF,
 		size: 320
 	)
 	.padding()
 }
 
-#Preview("Short title") {
+#Preview("Short title — different seed") {
 	PlaylistCoverArt(
 		title: "Afterglow",
 		palette: nil,
+		seed: 0x5EED_5EED,
 		size: 320
 	)
 	.padding()

@@ -223,9 +223,23 @@ struct HistoryDetailView: View {
 	/// MusicKit's library API can't apply custom artwork to a saved
 	/// playlist (see `project-musickit-no-artwork`), so this is a manual
 	/// hand-off via the system share sheet.
+	/// Stable per-playlist seed for the cover's gradient layout. Pulled
+	/// from the first 8 bytes of the entry's UUID so different playlists
+	/// get distinct gradients while a single playlist's cover stays
+	/// visually consistent across re-renders.
+	private var coverSeed: UInt64 {
+		withUnsafeBytes(of: entry.id.uuid) { ptr in
+			ptr.load(fromByteOffset: 0, as: UInt64.self)
+		}
+	}
+
 	@ViewBuilder
 	private var coverArtRow: some View {
-		let cover = PlaylistCoverArt(title: coverTitle, palette: coverPalette)
+		let cover = PlaylistCoverArt(
+			title: coverTitle,
+			palette: coverPalette,
+			seed: coverSeed
+		)
 		HStack {
 			Spacer(minLength: 0)
 			if let coverShare {
@@ -269,7 +283,8 @@ struct HistoryDetailView: View {
 	private func rerenderCoverShare() {
 		guard let png = PlaylistCoverRenderer.renderPNG(
 			title: coverTitle,
-			palette: coverPalette
+			palette: coverPalette,
+			seed: coverSeed
 		) else { return }
 		coverShare = PlaylistCoverImage(title: coverTitle, pngData: png)
 	}
