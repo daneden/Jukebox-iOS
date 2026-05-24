@@ -87,7 +87,7 @@ private struct EmbeddingProgressPopover: View {
 
 	private var header: some View {
 		VStack(alignment: .leading, spacing: 4) {
-			Text("Library Analysis")
+			Text("Library analysis")
 				.font(.headline)
 			Text(subtitle)
 				.font(.subheadline)
@@ -98,15 +98,15 @@ private struct EmbeddingProgressPopover: View {
 
 	private var subtitle: String {
 		if progress.isComplete {
-			"All \(progress.totalCount) deck songs analyzed"
+			"All \(progress.totalCount) songs analyzed"
 		} else {
-			"\(progress.embeddedCount) of \(progress.totalCount) deck songs analyzed"
+			"\(progress.embeddedCount) of \(progress.totalCount) songs analyzed"
 		}
 	}
 
 	private var blurb: String {
 		if progress.isComplete {
-			"New songs are analyzed automatically as they enter the deck."
+			"New songs are analyzed automatically as they show up on the dial."
 		} else {
 			"Audio fingerprints from 30-second previews, cached locally. The dial uses them to order songs by sonic similarity."
 		}

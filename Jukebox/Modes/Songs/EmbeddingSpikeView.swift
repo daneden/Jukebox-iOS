@@ -54,7 +54,7 @@
 					.padding()
 					.frame(maxWidth: .infinity, alignment: .leading)
 				}
-				.navigationTitle("Embedding Spike")
+				.navigationTitle("Embedding spike")
 				.inlineNavigationTitle()
 				.toolbar {
 					ToolbarItem(placement: .trailingAction) {

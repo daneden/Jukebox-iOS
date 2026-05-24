@@ -150,7 +150,7 @@ struct SongsView: View {
 						walkControlsAtOpen = walkControls
 						showingWalkControls = true
 					} label: {
-						Label("Walk controls", systemImage: "slider.vertical.3")
+						Label("Filters", systemImage: "slider.vertical.3")
 							.imageScale(.large)
 							.labelStyle(.iconOnly)
 					}
@@ -228,7 +228,7 @@ struct SongsView: View {
 					isEmpty: deck.isEmpty,
 					isLoading: isLoading,
 					loadError: loadError,
-					emptyMessage: "No gems yet",
+					emptyMessage: "No songs yet",
 					emptyHint: "Pull to refresh once your library has more history."
 				)
 			}
@@ -301,7 +301,7 @@ struct SongsView: View {
 			)
 			hasBuiltDeck = true
 		} catch {
-			loadError = "Couldn't load gems: \(error.localizedDescription)"
+			loadError = "Couldn't load songs: \(error.localizedDescription)"
 		}
 	}
 

@@ -126,7 +126,7 @@ struct PlaylistsView: View {
 				LibraryStateOverlay(
 					isEmpty: playlists.isEmpty,
 					isLoading: isLoading,
-					emptyMessage: "No Playlists"
+					emptyMessage: "No playlists"
 				)
 			}
 		}

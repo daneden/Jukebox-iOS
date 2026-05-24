@@ -40,7 +40,7 @@
 						case .idle:
 							Text("Tap Build to start. This downloads a 30-second preview for each anchor track and runs Apple's AudioFeaturePrint extractor against it — expect a few minutes on wifi.")
 								.foregroundStyle(.secondary)
-							Button("Build Centroids") {
+							Button("Build centroids") {
 								Task { await run() }
 							}
 							.buttonStyle(.borderedProminent)
@@ -80,7 +80,7 @@
 					.padding()
 					.frame(maxWidth: .infinity, alignment: .leading)
 				}
-				.navigationTitle("Energy Centroids")
+				.navigationTitle("Energy centroids")
 				.inlineNavigationTitle()
 				.toolbar {
 					ToolbarItem(placement: .trailingAction) {
@@ -120,7 +120,7 @@
 				if let url = outputURL {
 					Text("Wrote: \(url.path)").font(.caption).foregroundStyle(.secondary)
 					ShareLink(item: url) {
-						Label("Share / Save Centroids", systemImage: "square.and.arrow.up")
+						Label("Share / save centroids", systemImage: "square.and.arrow.up")
 					}
 					.buttonStyle(.borderedProminent)
 					Text("Save this file, name it EnergyCentroids.json, drop it in Jukebox/Modes/Songs/, and commit.")

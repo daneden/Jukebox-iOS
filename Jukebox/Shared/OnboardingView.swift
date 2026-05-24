@@ -56,7 +56,7 @@ struct OnboardingView: View {
 				await onGetStarted()
 				isRequesting = false
 			} label: {
-				Text("Get Started")
+				Text("Get started")
 					.font(.headline)
 					.frame(maxWidth: .infinity)
 					.foregroundStyle(colorScheme == .dark ? .black : .white)

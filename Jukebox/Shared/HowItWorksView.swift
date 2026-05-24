@@ -5,14 +5,11 @@
 //  Created by Daniel Eden on 20/05/2026.
 //
 //  A "show your work" surface for the curious user. Walks through the
-//  three under-the-hood stages that produce what's on the dial: the
-//  funnel from the full library down to the 300-song gem deck, the
-//  similarity walk that orders the deck into a coherent path, and the
-//  audio embedding cache that powers the similarity signal.
+//  under-the-hood stages that produce what's on the dial: the funnel
+//  from the full library down to the final 300 songs, the similarity-
+//  based ordering that threads them into a coherent path, and the
+//  audio fingerprint cache that powers the similarity signal.
 //
-//  Designed as a growth surface — sections are independent so future
-//  additions (cluster maps from #12, per-cluster intensity bands, etc.)
-//  slot in cleanly without re-flowing the existing copy.
 
 import SwiftUI
 
@@ -23,14 +20,14 @@ struct HowItWorksView: View {
 		NavigationStack {
 			ScrollView {
 				VStack(alignment: .leading, spacing: 32) {
-					gemDeckSection
-					walkSection
-					embeddingSection
+					pickingSection
+					orderingSection
+					fingerprintSection
 				}
 				.padding(.horizontal, 20)
 				.padding(.vertical, 16)
 			}
-			.navigationTitle("How It Works")
+			.navigationTitle("How it works")
 			.inlineNavigationTitle()
 			.toolbar {
 				ToolbarItem(placement: .cancellationAction) {
@@ -48,23 +45,25 @@ struct HowItWorksView: View {
 			.fontDesign(.serif)
 	}
 
-	// MARK: - Gem deck section
+	// MARK: - Picking section
 
-	private var gemDeckSection: some View {
+	private var pickingSection: some View {
 		VStack(alignment: .leading, spacing: 16) {
 			intro
 
-			GemDeckFunnel()
+			SongFunnel()
 				.frame(maxWidth: .infinity)
 				.padding(.vertical, 8)
 
-			body(Text("Two complementary pools — songs you used to play a lot, and songs you saved long ago but barely touched. Together they cover both “lost favorites” and “never quite gave them a chance.”"))
+			body(Text("Three complementary pools of \(GemDeckBuilder.basePoolSize) songs each — songs you used to play a lot, songs you saved long ago but barely touched, and songs you added recently but only half-explored. Together they cover lost favorites, neglected adds, and unfinished discoveries."))
 
 			VStack(alignment: .leading, spacing: 6) {
-				bullet(Text("Nostalgia score: `log(plays + 1) × monthsDormant`"))
-				bullet(Text("Discovery score: `monthsInLibrary / (plays + 1)`"))
-				bullet(Text("Gem score = `0.7 × nostalgia + 0.3 × discovery`"))
-				bullet(Text("Songs played in the last `14 days` are filtered out"))
+				bullet(Text("Nostalgia: `log(plays + 1) × min(monthsDormant, 60)`"))
+				bullet(Text("Discovery: `monthsInLibrary / (plays + 1)`"))
+				bullet(Text("Freshness: `exp(−daysSinceAdded / 90) × log(plays + 1) × dormantWeeks`"))
+				bullet(Text("Final score: each is normalised to `[0, 1]` across the pool, then blended `0.50` nostalgia + `0.25` discovery + `0.25` freshness"))
+				bullet(Text("Recently-played songs are down-ranked, not excluded — songs played today score at `10%`, recovering linearly over `14 days`"))
+				bullet(Text("After scoring, no more than `\(GemDeckBuilder.perArtistCap)` songs per artist or `\(GemDeckBuilder.perAlbumCap)` per album make the cut"))
 			}
 			.font(.footnote)
 			.fontDesign(.serif)
@@ -72,40 +71,43 @@ struct HowItWorksView: View {
 		}
 	}
 
-	// MARK: - Walk section
+	// MARK: - Ordering section
 
-	private var walkSection: some View {
+	private var orderingSection: some View {
 		VStack(alignment: .leading, spacing: 12) {
-			sectionHeading("Walking the dial")
+			sectionHeading("Ordering the songs")
 
-			body(Text("The 300 deck songs are ordered into a path where consecutive entries share sonic mood. Each step picks the next song with highest similarity to the previous, subject to:"))
+			body(Text("The final \(GemDeckBuilder.deckSize) songs are threaded into a path where consecutive entries share sonic mood. Each step picks the next song with the highest similarity to the previous, with diversity rules so the path doesn’t clump:"))
 
 			VStack(alignment: .leading, spacing: 6) {
-				bullet(Text("No same artist within the previous 2 songs"))
-				bullet(Text("No same album within the previous 3 songs"))
+				bullet(Text("No same artist within the previous `\(SongDeckWalk.artistLookback)` songs"))
+				bullet(Text("No same album within the previous `\(SongDeckWalk.albumLookback)` songs"))
+				bullet(Text("Pairs you’ve flagged as bad are skipped"))
 			}
 			.font(.footnote)
 			.fontDesign(.serif)
 			.foregroundStyle(.secondary)
 
-			body(Text("The starting song is picked from the top `\(SongDeckWalk.seedTier)` by gem score, rotated per session so different cold starts feel different."))
+			body(Text("The starting song is picked from the top `\(SongDeckWalk.seedTier)` by score, biased away from the artist and decade you last landed on so shuffles actually jump."))
+
+			body(Text("Filters (Energy, Decade, Variety) feed into the same pipeline. Energy and Decade narrow the pool *before* scoring; Variety changes how greedy the ordering is — Steady stays close to the starting song’s mood, Varied lets less-similar candidates win sometimes."))
 		}
 	}
 
-	// MARK: - Embedding section
+	// MARK: - Fingerprint section
 
-	private var embeddingSection: some View {
+	private var fingerprintSection: some View {
 		VStack(alignment: .leading, spacing: 12) {
 			sectionHeading("Audio fingerprints")
 
 			body(Text("Each song’s audio is fingerprinted from its 30-second preview using Apple’s built-in audio analyzer. The resulting 512-number vector captures the song’s sonic character and is cached locally on your device."))
 
-			body(Text("Cosine similarity between two vectors tells the walk how alike two songs sound. That signal is blended with genre overlap and release-date proximity:"))
+			body(Text("Cosine similarity between two vectors tells the ordering how alike two songs sound. That signal is blended with tempo, genre, and release date so the ordering can tell apart songs the embedding bunches together. Weights depend on what’s cached:"))
 
 			VStack(alignment: .leading, spacing: 6) {
-				bullet(Text("`50%` audio fingerprint similarity"))
-				bullet(Text("`30%` genre overlap"))
-				bullet(Text("`20%` release date proximity"))
+				bullet(Text("Full signal: `35%` fingerprint + `20%` tempo + `20%` genre + `25%` release date"))
+				bullet(Text("No tempo cached: `40%` fingerprint + `25%` genre + `35%` release date"))
+				bullet(Text("No fingerprint yet: `50%` genre + `50%` release date"))
 			}
 			.font(.footnote)
 			.fontDesign(.serif)
@@ -138,14 +140,15 @@ struct HowItWorksView: View {
 
 // MARK: - Funnel visualization
 
-private struct GemDeckFunnel: View {
+private struct SongFunnel: View {
 	var body: some View {
 		VStack(spacing: 0) {
 			stage("Library", count: "~8,000", width: 240, tint: .gray)
-			connector("fetch top 1,500 by play count and oldest by add date")
-			HStack(spacing: 16) {
-				stage("Most played", count: "1,500", width: 110, tint: .blue)
-				stage("Oldest", count: "1,500", width: 110, tint: .purple)
+			connector("three parallel fetches")
+			HStack(spacing: 8) {
+				stage("Most played", count: "\(GemDeckBuilder.basePoolSize)", width: 90, tint: .blue)
+				stage("Oldest", count: "\(GemDeckBuilder.basePoolSize)", width: 90, tint: .purple)
+				stage("Newest", count: "\(GemDeckBuilder.basePoolSize)", width: 90, tint: .pink)
 			}
 			.padding(.horizontal, 14)
 			.padding(.vertical, 8)
@@ -154,8 +157,8 @@ private struct GemDeckFunnel: View {
 			)
 			connector("union + dedupe")
 			stage("Candidates", count: "~2,500", width: 200, tint: .gray.opacity(0.7))
-			connector("score + recency filter")
-			stage("Deck", count: "300", width: 100, tint: .black)
+			connector("score, cap per artist & album")
+			stage("On the dial", count: "\(GemDeckBuilder.deckSize)", width: 120, tint: .black)
 		}
 	}
 

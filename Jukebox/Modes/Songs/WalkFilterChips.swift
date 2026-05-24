@@ -45,7 +45,7 @@ struct WalkFilterChips: View {
 		if controls.meander <= -0.05 {
 			result.append(WalkFilterChip(id: "meander-steady", label: "Steady", tint: nil, fontWidth: .standard))
 		} else if controls.meander >= 0.05 {
-			result.append(WalkFilterChip(id: "meander-meandering", label: "Meandering", tint: nil, fontWidth: .standard))
+			result.append(WalkFilterChip(id: "meander-varied", label: "Varied", tint: nil, fontWidth: .standard))
 		}
 
 		return result

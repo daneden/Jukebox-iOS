@@ -40,9 +40,9 @@ struct HistoryView: View {
 	private var content: some View {
 		if entries.isEmpty, !isLoading {
 			ContentUnavailableView(
-				"No History Yet",
+				"No history yet",
 				systemImage: "clock.arrow.circlepath",
-				description: Text("Songs you play will show up here, with the similarity playlist they were part of.")
+				description: Text("Songs you play will show up here, along with the other songs queued up alongside them.")
 			)
 		} else {
 			List {
@@ -150,7 +150,7 @@ struct HistoryDetailView: View {
 				Button {
 					presentSaveDialog()
 				} label: {
-					Label("Save to Library", systemImage: "plus")
+					Label("Save to library", systemImage: "plus")
 				}
 				.disabled(songs.isEmpty)
 			}
@@ -196,7 +196,7 @@ struct HistoryDetailView: View {
 				setFeedback(feedback == .liked ? .none : .liked)
 			} label: {
 				Label(
-					feedback == .liked ? "Unmark Good Run" : "Good Run",
+					feedback == .liked ? "Unmark good run" : "Good run",
 					systemImage: "hand.thumbsup"
 				)
 			}
@@ -204,7 +204,7 @@ struct HistoryDetailView: View {
 				setFeedback(feedback == .disliked ? .none : .disliked)
 			} label: {
 				Label(
-					feedback == .disliked ? "Unmark Bad Run" : "Bad Run",
+					feedback == .disliked ? "Unmark bad run" : "Bad run",
 					systemImage: "hand.thumbsdown"
 				)
 			}
@@ -249,7 +249,7 @@ struct HistoryDetailView: View {
 				Button(role: .destructive) {
 					Task { await dropPair(prevID: prevID, currID: currID) }
 				} label: {
-					Label("Don't Pair", systemImage: "hand.thumbsdown")
+					Label("Don't pair", systemImage: "hand.thumbsdown")
 				}
 			}
 		}

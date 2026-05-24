@@ -20,24 +20,24 @@ struct SettingsMenu: View {
 
 	var body: some View {
 		Menu {
-			Toggle("Autoplay on Shuffle", isOn: $autoplay)
+			Toggle("Play automatically on shuffle", systemImage: "play", isOn: $autoplay)
 			Divider()
 			Button {
 				showingHowItWorks = true
 			} label: {
-				Label("How It Works", systemImage: "info.circle")
+				Label("How it works", systemImage: "info.circle")
 			}
 			#if DEBUG
 				Divider()
 				Button {
 					showingEmbeddingSpike = true
 				} label: {
-					Label("Embedding Spike", systemImage: "waveform.and.magnifyingglass")
+					Label("Embedding spike", systemImage: "waveform.and.magnifyingglass")
 				}
 				Button {
 					showingCentroidBuilder = true
 				} label: {
-					Label("Build Energy Centroids", systemImage: "scope")
+					Label("Build energy centroids", systemImage: "scope")
 				}
 			#endif
 		} label: {

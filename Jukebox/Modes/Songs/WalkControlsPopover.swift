@@ -57,9 +57,9 @@ private struct WalkControlsForm: View {
 			Section {
 				meanderSlider
 			} header: {
-				Text("Meandering")
+				Text("Variety")
 			} footer: {
-				Text("Steady stays close to where the walk began. Meandering picks more surprising next songs.")
+				Text("Steady keeps consecutive songs sounding similar. Varied picks more surprising next songs.")
 			}
 
 			Section {
@@ -73,7 +73,7 @@ private struct WalkControlsForm: View {
 			} header: {
 				Text("Energy")
 			} footer: {
-				Text("Filters the deck by broad genre. Falls back to the whole library if nothing in yours matches.")
+				Text("Filters by broad genre. Falls back to the whole library if nothing in yours matches.")
 			}
 
 			Section {
@@ -84,7 +84,7 @@ private struct WalkControlsForm: View {
 			} header: {
 				Text("Decade range")
 			} footer: {
-				Text("Only songs released in this range make it into the deck. Drag both thumbs to the ends for no filter.")
+				Text("Only songs released in this range appear. Drag both thumbs to the ends for no filter.")
 			}
 
 			if let count = poolSize {
@@ -154,13 +154,13 @@ private struct WalkControlsForm: View {
 			step: 0.1,
 			neutralValue: 0
 		) {
-			Text("Meandering")
+			Text("Variety")
 		} minimumValueLabel: {
 			Text("Steady")
 				.font(.caption2)
 				.foregroundStyle(.secondary)
 		} maximumValueLabel: {
-			Text("Meandering")
+			Text("Varied")
 				.font(.caption2)
 				.foregroundStyle(.secondary)
 		}
@@ -220,7 +220,7 @@ private struct PoolSummaryRow: View {
 					.padding(.top, 2)
 			}
 			VStack(alignment: .leading, spacing: 2) {
-				Text("\(count) \(count == 1 ? "song" : "songs") in your deck")
+				Text("\(count) \(count == 1 ? "song" : "songs") available")
 					.font(.callout.weight(.medium))
 					.foregroundStyle(severity == .fine ? .primary : severity.tint)
 				if let hint {
