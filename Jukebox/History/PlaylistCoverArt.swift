@@ -52,40 +52,31 @@ struct PlaylistCoverArt: View {
 		seed == 0 ? 0xC0FFEE : seed
 	}
 
-	/// 9 mesh points laid out 3×3. Corners are pinned to the rect edges
-	/// so the gradient still covers the whole canvas, but everything
-	/// else is allowed to wander freely — edge midpoints can drift past
-	/// each other along their edge *and* pull inward away from it, and
-	/// the center can land anywhere (including past the edge midpoints
-	/// or even outside the [0,1] rect). When points cross, the mesh
-	/// folds, producing the sharp pinch curves we want.
+	/// 9 mesh points laid out 3×3. Corners are pinned to the rect
+	/// corners *and* edge midpoints stay on their edge (top/bottom at
+	/// Y=0/1, left/right at X=0/1) — otherwise the mesh leaves wedge-
+	/// shaped transparent gaps along the canvas border where the
+	/// surrounding quads don't reach. The parallel coordinate of each
+	/// edge midpoint, and both coords of the center, jitter over the
+	/// full [0,1] range; when those land near each other (or near a
+	/// corner) the mesh folds, giving the sharp pinch curves we want.
 	private var meshPoints: [SIMD2<Float>] {
 		var rng = SeededGenerator(seed: effectiveSeed)
-		let topMid = SIMD2<Float>(
-			jitter(around: 0.5, range: 0.6, &rng),
-			jitter(around: 0.0, range: 0.35, &rng)
-		)
-		let leftMid = SIMD2<Float>(
-			jitter(around: 0.0, range: 0.35, &rng),
-			jitter(around: 0.5, range: 0.6, &rng)
-		)
-		let center = SIMD2<Float>(
-			jitter(around: 0.5, range: 0.6, &rng),
-			jitter(around: 0.5, range: 0.6, &rng)
-		)
-		let rightMid = SIMD2<Float>(
-			jitter(around: 1.0, range: 0.35, &rng),
-			jitter(around: 0.5, range: 0.6, &rng)
-		)
-		let bottomMid = SIMD2<Float>(
-			jitter(around: 0.5, range: 0.6, &rng),
-			jitter(around: 1.0, range: 0.35, &rng)
-		)
+		let topMid = SIMD2<Float>(unit(&rng), 0.0)
+		let leftMid = SIMD2<Float>(0.0, unit(&rng))
+		let center = SIMD2<Float>(unit(&rng), unit(&rng))
+		let rightMid = SIMD2<Float>(1.0, unit(&rng))
+		let bottomMid = SIMD2<Float>(unit(&rng), 1.0)
 		return [
 			[0.0, 0.0], topMid, [1.0, 0.0],
 			leftMid, center, rightMid,
 			[0.0, 1.0], bottomMid, [1.0, 1.0],
 		]
+	}
+
+	/// Uniform sample in [0, 1] from the seeded RNG.
+	private func unit(_ rng: inout SeededGenerator) -> Float {
+		Float(rng.next() >> 11) / Float(UInt64(1) << 53)
 	}
 
 	/// 9 colors over the 3×3 mesh. The palette is seed-shuffled and then
@@ -99,15 +90,6 @@ struct PlaylistCoverArt: View {
 		               3, 0, 2,
 		               1, 3, 0]
 		return pattern.map { shuffled[$0 % shuffled.count] }
-	}
-
-	private func jitter(
-		around center: Float,
-		range: Float,
-		_ rng: inout SeededGenerator
-	) -> Float {
-		let unit = Float(rng.next() >> 11) / Float(UInt64(1) << 53)
-		return center + (unit - 0.5) * 2 * range
 	}
 
 	var body: some View {
@@ -129,7 +111,7 @@ struct PlaylistCoverArt: View {
 			.blendMode(.multiply)
 
 			Text(title)
-				.font(.system(size: size * 0.115, weight: .semibold, design: .default).leading(.tight))
+				.font(.system(size: size * 0.10, weight: .semibold, design: .default).leading(.tight))
 				.lineLimit(5)
 				.minimumScaleFactor(0.5)
 				.foregroundStyle(.white)

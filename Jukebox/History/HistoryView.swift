@@ -132,6 +132,10 @@ struct HistoryDetailView: View {
 	/// Pre-rendered PNG for `ShareLink`. Stays nil until palette + render
 	/// finish so the share affordance only enables when the bytes exist.
 	@State private var coverShare: PlaylistCoverImage?
+	/// Flips once palette extraction and PNG render have both completed.
+	/// Until then we show a placeholder rather than the fallback gradient,
+	/// so the cover doesn't flash neutral-default before its real colors.
+	@State private var coverLoaded = false
 	/// Editable display name, mirrored to `HistoryPlaylist.name` via the
 	/// store. Drives both the navigation title (renamable through the
 	/// binding-form `.navigationTitle(_:)`) and the cover art.
@@ -233,28 +237,45 @@ struct HistoryDetailView: View {
 		}
 	}
 
-	@ViewBuilder
 	private var coverArtRow: some View {
-		let cover = PlaylistCoverArt(
-			title: coverTitle,
-			palette: coverPalette,
-			seed: coverSeed
-		)
 		HStack {
 			Spacer(minLength: 0)
-			if let coverShare {
-				ShareLink(
-					item: coverShare,
-					preview: SharePreview(coverTitle)
-				) {
+			if coverLoaded {
+				let cover = PlaylistCoverArt(
+					title: coverTitle,
+					palette: coverPalette,
+					seed: coverSeed
+				)
+				if let coverShare {
+					ShareLink(
+						item: coverShare,
+						preview: SharePreview(coverTitle)
+					) {
+						cover
+					}
+					.buttonStyle(.plain)
+				} else {
 					cover
 				}
-				.buttonStyle(.plain)
 			} else {
-				cover
+				coverPlaceholder
 			}
 			Spacer(minLength: 0)
 		}
+	}
+
+	/// Square placeholder matching the cover's dimensions and corner
+	/// radius. Used while palette extraction and the PNG render are
+	/// still in flight; flipping `coverLoaded` swaps it out for the
+	/// real cover in a single transition.
+	private var coverPlaceholder: some View {
+		let side: CGFloat = 280
+		return RoundedRectangle(cornerRadius: side * 0.045)
+			.fill(.regularMaterial)
+			.frame(width: side, height: side)
+			.overlay {
+				ProgressView()
+			}
 	}
 
 	/// What the cover should render. An emptied name (the user cleared
@@ -275,6 +296,9 @@ struct HistoryDetailView: View {
 		let paletteForRender = palette.isEmpty ? nil : palette
 		coverPalette = paletteForRender
 		rerenderCoverShare()
+		withAnimation(.smooth(duration: 0.25)) {
+			coverLoaded = true
+		}
 	}
 
 	/// Synchronously re-render the share PNG for the current title +
