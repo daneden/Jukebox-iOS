@@ -78,34 +78,31 @@ struct EnergyCurveEditor: View {
 
 	// MARK: - Backdrop
 
-	/// Rounded-rectangle container with a dot grid that matches the
-	/// song count — one dot per slot. The slider's step=5 across [10, 50]
-	/// means `rows × cols` always multiplies cleanly to `songCount`:
-	/// 2×5 at the low end, 5×10 at the high end, capping rows at 5 so
-	/// the grid stays wide (matching the canvas aspect) instead of
-	/// growing tall. Each dot sits inside an `.infinity`-sized cell so
-	/// the spacing redistributes itself as the container resizes.
+	/// Rounded-rectangle container with a square dot grid sized to the
+	/// song count: a 30-song playlist gets a 30×30 grid (900 dots).
+	/// Each dot sits inside an `.infinity`-sized cell so the layout
+	/// system redistributes spacing as the container resizes — no
+	/// fixed-spacing math, just pure SwiftUI layout.
 	private func backdrop(in size: CGSize) -> some View {
 		let rect = canvasRect(in: size)
 		let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
-		let rows = min(5, max(1, songCount / 5))
-		let cols = max(1, songCount / rows)
+		let count = max(1, songCount)
 		return shape
 			.fill(.quaternary.opacity(0.6))
 			.overlay {
 				VStack(spacing: 0) {
-					ForEach(0 ..< rows, id: \.self) { _ in
+					ForEach(0 ..< count, id: \.self) { _ in
 						HStack(spacing: 0) {
-							ForEach(0 ..< cols, id: \.self) { _ in
+							ForEach(0 ..< count, id: \.self) { _ in
 								Circle()
-									.fill(.primary.opacity(0.2))
-									.frame(width: 3, height: 3)
+									.fill(.primary.opacity(0.25))
+									.frame(width: 1.5, height: 1.5)
 									.frame(maxWidth: .infinity, maxHeight: .infinity)
 							}
 						}
 					}
 				}
-				.padding(20)
+				.padding(16)
 				.clipShape(shape)
 			}
 			.frame(width: rect.width, height: rect.height)
