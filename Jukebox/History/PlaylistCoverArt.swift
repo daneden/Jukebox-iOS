@@ -140,20 +140,15 @@ struct PlaylistCoverArt: View {
 
 			VStack(spacing: 0) {
 				Spacer(minLength: 0)
-				HStack(spacing: size * 0.025) {
+				HStack(spacing: 0) {
 					Spacer(minLength: 0)
 					Image(.playback)
 						.resizable()
 						.renderingMode(.template)
 						.aspectRatio(contentMode: .fit)
-						.frame(width: size * 0.09)
-
-					Text("Playback")
-						.fontWeight(.semibold)
-						.foregroundStyle(.white)
-						.font(.system(size: size * 0.065))
+						.frame(width: size * 0.135)
+						.foregroundStyle(.white.opacity(0.9))
 				}
-				.foregroundStyle(.white)
 			}
 			.padding(size * 0.065)
 		}
