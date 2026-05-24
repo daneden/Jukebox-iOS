@@ -31,14 +31,15 @@ enum MusicPlayback {
 		#endif
 	}
 
-	/// macOS plays only `songs.first` (the seed) and relies on Music.app's
-	/// Autoplay to continue; iOS enqueues the full runway through
-	/// `SystemMusicPlayer`. Trade-off documented in the bridge.
+	/// Play a runway of songs. iOS enqueues the whole array through
+	/// `SystemMusicPlayer`; macOS stages them into a recycled
+	/// `▶ Playback` user playlist (Music.app exposes no scriptable
+	/// "Up Next") and plays that.
 	@discardableResult
 	static func play(songs: [Song]) async -> Bool {
-		guard let seed = songs.first else { return false }
+		guard !songs.isEmpty else { return false }
 		#if os(macOS)
-			await AppleMusicScriptBridge.play(song: seed)
+			await AppleMusicScriptBridge.play(songs: songs)
 			return true
 		#else
 			do {
