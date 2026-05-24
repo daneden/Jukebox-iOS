@@ -132,6 +132,14 @@ struct HistoryDetailView: View {
 	/// Pre-rendered PNG for `ShareLink`. Stays nil until palette + render
 	/// finish so the share affordance only enables when the bytes exist.
 	@State private var coverShare: PlaylistCoverImage?
+	/// Editable display name, mirrored to `HistoryPlaylist.name` via the
+	/// store. Drives both the navigation title (renamable through the
+	/// binding-form `.navigationTitle(_:)`) and the cover art.
+	@State private var name: String = ""
+	/// Suppresses the rename-handler the first time `name` is populated
+	/// from the entry — without it the initial `.task` write would trip
+	/// a no-op save and a redundant PNG re-render.
+	@State private var nameInitialized = false
 
 	var body: some View {
 		List {
@@ -150,11 +158,16 @@ struct HistoryDetailView: View {
 		.task {
 			songs = entry.songs
 			feedback = entry.feedback
+			name = entry.displayName
 			await loadCoverArt()
+			nameInitialized = true
 		}
 		.onDisappear { onChange() }
-		.navigationTitle(entry.displayName)
+		.navigationTitle($name)
 		.inlineNavigationTitle()
+		.onChange(of: name) { _, new in
+			handleRename(new)
+		}
 		.toolbar {
 			ToolbarItem {
 				feedbackMenu
@@ -166,6 +179,9 @@ struct HistoryDetailView: View {
 					Label("Save to library", systemImage: "plus")
 				}
 				.disabled(songs.isEmpty)
+			}
+			ToolbarTitleMenu {
+				RenameButton()
 			}
 		}
 		.alert("Save to Apple Music", isPresented: $showingSaveDialog) {
@@ -209,13 +225,13 @@ struct HistoryDetailView: View {
 	/// hand-off via the system share sheet.
 	@ViewBuilder
 	private var coverArtRow: some View {
-		let cover = PlaylistCoverArt(title: entry.displayName, palette: coverPalette)
+		let cover = PlaylistCoverArt(title: coverTitle, palette: coverPalette)
 		HStack {
 			Spacer(minLength: 0)
 			if let coverShare {
 				ShareLink(
 					item: coverShare,
-					preview: SharePreview(entry.displayName)
+					preview: SharePreview(coverTitle)
 				) {
 					cover
 				}
@@ -227,6 +243,14 @@ struct HistoryDetailView: View {
 		}
 	}
 
+	/// What the cover should render. An emptied name (the user cleared
+	/// the title field) falls back to the seed title so the cover never
+	/// reads blank, matching `HistoryEntrySnapshot.displayName`'s rule.
+	private var coverTitle: String {
+		let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+		return trimmed.isEmpty ? entry.seedTitle : trimmed
+	}
+
 	/// Pull a handful of dominant colors from the runway's leading songs,
 	/// then bake a PNG via `ImageRenderer` for sharing. The displayed
 	/// view picks up the palette as soon as it's available; the share
@@ -236,11 +260,31 @@ struct HistoryDetailView: View {
 		let palette = await PlaylistCoverPalette.extract(from: resolved, maxColors: 4)
 		let paletteForRender = palette.isEmpty ? nil : palette
 		coverPalette = paletteForRender
+		rerenderCoverShare()
+	}
+
+	/// Synchronously re-render the share PNG for the current title +
+	/// palette. Cheap (~50ms) so we run it inline on every rename rather
+	/// than debouncing.
+	private func rerenderCoverShare() {
 		guard let png = PlaylistCoverRenderer.renderPNG(
-			title: entry.displayName,
-			palette: paletteForRender
+			title: coverTitle,
+			palette: coverPalette
 		) else { return }
-		coverShare = PlaylistCoverImage(title: entry.displayName, pngData: png)
+		coverShare = PlaylistCoverImage(title: coverTitle, pngData: png)
+	}
+
+	/// Persist a rename + refresh the share PNG. Skipped on the initial
+	/// task-driven assignment so we don't churn the store with a no-op
+	/// save the first time the detail view opens.
+	private func handleRename(_ newValue: String) {
+		guard nameInitialized else { return }
+		let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+		let entryID = entry.id
+		Task {
+			await HistoryStore.shared.rename(id: entryID, to: trimmed)
+		}
+		rerenderCoverShare()
 	}
 
 	private var feedbackMenu: some View {

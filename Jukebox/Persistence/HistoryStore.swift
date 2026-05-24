@@ -170,6 +170,22 @@ actor HistoryStore {
 		}
 	}
 
+	/// Update the whimsical display name on a stored entry. Empty values
+	/// are allowed — the row's `displayName` accessor falls back to
+	/// `seedTitle` for those, so an emptied name doesn't render as a
+	/// blank list item.
+	func rename(id: UUID, to newName: String) {
+		do { try ensureLoaded() } catch { return }
+		guard let context else { return }
+		let descriptor = FetchDescriptor<HistoryPlaylist>(
+			predicate: #Predicate { $0.id == id }
+		)
+		if let row = try? context.fetch(descriptor).first {
+			row.name = newName
+			try? context.save()
+		}
+	}
+
 	/// Persist run-level feedback. Setting `.none` clears a prior
 	/// rating; the bulk-blocked transitions from a prior "Bad Run"
 	/// rating intentionally persist regardless — those are independent
