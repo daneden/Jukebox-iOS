@@ -31,6 +31,11 @@ enum DesignedPlaylistBuilder {
 	/// user's full affinity for that band without ballooning memory.
 	static let bandSliceLimit = 500
 
+	/// Window for the within-session "just generated" downrank. Tuned to
+	/// cover an active iteration sitting — generate, listen to a bit,
+	/// tweak the curve, regenerate — without penalising last week's runs.
+	static let sessionWindow: TimeInterval = 4 * 3600
+
 	/// The single most-distinctive genre keyword per band — the one we
 	/// use for the supplementary `filter(text:)` slice. Each band's
 	/// `genreKeywords` array carries broader-coverage terms (e.g.
@@ -106,10 +111,32 @@ enum DesignedPlaylistBuilder {
 		for band in EnergyBand.concreteOrdered {
 			byBand[band] = candidates(in: band, pool: pool, embeddings: embeddings)
 		}
-		// Shuffle within each band once so a fresh design run doesn't
-		// always pull the same top-scoring candidate per slot.
+
+		// Bias each band away from songs that turned up in a Design run
+		// within the session — iterating on the curve shouldn't keep
+		// resurfacing the playlist the user just discarded. `HistoryStore`
+		// records every Design generation at build time (before playback),
+		// so a short window catches discards without any extra bookkeeping.
+		// Soft downrank, not exclusion: `pop` drains via `popLast`, so
+		// putting recent songs at the front of each band's array means
+		// fresh candidates get picked first while recent ones remain
+		// available if a narrow band runs dry — curve fidelity over novelty.
+		let recentIDs = Set(await HistoryStore.shared.recentPlays(within: sessionWindow).keys)
 		for band in byBand.keys {
-			byBand[band]?.shuffle()
+			guard let pool = byBand[band] else { continue }
+			var fresh: [Song] = []
+			var recent: [Song] = []
+			fresh.reserveCapacity(pool.count)
+			for song in pool {
+				if recentIDs.contains(song.id.rawValue) {
+					recent.append(song)
+				} else {
+					fresh.append(song)
+				}
+			}
+			fresh.shuffle()
+			recent.shuffle()
+			byBand[band] = recent + fresh
 		}
 
 		guard byBand.values.contains(where: { !$0.isEmpty }) else {

@@ -209,15 +209,21 @@ actor HistoryStore {
 	/// own it lets recently-played songs slip back in as seeds. Our log
 	/// is written synchronously in `play(from:)` so it has no lag.
 	///
-	/// We return a dict rather than a set so the scorer can compute a
+	/// Design mode also leans on this to avoid resurfacing songs from a
+	/// just-generated playlist when the user iterates on the curve.
+	/// `record(name:seed:runway:)` writes a row at generation time
+	/// (before playback), so a within-session window catches discarded
+	/// designs without needing extra bookkeeping.
+	///
+	/// We return a dict rather than a set so callers can compute a
 	/// proportional penalty (heavy for plays today, recovering to no
 	/// penalty at the cutoff). Hard exclusion was too aggressive for
 	/// small libraries.
-	func recentPlays(within days: Int) -> [String: Date] {
+	func recentPlays(within interval: TimeInterval) -> [String: Date] {
 		do { try ensureLoaded() } catch { return [:] }
 		guard let context else { return [:] }
 
-		let cutoff = Date().addingTimeInterval(-Double(days) * 86400)
+		let cutoff = Date().addingTimeInterval(-interval)
 		let descriptor = FetchDescriptor<HistoryPlaylist>(
 			predicate: #Predicate { $0.playedAt >= cutoff }
 		)

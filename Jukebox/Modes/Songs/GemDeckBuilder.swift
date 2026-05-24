@@ -123,7 +123,7 @@ enum GemDeckBuilder {
 					// resurface as high-ranked seeds. Soft penalty (not
 					// hard exclude) so smaller libraries don't run out
 					// of candidates inside the 14-day window.
-					let recentPlays = await HistoryStore.shared.recentPlays(within: 14)
+					let recentPlays = await HistoryStore.shared.recentPlays(within: 14 * 86400)
 					let scorer = GemScorer(
 						now: now,
 						recentPlays: recentPlays
