@@ -79,10 +79,11 @@ struct EnergyCurveEditor: View {
 	// MARK: - Backdrop
 
 	/// Rounded-rectangle container with a square dot grid sized to the
-	/// song count: a 30-song playlist gets a 30×30 grid (900 dots).
-	/// Each dot sits inside an `.infinity`-sized cell so the layout
-	/// system redistributes spacing as the container resizes — no
-	/// fixed-spacing math, just pure SwiftUI layout.
+	/// song count: a 30-song playlist gets a 30×30 grid (900 dots). The
+	/// dots are drawn via a single `Canvas` so a 50×50 grid (2500 dots)
+	/// stays cheap — the cell size is derived from the canvas's actual
+	/// dimensions at draw time, so the grid still redistributes as the
+	/// editor resizes without any hard-coded spacing.
 	private func backdrop(in size: CGSize) -> some View {
 		let rect = canvasRect(in: size)
 		let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -90,19 +91,28 @@ struct EnergyCurveEditor: View {
 		return shape
 			.fill(.quaternary.opacity(0.6))
 			.overlay {
-				VStack(spacing: 0) {
-					ForEach(0 ..< count, id: \.self) { _ in
-						HStack(spacing: 0) {
-							ForEach(0 ..< count, id: \.self) { _ in
-								Circle()
-									.fill(.primary.opacity(0.25))
-									.frame(width: 1.5, height: 1.5)
-									.frame(maxWidth: .infinity, maxHeight: .infinity)
-							}
+				Canvas { context, canvasSize in
+					let inset: CGFloat = 16
+					let usableW = max(0, canvasSize.width - 2 * inset)
+					let usableH = max(0, canvasSize.height - 2 * inset)
+					guard usableW > 0, usableH > 0 else { return }
+					let cellW = usableW / CGFloat(count)
+					let cellH = usableH / CGFloat(count)
+					let dotSize: CGFloat = 1.5
+					let half = dotSize / 2
+					let colour = GraphicsContext.Shading.color(.primary.opacity(0.25))
+					for r in 0 ..< count {
+						let cy = inset + cellH * (CGFloat(r) + 0.5)
+						for c in 0 ..< count {
+							let cx = inset + cellW * (CGFloat(c) + 0.5)
+							let dot = Path(ellipseIn: CGRect(
+								x: cx - half, y: cy - half,
+								width: dotSize, height: dotSize
+							))
+							context.fill(dot, with: colour)
 						}
 					}
 				}
-				.padding(16)
 				.clipShape(shape)
 			}
 			.frame(width: rect.width, height: rect.height)
