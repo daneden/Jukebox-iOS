@@ -101,66 +101,6 @@ struct PlaylistCoverArt: View {
 		return pattern.map { shuffled[$0 % shuffled.count] }
 	}
 
-	/// Combined logo glyph + "Playback" wordmark, rendered as a die-cut
-	/// sticker: a white sticker base extended outward from the silhouette
-	/// by `outlineWidth` on every side, the printed art (the same content
-	/// in near-black) sitting on top, and a subtle dark drop shadow that
-	/// makes the sticker read as raised off the cover. Both layers share
-	/// one geometry via the local `wordmark` view so the outline tracks
-	/// the wordmark's actual shape rather than a bounding box.
-	private var diecutWordmark: some View {
-		let outlineWidth: CGFloat = size * 0.006
-		return ZStack {
-			// White sticker base. Eight offset copies of the wordmark
-			// silhouette in white form the outline by dilating the
-			// shape outward — cardinals at the full outline radius,
-			// diagonals at ~0.7× so the corners stay roughly circular.
-			// An expression-based ForEach (rather than a chained
-			// `.shadow` stack) keeps the type-checker out of trouble.
-			ForEach(Self.outlineOffsets, id: \.self) { unit in
-				wordmark
-					.foregroundStyle(.white)
-					.offset(
-						x: CGFloat(unit.x) * outlineWidth,
-						y: CGFloat(unit.y) * outlineWidth
-					)
-			}
-			// Printed art on the sticker face.
-			wordmark
-				.foregroundStyle(Color.black.opacity(0.88))
-		}
-		.compositingGroup()
-		.shadow(
-			color: .black.opacity(0.22),
-			radius: size * 0.012,
-			x: 0,
-			y: size * 0.005
-		)
-	}
-
-	private var wordmark: some View {
-		HStack(spacing: size * 0.025) {
-			Image(.playback)
-				.resizable()
-				.renderingMode(.template)
-				.aspectRatio(contentMode: .fit)
-				.frame(width: size * 0.09)
-
-			Text("Playback")
-				.fontWeight(.semibold)
-				.font(.system(size: size * 0.065))
-		}
-	}
-
-	/// Unit offsets for the 8 directional copies that build the sticker's
-	/// white outline. Cardinals at ±1, diagonals at ±0.7 (≈ 1/√2) so the
-	/// corner radius of the outline stays close to circular when scaled
-	/// by `outlineWidth`.
-	private static let outlineOffsets: [SIMD2<Float>] = [
-		[1, 0], [-1, 0], [0, 1], [0, -1],
-		[0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7],
-	]
-
 	var body: some View {
 		ZStack {
 			MeshGradient(
@@ -189,10 +129,20 @@ struct PlaylistCoverArt: View {
 
 			VStack(spacing: 0) {
 				Spacer(minLength: 0)
-				HStack(spacing: 0) {
+				HStack(spacing: size * 0.025) {
 					Spacer(minLength: 0)
-					diecutWordmark
+					Image(.playback)
+						.resizable()
+						.renderingMode(.template)
+						.aspectRatio(contentMode: .fit)
+						.frame(width: size * 0.09)
+
+					Text("Playback")
+						.fontWeight(.semibold)
+						.foregroundStyle(.white)
+						.font(.system(size: size * 0.065))
 				}
+				.foregroundStyle(.white)
 			}
 			.padding(size * 0.065)
 		}
