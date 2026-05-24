@@ -89,7 +89,7 @@ struct EnergyCurveEditor: View {
 		let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
 		let count = max(1, songCount)
 		return shape
-			.fill(.quaternary.opacity(0.6))
+			.fill(.quinary)
 			.overlay {
 				Canvas { context, canvasSize in
 					let inset: CGFloat = 16
@@ -125,8 +125,10 @@ struct EnergyCurveEditor: View {
 			.font(.caption2.weight(.semibold))
 			.tracking(1)
 			.foregroundStyle(.secondary)
-			.padding(.horizontal, 14)
-			.padding(.vertical, 10)
+			.padding(4)
+			.padding(.horizontal, 4)
+			.background(.ultraThinMaterial, in: .capsule)
+			.padding(8)
 			.allowsHitTesting(false)
 	}
 
@@ -289,7 +291,9 @@ struct AnimatablePointFive: VectorArithmetic {
 	var p3: Double
 	var p4: Double
 
-	static var zero: AnimatablePointFive { .init(p0: 0, p1: 0, p2: 0, p3: 0, p4: 0) }
+	static var zero: AnimatablePointFive {
+		.init(p0: 0, p1: 0, p2: 0, p3: 0, p4: 0)
+	}
 
 	static func + (lhs: AnimatablePointFive, rhs: AnimatablePointFive) -> AnimatablePointFive {
 		AnimatablePointFive(
@@ -305,8 +309,13 @@ struct AnimatablePointFive: VectorArithmetic {
 		)
 	}
 
-	static func += (lhs: inout AnimatablePointFive, rhs: AnimatablePointFive) { lhs = lhs + rhs }
-	static func -= (lhs: inout AnimatablePointFive, rhs: AnimatablePointFive) { lhs = lhs - rhs }
+	static func += (lhs: inout AnimatablePointFive, rhs: AnimatablePointFive) {
+		lhs = lhs + rhs
+	}
+
+	static func -= (lhs: inout AnimatablePointFive, rhs: AnimatablePointFive) {
+		lhs = lhs - rhs
+	}
 
 	mutating func scale(by rhs: Double) {
 		p0 *= rhs; p1 *= rhs; p2 *= rhs; p3 *= rhs; p4 *= rhs
@@ -325,7 +334,7 @@ struct AnimatablePointFive: VectorArithmetic {
 				EnergyCurveEditor(curve: $curve)
 					.padding()
 				Button("Randomise") {
-					withAnimation(.smooth(duration: 0.5)) {
+					withAnimation(.snappy) {
 						curve = .random()
 					}
 				}

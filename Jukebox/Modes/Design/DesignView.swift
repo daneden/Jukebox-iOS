@@ -15,7 +15,7 @@ import SwiftUI
 struct DesignView: View {
 	@Environment(\.colorScheme) private var colorScheme
 
-	@AppStorage(SettingsKeys.designCurveData) private var curveData: Data = Data()
+	@AppStorage(SettingsKeys.designCurveData) private var curveData: Data = .init()
 	@AppStorage(SettingsKeys.designSongCount) private var songCount: Int = 20
 
 	@State private var curve: EnergyCurve = .default
@@ -31,16 +31,13 @@ struct DesignView: View {
 						.padding(.top, 8)
 				#endif
 
-				header
-
 				EnergyCurveEditor(curve: $curve, songCount: songCount)
 					.padding(.horizontal)
 					.padding(.vertical, 8)
 					.onChange(of: curve) { _, newValue in persist(newValue) }
 
-
 				Divider()
-				
+
 				songCountSlider
 
 				Spacer(minLength: 0)
@@ -79,19 +76,6 @@ struct DesignView: View {
 		}
 	}
 
-	private var header: some View {
-		VStack(spacing: 4) {
-			Text("Design")
-				.font(.title2)
-				.fontWeight(.semibold)
-			Text("Drag the points to shape how energy moves over the playlist.")
-				.font(.subheadline)
-				.foregroundStyle(.secondary)
-				.multilineTextAlignment(.center)
-				.padding(.horizontal, 24)
-		}
-	}
-
 	private var songCountSlider: some View {
 		VStack(spacing: 4) {
 			HStack {
@@ -126,12 +110,12 @@ struct DesignView: View {
 						curve = .random()
 					}
 				} label: {
-					Label("Randomise", systemImage: "shuffle")
-						.frame(maxWidth: .infinity)
+					Label("Randomise", systemImage: "dice")
 				}
+				.labelStyle(.iconOnly)
 				.fontWeight(.semibold)
 				.buttonStyle(.glass)
-				.buttonBorderShape(.capsule)
+				.buttonBorderShape(.circle)
 				.controlSize(.extraLarge)
 				.disabled(isGenerating)
 
