@@ -80,12 +80,14 @@ struct PlaylistCoverArt: View {
 		]
 	}
 
-	/// Seeded uniform sample in the safe middle band [0.25, 0.75].
+	/// Seeded uniform sample in the safe middle band [0.20, 0.80].
 	/// Narrower than the full unit range — see `meshPoints` for why
-	/// approaching the corners produces visibly broken gradients.
+	/// approaching the corners produces visibly broken gradients —
+	/// but loose enough that points can get close to crossing, which
+	/// is where the sharper pinch lines come from.
 	private func unit(_ rng: inout SeededGenerator) -> Float {
 		let raw = Float(rng.next() >> 11) / Float(UInt64(1) << 53)
-		return 0.25 + raw * 0.5
+		return 0.20 + raw * 0.60
 	}
 
 	/// Replace the final space in `string` with a non-breaking space so
