@@ -18,6 +18,11 @@ import SwiftUI
 
 struct EnergyCurveEditor: View {
 	@Binding var curve: EnergyCurve
+	/// Drives the backdrop's dot count — one dot per song slot. The
+	/// editor itself is count-agnostic; the dots are just a visual
+	/// echo of the slider so the user has a sense of "how many songs
+	/// am I asking for" without leaving the canvas.
+	var songCount: Int = 20
 
 	/// Inner padding so the leading/trailing control points aren't clipped
 	/// when they sit flush with the editor's left/right edges. Half the
@@ -73,40 +78,34 @@ struct EnergyCurveEditor: View {
 
 	// MARK: - Backdrop
 
-	/// Rounded-rectangle container with a subtle centred dot grid, sized
-	/// to `canvasRect` so the visual edge of the editor matches the
-	/// region the thumbs are actually free to roam. Inspired by Photos'
-	/// photographic-style selector — gives the editor a sense of being
-	/// a distinct surface rather than free-floating sketch space.
+	/// Rounded-rectangle container with a dot grid that matches the
+	/// song count — one dot per slot. The slider's step=5 across [10, 50]
+	/// means `rows × cols` always multiplies cleanly to `songCount`:
+	/// 2×5 at the low end, 5×10 at the high end, capping rows at 5 so
+	/// the grid stays wide (matching the canvas aspect) instead of
+	/// growing tall. Each dot sits inside an `.infinity`-sized cell so
+	/// the spacing redistributes itself as the container resizes.
 	private func backdrop(in size: CGSize) -> some View {
 		let rect = canvasRect(in: size)
 		let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+		let rows = min(5, max(1, songCount / 5))
+		let cols = max(1, songCount / rows)
 		return shape
 			.fill(.quaternary.opacity(0.6))
 			.overlay {
-				Canvas { context, canvasSize in
-					let spacing: CGFloat = 14
-					let dotRadius: CGFloat = 1.25
-					// Centre the grid so the leftover sliver from a non-
-					// divisible width splits evenly across both edges.
-					let cols = Int(canvasSize.width / spacing)
-					let rows = Int(canvasSize.height / spacing)
-					let originX = (canvasSize.width - CGFloat(cols) * spacing) / 2
-					let originY = (canvasSize.height - CGFloat(rows) * spacing) / 2
-					for r in 0 ... rows {
-						let cy = originY + CGFloat(r) * spacing
-						for c in 0 ... cols {
-							let cx = originX + CGFloat(c) * spacing
-							let dot = Path(ellipseIn: CGRect(
-								x: cx - dotRadius,
-								y: cy - dotRadius,
-								width: dotRadius * 2,
-								height: dotRadius * 2
-							))
-							context.fill(dot, with: .color(.primary.opacity(0.18)))
+				VStack(spacing: 0) {
+					ForEach(0 ..< rows, id: \.self) { _ in
+						HStack(spacing: 0) {
+							ForEach(0 ..< cols, id: \.self) { _ in
+								Circle()
+									.fill(.primary.opacity(0.2))
+									.frame(width: 3, height: 3)
+									.frame(maxWidth: .infinity, maxHeight: .infinity)
+							}
 						}
 					}
 				}
+				.padding(20)
 				.clipShape(shape)
 			}
 			.frame(width: rect.width, height: rect.height)

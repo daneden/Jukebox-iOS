@@ -33,7 +33,7 @@ struct DesignView: View {
 
 				header
 
-				EnergyCurveEditor(curve: $curve)
+				EnergyCurveEditor(curve: $curve, songCount: songCount)
 					.padding(.horizontal)
 					.padding(.vertical, 8)
 					.onChange(of: curve) { _, newValue in persist(newValue) }
