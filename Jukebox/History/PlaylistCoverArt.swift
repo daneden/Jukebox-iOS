@@ -53,13 +53,19 @@ struct PlaylistCoverArt: View {
 	}
 
 	/// 9 mesh points laid out 3×3. Corners are pinned to the rect
-	/// corners *and* edge midpoints stay on their edge (top/bottom at
-	/// Y=0/1, left/right at X=0/1) — otherwise the mesh leaves wedge-
-	/// shaped transparent gaps along the canvas border where the
-	/// surrounding quads don't reach. The parallel coordinate of each
-	/// edge midpoint, and both coords of the center, jitter over the
-	/// full [0,1] range; when those land near each other (or near a
-	/// corner) the mesh folds, giving the sharp pinch curves we want.
+	/// corners; edge midpoints stay on their edge (top/bottom at Y=0/1,
+	/// left/right at X=0/1) so the mesh covers the canvas edge-to-edge.
+	///
+	/// The free coordinates are clamped to [0.25, 0.75] rather than the
+	/// full unit range. The corner positions are inviolate, so when an
+	/// edge midpoint or the center wandered close to one, the adjacent
+	/// quad collapsed into a near-degenerate sliver and the interpolation
+	/// compressed an entire color transition into that thin band —
+	/// reading as a sharp, broken-looking edge. Keeping every free point
+	/// at least 25% away from the rect borders gives every quad enough
+	/// width/height to interpolate smoothly while still allowing
+	/// asymmetric placement (and edge midpoints crossing each other in
+	/// the middle band) for distinctive per-playlist character.
 	private var meshPoints: [SIMD2<Float>] {
 		var rng = SeededGenerator(seed: effectiveSeed)
 		let topMid = SIMD2<Float>(unit(&rng), 0.0)
@@ -74,9 +80,12 @@ struct PlaylistCoverArt: View {
 		]
 	}
 
-	/// Uniform sample in [0, 1] from the seeded RNG.
+	/// Seeded uniform sample in the safe middle band [0.25, 0.75].
+	/// Narrower than the full unit range — see `meshPoints` for why
+	/// approaching the corners produces visibly broken gradients.
 	private func unit(_ rng: inout SeededGenerator) -> Float {
-		Float(rng.next() >> 11) / Float(UInt64(1) << 53)
+		let raw = Float(rng.next() >> 11) / Float(UInt64(1) << 53)
+		return 0.25 + raw * 0.5
 	}
 
 	/// 9 colors over the 3×3 mesh. The palette is seed-shuffled and then
@@ -104,11 +113,11 @@ struct PlaylistCoverArt: View {
 			// Subtle inner shading so the title stays readable even when
 			// the sampled palette comes back light.
 			LinearGradient(
-				colors: [.black.opacity(0.0), .black.opacity(0.25)],
+				colors: [.black.opacity(0.15), .black.opacity(0)],
 				startPoint: .top,
 				endPoint: .bottom
 			)
-			.blendMode(.multiply)
+			.blendMode(.plusDarker)
 
 			Text(title)
 				.font(.system(size: size * 0.10, weight: .semibold, design: .default).leading(.tight))
@@ -120,15 +129,20 @@ struct PlaylistCoverArt: View {
 
 			VStack(spacing: 0) {
 				Spacer(minLength: 0)
-				HStack(spacing: 0) {
+				HStack(spacing: size * 0.025) {
 					Spacer(minLength: 0)
 					Image(.playback)
 						.resizable()
 						.renderingMode(.template)
 						.aspectRatio(contentMode: .fit)
-						.frame(width: size * 0.11)
-						.foregroundStyle(.white.opacity(0.9))
+						.frame(width: size * 0.09)
+
+					Text("Playback")
+						.fontWeight(.semibold)
+						.foregroundStyle(.white)
+						.font(.system(size: size * 0.065))
 				}
+				.foregroundStyle(.white)
 			}
 			.padding(size * 0.065)
 		}
