@@ -347,16 +347,13 @@ struct HistoryDetailView: View {
 		} label: {
 			switch feedback {
 			case .liked:
-				Image(systemName: "hand.thumbsup.fill")
+				Label("Rate playlist", systemImage: "hand.thumbsup.fill")
 					.foregroundStyle(.green)
-					.accessibilityLabel("Run feedback")
 			case .disliked:
-				Image(systemName: "hand.thumbsdown.fill")
+				Label("Rate playlist", systemImage: "hand.thumbsdown.fill")
 					.foregroundStyle(.red)
-					.accessibilityLabel("Run feedback")
 			case .none:
-				Image(systemName: "ellipsis.circle")
-					.accessibilityLabel("Rate this run")
+				Label("Rate playlist", systemImage: "hand.thumbsup")
 			}
 		}
 	}
