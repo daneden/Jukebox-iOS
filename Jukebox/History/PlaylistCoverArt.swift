@@ -53,20 +53,34 @@ struct PlaylistCoverArt: View {
 	}
 
 	/// 9 mesh points laid out 3×3. Corners are pinned to the rect edges
-	/// (so the gradient covers the full canvas); edge midpoints jitter
-	/// along their edge, and the center can roam within the middle
-	/// third. Jitter magnitudes are deliberately small — too much and
-	/// the gradient pinches into visible seams.
+	/// so the gradient still covers the whole canvas, but everything
+	/// else is allowed to wander freely — edge midpoints can drift past
+	/// each other along their edge *and* pull inward away from it, and
+	/// the center can land anywhere (including past the edge midpoints
+	/// or even outside the [0,1] rect). When points cross, the mesh
+	/// folds, producing the sharp pinch curves we want.
 	private var meshPoints: [SIMD2<Float>] {
 		var rng = SeededGenerator(seed: effectiveSeed)
-		let topMid = SIMD2<Float>(jitter(around: 0.5, range: 0.25, &rng), 0.0)
-		let leftMid = SIMD2<Float>(0.0, jitter(around: 0.5, range: 0.25, &rng))
-		let center = SIMD2<Float>(
-			jitter(around: 0.5, range: 0.20, &rng),
-			jitter(around: 0.5, range: 0.20, &rng)
+		let topMid = SIMD2<Float>(
+			jitter(around: 0.5, range: 0.6, &rng),
+			jitter(around: 0.0, range: 0.35, &rng)
 		)
-		let rightMid = SIMD2<Float>(1.0, jitter(around: 0.5, range: 0.25, &rng))
-		let bottomMid = SIMD2<Float>(jitter(around: 0.5, range: 0.25, &rng), 1.0)
+		let leftMid = SIMD2<Float>(
+			jitter(around: 0.0, range: 0.35, &rng),
+			jitter(around: 0.5, range: 0.6, &rng)
+		)
+		let center = SIMD2<Float>(
+			jitter(around: 0.5, range: 0.6, &rng),
+			jitter(around: 0.5, range: 0.6, &rng)
+		)
+		let rightMid = SIMD2<Float>(
+			jitter(around: 1.0, range: 0.35, &rng),
+			jitter(around: 0.5, range: 0.6, &rng)
+		)
+		let bottomMid = SIMD2<Float>(
+			jitter(around: 0.5, range: 0.6, &rng),
+			jitter(around: 1.0, range: 0.35, &rng)
+		)
 		return [
 			[0.0, 0.0], topMid, [1.0, 0.0],
 			leftMid, center, rightMid,
