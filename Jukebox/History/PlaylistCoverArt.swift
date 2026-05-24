@@ -88,6 +88,17 @@ struct PlaylistCoverArt: View {
 		return 0.25 + raw * 0.5
 	}
 
+	/// Replace the final space in `string` with a non-breaking space so
+	/// the last two words wrap as a single unit. Prevents the single-
+	/// word last line ("widow") that otherwise shows up on titles like
+	/// "Slow burn ft. Aphex Twin" when they don't quite fit on one line.
+	private static func bondedLastWord(of string: String) -> String {
+		guard let lastSpace = string.lastIndex(of: " ") else { return string }
+		var result = string
+		result.replaceSubrange(lastSpace ... lastSpace, with: "\u{00A0}")
+		return result
+	}
+
 	/// 9 colors over the 3×3 mesh. The palette is seed-shuffled and then
 	/// cycled in a pattern that avoids putting the same palette entry in
 	/// adjacent cells, so the blend has texture rather than reading as
@@ -119,7 +130,7 @@ struct PlaylistCoverArt: View {
 			)
 			.blendMode(.plusDarker)
 
-			Text(title)
+			Text(Self.bondedLastWord(of: title))
 				.font(.system(size: size * 0.10, weight: .semibold, design: .default).leading(.tight))
 				.lineLimit(5)
 				.minimumScaleFactor(0.5)
