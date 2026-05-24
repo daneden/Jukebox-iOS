@@ -14,5 +14,7 @@
 	<array>
 		<string>processing</string>
 	</array>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save generated playlist cover art to your photo library.</string>
 </dict>
 </plist>

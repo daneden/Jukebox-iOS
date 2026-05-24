@@ -126,6 +126,72 @@
 			""")
 		}
 
+		/// Name of the recycled playlist used to play an arbitrary song
+		/// sequence. Triangle prefix sorts it visually distinct in the
+		/// sidebar so the user can spot it as a Playback-managed slot.
+		private static let queuePlaylistName = "▶ Playback"
+
+		/// Play an ordered list of songs by staging them into a dedicated,
+		/// recycled `▶ Playback` user playlist and asking Music.app to
+		/// play it. This is the macOS counterpart to iOS's
+		/// `SystemMusicPlayer.queue = .init(for: songs)`: Music.app has
+		/// no scriptable "Up Next" verb, so a real playlist is the only
+		/// way to hand it a multi-track queue.
+		///
+		/// The playlist is reused across plays (cleared + refilled), so
+		/// repeated tapping doesn't litter the library with one playlist
+		/// per session. The user gets one persistent entry that always
+		/// shows what's currently playing through Playback.
+		///
+		/// Songs are matched by title + artist (same fragility as
+		/// `play(song:)`): duplicate names land on Music.app's first
+		/// match. Unmatched songs are silently skipped — better than
+		/// aborting the whole queue.
+		static func play(songs: [Song]) async {
+			guard !songs.isEmpty else { return }
+			await launchMusicIfNeeded()
+
+			let titles = songs.map { "\"\(escape($0.title))\"" }.joined(separator: ", ")
+			let artists = songs.map { "\"\(escape($0.artistName))\"" }.joined(separator: ", ")
+			let queueName = escape(queuePlaylistName)
+
+			run("""
+			tell application "Music"
+				set tries to 0
+				repeat while (count of playlists) is 0 and tries < 50
+					delay 0.1
+					set tries to tries + 1
+				end repeat
+
+				set queueName to "\(queueName)"
+				set queueList to missing value
+				try
+					set queueList to user playlist queueName
+				on error
+					set queueList to make new user playlist with properties {name:queueName}
+				end try
+
+				try
+					delete every track of queueList
+				end try
+
+				set trackTitles to {\(titles)}
+				set trackArtists to {\(artists)}
+				set rowCount to count of trackTitles
+				repeat with i from 1 to rowCount
+					try
+						set matched to (first track whose name is (item i of trackTitles) and artist is (item i of trackArtists))
+						duplicate matched to queueList
+					end try
+				end repeat
+
+				try
+					play queueList
+				end try
+			end tell
+			""")
+		}
+
 		private static func escape(_ string: String) -> String {
 			string
 				.replacingOccurrences(of: "\\", with: "\\\\")
