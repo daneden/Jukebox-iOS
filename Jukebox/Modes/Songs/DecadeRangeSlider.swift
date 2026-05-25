@@ -47,6 +47,14 @@ struct DecadeRangeSlider: View {
 	/// the rubber-band scale gives a clean snap-back to identity.
 	@GestureState private var lowerOverdrag: CGFloat = 0
 	@GestureState private var upperOverdrag: CGFloat = 0
+	/// Which thumb was last touched. Drives a zIndex swap so the
+	/// most-recently-grabbed thumb stays on top when the two
+	/// visually overlap (adjacent decades, narrow track) — otherwise
+	/// dragging the lower onto the upper hides the lower under the
+	/// upper's hit region and the user can't grab it back.
+	@State private var frontmostThumb: ThumbKind = .upper
+
+	private enum ThumbKind { case lower, upper }
 
 	/// Cap on visible stretch. The rubber-band function asymptotes
 	/// to this value no matter how far the finger pulls.
@@ -140,6 +148,8 @@ struct DecadeRangeSlider: View {
 		.accessibilityElement(children: .contain)
 		.accessibilityLabel("Decade range")
 		.accessibilityValue(accessibilityRangeValue)
+		.sensoryFeedback(.selection, trigger: clampedRange.lower)
+		.sensoryFeedback(.selection, trigger: clampedRange.upper)
 	}
 
 	/// iOS-style asymptotic damping. Pulls at near-1:1 for small
@@ -226,6 +236,7 @@ struct DecadeRangeSlider: View {
 						xOffset: lowerX,
 						usable: usable
 					)
+					.zIndex(frontmostThumb == .lower ? 1 : 0)
 					thumbView(
 						isLower: false,
 						active: $upperActive,
@@ -233,6 +244,7 @@ struct DecadeRangeSlider: View {
 						xOffset: upperX,
 						usable: usable
 					)
+					.zIndex(frontmostThumb == .upper ? 1 : 0)
 				}
 			}
 		}
@@ -264,7 +276,11 @@ struct DecadeRangeSlider: View {
 						let touchX = value.location.x - Self.thumbWidth
 						state = max(0, isLower ? -touchX : touchX - usable)
 					}
-					.onChanged { value in handleDrag(value: value, usable: usable, isLower: isLower) }
+					.onChanged { value in
+						let kind: ThumbKind = isLower ? .lower : .upper
+						if frontmostThumb != kind { frontmostThumb = kind }
+						handleDrag(value: value, usable: usable, isLower: isLower)
+					}
 			)
 			.accessibilityElement()
 			.accessibilityLabel(isLower ? "Earliest decade" : "Latest decade")
