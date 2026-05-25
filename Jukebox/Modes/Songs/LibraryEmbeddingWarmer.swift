@@ -55,12 +55,12 @@ actor LibraryEmbeddingWarmer {
 	/// all-in; capping keeps the bandwidth + storage budget bounded
 	/// while still covering the songs most likely to influence future
 	/// decks (top playCount + oldest library entries).
-	static let libraryCap = 10_000
+	static let libraryCap = 10000
 
 	/// Per-pool fetch ceiling. Union of two pools, deduped, capped at
 	/// `libraryCap`. Set so the union *can* reach the cap even when
 	/// pools overlap heavily.
-	static let perPoolFetch = 5_000
+	static let perPoolFetch = 5000
 
 	/// Sleep between songs in the warm loop. Longer than the deck
 	/// warmer's 200ms — nobody's waiting for the long tail, and a
@@ -70,7 +70,7 @@ actor LibraryEmbeddingWarmer {
 	/// Window during which a permanently-failed song stays in the
 	/// negative cache. After this we retry once — Apple's catalog
 	/// occasionally backfills previews for older library items.
-	static let failureRetryAfter: TimeInterval = 60 * 86_400
+	static let failureRetryAfter: TimeInterval = 60 * 86400
 
 	#if os(iOS)
 		/// Must match the entry in `Info.plist` →
@@ -201,14 +201,14 @@ actor LibraryEmbeddingWarmer {
 
 		guard conditionsFavorable else { return }
 
-		let eligible: [Song]
+		let union: [Song]
 		do {
-			eligible = try await eligibleSongs()
+			union = try await libraryUnion()
 		} catch {
 			return
 		}
 
-		for song in eligible {
+		for song in await embeddingEligible(union) {
 			if Task.isCancelled { return }
 			if !conditionsFavorable { return }
 
@@ -222,6 +222,21 @@ actor LibraryEmbeddingWarmer {
 
 			try? await Task.sleep(for: Self.breath)
 		}
+
+		// Second pass: original-release-date resolution for songs we
+		// haven't yet looked up. Same WiFi + power gate, same 500ms
+		// breath. The resolver fires a catalog request per song so the
+		// budget shape matches embeds — but each row is a small Date
+		// rather than a 2KB vector, so the cache scales fine to the
+		// full long-tail.
+		let resolved = await OriginalReleaseStore.shared.resolvedIDs(for: union.map(\.id))
+		for song in union where !resolved.contains(song.id.rawValue) {
+			if Task.isCancelled { return }
+			if !conditionsFavorable { return }
+
+			try? await OriginalReleaseResolver.resolveAndStore(song: song)
+			try? await Task.sleep(for: Self.breath)
+		}
 	}
 
 	/// Synchronous read of the latest cached gating state. Cheap enough
@@ -232,10 +247,10 @@ actor LibraryEmbeddingWarmer {
 		return true
 	}
 
-	private func eligibleSongs() async throws -> [Song] {
-		// Mirror the deck builder's three pools so embeddings are
-		// pre-cached for the songs each axis will surface — including
-		// the freshness axis (recently-added + played + dormant).
+	/// Three-pool union of library songs (mirrors the deck builder's
+	/// pools so the long-tail warmer hits the same songs each axis
+	/// will surface). Capped at `libraryCap`.
+	private func libraryUnion() async throws -> [Song] {
 		async let nostalgia = fetchPool(sort: .playCount, ascending: false)
 		async let discovery = fetchPool(sort: .libraryAddedDate, ascending: true)
 		async let freshness = fetchPool(sort: .libraryAddedDate, ascending: false)
@@ -259,12 +274,15 @@ actor LibraryEmbeddingWarmer {
 				if union.count >= Self.libraryCap { break }
 			}
 		}
+		return union
+	}
 
-		// A song is eligible if either signal is missing — embedding
-		// or BPM. `ensureCached` decides per-song between "full
-		// pipeline" (no embedding yet) and "BPM-only backfill"
-		// (embedding cached but BPM nil). Recently-failed songs are
-		// skipped at both layers.
+	/// Filter the union to songs that need an embedding pass — either
+	/// signal missing (embedding or BPM). `ensureCached` decides
+	/// per-song between "full pipeline" (no embedding yet) and "BPM-
+	/// only backfill" (embedding cached but BPM nil). Recently-failed
+	/// songs are skipped at both layers.
+	private func embeddingEligible(_ union: [Song]) async -> [Song] {
 		let cached = await EmbeddingStore.shared.embeddings(for: union.map(\.id))
 		let cachedEmbeddingIDs = Set(cached.keys.map(\.rawValue))
 		let cachedBPMIDs = Set(

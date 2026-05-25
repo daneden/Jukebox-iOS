@@ -48,6 +48,7 @@ enum SongDeckWalk {
 		songs: [Song],
 		embeddings: [MusicItemID: [Float]],
 		bpms: [MusicItemID: Double] = [:],
+		originals: [MusicItemID: Date] = [:],
 		blockedPairs: Set<String> = [],
 		seed: UInt64,
 		controls: WalkControls = .default,
@@ -70,7 +71,7 @@ enum SongDeckWalk {
 		let tier = min(Self.seedTier, remaining.count)
 		let topTier = remaining.prefix(tier)
 		let preferred = topTier.enumerated().filter { _, song in
-			if let d = avoidDecade, song.releaseDecade == d { return false }
+			if let d = avoidDecade, song.releaseDecade(override: originals[song.id]) == d { return false }
 			if let a = avoidArtist, song.artistName == a { return false }
 			return true
 		}
@@ -104,10 +105,10 @@ enum SongDeckWalk {
 					if !isEligible(candidate: candidate, history: history, relaxLevel: relaxLevel) {
 						continue
 					}
-					let simPrev = similarity(candidate, previous, embeddings: embeddings, bpms: bpms)
+					let simPrev = similarity(candidate, previous, embeddings: embeddings, bpms: bpms, originals: originals)
 					let score: Float
 					if g > 0 {
-						let simSeed = similarity(candidate, seedSong, embeddings: embeddings, bpms: bpms)
+						let simSeed = similarity(candidate, seedSong, embeddings: embeddings, bpms: bpms, originals: originals)
 						score = (1 - g) * simPrev + g * simSeed
 					} else {
 						score = simPrev
@@ -227,10 +228,11 @@ enum SongDeckWalk {
 		_ a: Song,
 		_ b: Song,
 		embeddings: [MusicItemID: [Float]],
-		bpms: [MusicItemID: Double] = [:]
+		bpms: [MusicItemID: Double] = [:],
+		originals: [MusicItemID: Date] = [:]
 	) -> Float {
 		let genre = GenreSimilarity.score(a.genreNames, b.genreNames)
-		let era = eraProximity(a, b)
+		let era = eraProximity(a, b, originals: originals)
 
 		if let eA = embeddings[a.id], let eB = embeddings[b.id] {
 			let cosine = AudioEmbeddingService.cosineSimilarity(eA, eB)
@@ -275,15 +277,18 @@ enum SongDeckWalk {
 	/// Songs without a release date get a neutral 0.5 — we don't punish
 	/// missing data, just don't reward it.
 	///
-	/// Known limitation: remasters (e.g. "Sgt Pepper 2017 Mix") inherit
-	/// the remaster's release date, not the original recording's. Era's
-	/// 0.35 weight keeps that mistake from dominating the blend on its
-	/// own, but back-to-back remasters of decades-apart originals will
-	/// still register as same-era.
-	private static func eraProximity(_ a: Song, _ b: Song) -> Float {
-		guard let aDate = a.releaseDate, let bDate = b.releaseDate else {
-			return 0.5
-		}
+	/// `originals` carries the `OriginalReleaseStore` cached date when
+	/// available, so remasters and compilations are scored against
+	/// when the music was first released rather than when this edition
+	/// was. Cold (unwarmed) songs still use `releaseDate` directly.
+	private static func eraProximity(
+		_ a: Song,
+		_ b: Song,
+		originals: [MusicItemID: Date]
+	) -> Float {
+		let aDate = originals[a.id] ?? a.releaseDate
+		let bDate = originals[b.id] ?? b.releaseDate
+		guard let aDate, let bDate else { return 0.5 }
 		let yearsApart = abs(aDate.timeIntervalSince(bDate)) / (365.25 * 86400)
 		return Float(exp(-yearsApart / 20))
 	}
@@ -295,7 +300,16 @@ extension Song {
 	/// and tracks with missing metadata. Used by the walk's shuffle-
 	/// neighbourhood avoidance.
 	var releaseDecade: Int? {
-		guard let date = releaseDate else { return nil }
+		releaseDecade(override: nil)
+	}
+
+	/// Override-aware variant. `override` is the `OriginalReleaseStore`
+	/// cached "original" date for this song (catches remasters and
+	/// compilations whose own `releaseDate` is the reissue / compilation
+	/// year rather than when the music was first released). Falls back
+	/// to `releaseDate` when no override is cached.
+	func releaseDecade(override: Date?) -> Int? {
+		guard let date = override ?? releaseDate else { return nil }
 		let year = Calendar.current.component(.year, from: date)
 		return (year / 10) * 10
 	}

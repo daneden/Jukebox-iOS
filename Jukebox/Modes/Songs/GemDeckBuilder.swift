@@ -73,6 +73,10 @@ enum GemDeckBuilder {
 		/// travel decades that actually exist in the user's library.
 		/// Nil when the pool is empty or no candidate has a releaseDate.
 		let libraryDecadeBounds: ClosedRange<Int>?
+		/// `OriginalReleaseStore` snapshot for the pool — surfaced so the
+		/// shuffle-avoidance hint can read a focused song's original
+		/// decade synchronously instead of hopping back to the actor.
+		let originals: [MusicItemID: Date]
 	}
 
 	/// Final-result API: consumes the stream and returns the last emission.
@@ -83,7 +87,7 @@ enum GemDeckBuilder {
 		for try await result in buildStreaming(now: now) {
 			last = result
 		}
-		return last ?? BuildResult(deck: [], scannedCount: 0, libraryDecadeBounds: nil)
+		return last ?? BuildResult(deck: [], scannedCount: 0, libraryDecadeBounds: nil, originals: [:])
 	}
 
 	/// Builds the deck end-to-end: all three pools fetched in parallel,
@@ -222,12 +226,17 @@ enum GemDeckBuilder {
 		avoidDecade: Int? = nil,
 		avoidArtist: String? = nil
 	) async -> BuildResult {
+		// Uncached songs fall through to `Song.releaseDate` inside
+		// `releaseDecade(override:)`; the cache fills in only for
+		// remasters/compilations the resolver has already looked up.
+		let originals = await OriginalReleaseStore.shared.originalDates(for: songs.map(\.id))
+
 		// Library decade bounds from the *unfiltered* pool — surfaced so
 		// the popover's range slider knows which decades actually exist
 		// in the library. Calculated once here; the filter steps below
 		// don't change the answer.
 		let libraryDecadeBounds: ClosedRange<Int>? = {
-			let decades = songs.compactMap(\.releaseDecade)
+			let decades = songs.compactMap { $0.releaseDecade(override: originals[$0.id]) }
 			guard let lo = decades.min(), let hi = decades.max() else { return nil }
 			return lo ... hi
 		}()
@@ -275,7 +284,7 @@ enum GemDeckBuilder {
 			pool = energyPool
 		} else {
 			let decadeFiltered = energyPool.filter { song in
-				guard let decade = song.releaseDecade else { return true }
+				guard let decade = song.releaseDecade(override: originals[song.id]) else { return true }
 				return controls.decadeRange.contains(decade)
 			}
 			pool = decadeFiltered.isEmpty ? energyPool : decadeFiltered
@@ -322,6 +331,7 @@ enum GemDeckBuilder {
 			songs: top,
 			embeddings: embeddings,
 			bpms: bpms,
+			originals: originals,
 			blockedPairs: blockedPairs,
 			seed: seed,
 			controls: controls,
@@ -331,7 +341,8 @@ enum GemDeckBuilder {
 		return BuildResult(
 			deck: deck,
 			scannedCount: songs.count,
-			libraryDecadeBounds: libraryDecadeBounds
+			libraryDecadeBounds: libraryDecadeBounds,
+			originals: originals
 		)
 	}
 
@@ -423,6 +434,18 @@ enum GemDeckBuilder {
 				// endpoints (each embed can make 2-3 catalog calls in
 				// `previewURL(for:)` before downloading) while the user
 				// is mid-shuffle.
+				try? await Task.sleep(for: .milliseconds(500))
+			}
+
+			// Original-date resolution for the deck. Same 500ms breath
+			// + skip-if-already-resolved pattern as the embedding pass,
+			// so each song goes through one catalog round-trip at most
+			// per app install. Decade-filter accuracy grows with each
+			// shuffle as more deck songs get their remaster/compilation
+			// origin year cached.
+			let resolved = await OriginalReleaseStore.shared.resolvedIDs(for: deck.map(\.id))
+			for song in deck where !resolved.contains(song.id.rawValue) {
+				try? await OriginalReleaseResolver.resolveAndStore(song: song)
 				try? await Task.sleep(for: .milliseconds(500))
 			}
 

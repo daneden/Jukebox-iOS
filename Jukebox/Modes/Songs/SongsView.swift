@@ -48,6 +48,10 @@ struct SongsView: View {
 	/// walk-controls range slider can constrain its thumbs to
 	/// decades that actually exist in the user's library.
 	@State private var libraryDecadeBounds: ClosedRange<Int>?
+	/// `OriginalReleaseStore` snapshot from the latest build, kept on
+	/// the view so the shuffle-avoid hint can read a focused song's
+	/// original decade without another actor hop.
+	@State private var lastBuildOriginals: [MusicItemID: Date] = [:]
 
 	private var walkControls: WalkControls {
 		WalkControls(
@@ -288,6 +292,7 @@ struct SongsView: View {
 				if let bounds = result.libraryDecadeBounds {
 					libraryDecadeBounds = bounds
 				}
+				lastBuildOriginals = result.originals
 			}
 			// Seed the toolbar progress tracker with the final deck.
 			// The background warm task (kicked off inside GemDeckBuilder)
@@ -424,7 +429,7 @@ struct SongsView: View {
 		// the next shuffle could jump the *seed*'s neighbourhood while
 		// still landing the user back in the same cluster head.
 		if let focused = focusedSong {
-			lastShuffleDecade = focused.releaseDecade
+			lastShuffleDecade = focused.releaseDecade(override: lastBuildOriginals[focused.id])
 			lastShuffleArtist = focused.artistName
 		}
 		// Detached: same rationale as PlaylistsView.shuffle — the rebuild is
