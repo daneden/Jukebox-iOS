@@ -106,9 +106,9 @@ private struct EmbeddingProgressPopover: View {
 
 	private var blurb: String {
 		if progress.isComplete {
-			"New songs are analyzed automatically as they show up on the dial."
+			"New songs are analyzed automatically as they're added to your library."
 		} else {
-			"Audio fingerprints from 30-second previews, cached locally. The dial uses them to order songs by sonic similarity."
+			"Audio fingerprints from 30-second previews, cached locally. Used to order songs by sonic similarity."
 		}
 	}
 }

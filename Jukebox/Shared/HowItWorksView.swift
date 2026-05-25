@@ -158,7 +158,7 @@ private struct SongFunnel: View {
 			connector("union + dedupe")
 			stage("Candidates", count: "~2,500", width: 200, tint: .gray.opacity(0.7))
 			connector("score, cap per artist & album")
-			stage("On the dial", count: "\(GemDeckBuilder.deckSize)", width: 120, tint: .black)
+			stage("In rotation", count: "\(GemDeckBuilder.deckSize)", width: 120, tint: .black)
 		}
 	}
 
