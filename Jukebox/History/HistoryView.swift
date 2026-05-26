@@ -444,19 +444,11 @@ struct HistoryDetailView: View {
 				saveError = "None of these songs are in your Apple Music library anymore."
 				return
 			}
-			#if os(iOS)
-				_ = try await MusicLibrary.shared.createPlaylist(
-					name: name,
-					description: "Made with Playback",
-					items: resolved
-				)
-			#else
-				// MusicLibrary.createPlaylist is iOS-only. macOS MusicKit doesn't
-				// expose any library-mutation API, so a "save to library" flow
-				// from the app isn't possible there.
-				_ = name
-				saveError = "Saving to your library isn't available on macOS yet."
-			#endif
+			_ = try await MusicPlayback.save(
+				songs: resolved,
+				asPlaylistNamed: name,
+				description: "Made with Playback"
+			)
 		} catch {
 			saveError = error.localizedDescription
 		}

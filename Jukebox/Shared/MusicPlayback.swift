@@ -10,13 +10,21 @@
 
 import Foundation
 import MusicKit
+import OSLog
 
 enum MusicPlayback {
+	private static let log = Logger(subsystem: "me.daneden.Jukebox", category: "Playback")
+
 	@discardableResult
 	static func play(playlist: Playlist) async -> Bool {
 		#if os(macOS)
-			await AppleMusicScriptBridge.play(playlist: playlist)
-			return true
+			do {
+				try await AppleMusicScriptBridge.play(playlist: playlist)
+				return true
+			} catch {
+				log.error("play(playlist:) failed: \(error.localizedDescription, privacy: .public)")
+				return false
+			}
 		#else
 			guard let detailed = try? await playlist.with([.entries]),
 			      let firstEntry = detailed.entries?.first else { return false }
@@ -25,7 +33,7 @@ enum MusicPlayback {
 				try await SystemMusicPlayer.shared.play()
 				return true
 			} catch {
-				print("Playback error:", error)
+				log.error("play(playlist:) failed: \(error.localizedDescription, privacy: .public)")
 				return false
 			}
 		#endif
@@ -39,17 +47,46 @@ enum MusicPlayback {
 	static func play(songs: [Song]) async -> Bool {
 		guard !songs.isEmpty else { return false }
 		#if os(macOS)
-			await AppleMusicScriptBridge.play(songs: songs)
-			return true
+			do {
+				try await AppleMusicScriptBridge.play(songs: songs)
+				return true
+			} catch {
+				log.error("play(songs:) failed: \(error.localizedDescription, privacy: .public)")
+				return false
+			}
 		#else
 			do {
 				SystemMusicPlayer.shared.queue = .init(for: songs)
 				try await SystemMusicPlayer.shared.play()
 				return true
 			} catch {
-				print("Playback error:", error)
+				log.error("play(songs:) failed: \(error.localizedDescription, privacy: .public)")
 				return false
 			}
+		#endif
+	}
+
+	/// Create a new playlist in the user's library from the given songs.
+	/// iOS uses MusicKit's `MusicLibrary.createPlaylist`; macOS drives
+	/// Music.app via AppleScript since MusicKit on macOS ships no library-
+	/// mutation API. Throws on failure so callers can surface a precise
+	/// error to the user.
+	@discardableResult
+	static func save(songs: [Song], asPlaylistNamed name: String, description: String) async throws -> Int {
+		guard !songs.isEmpty else { return 0 }
+		#if os(macOS)
+			return try await AppleMusicScriptBridge.save(
+				songs: songs,
+				asPlaylistNamed: name,
+				description: description
+			)
+		#else
+			_ = try await MusicLibrary.shared.createPlaylist(
+				name: name,
+				description: description,
+				items: songs
+			)
+			return songs.count
 		#endif
 	}
 }
