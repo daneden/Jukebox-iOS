@@ -151,6 +151,12 @@ struct PlaylistsView: View {
 			dial.rotation = .degrees(-Double(offset) * DialTunables.stepVisual)
 		}
 
+		// Hold the request behind the process-wide MusicKit probe. If
+		// the Songs deck builder is mid-fan-out and we issue our own
+		// request in parallel before `musicd` has warmed, the daemon
+		// can wedge — see `MusicKitWarmup`.
+		await MusicKitWarmup.waitUntilReady()
+
 		var request = MusicLibraryRequest<Playlist>()
 		#if os(iOS)
 			// `.lastPlayedDate` as a sort keypath crashes the macOS MusicKit

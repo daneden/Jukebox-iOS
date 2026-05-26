@@ -134,6 +134,12 @@ enum GemDeckBuilder {
 					)
 					let seed = UInt64.random(in: 0 ... UInt64.max)
 
+					// Gate fan-out behind the process-wide MusicKit probe.
+					// Without this, parallel `MusicLibraryRequest`s racing
+					// against `musicd`'s cold-init wedge the daemon — see
+					// `MusicKitWarmup` for the full story.
+					await MusicKitWarmup.waitUntilReady()
+
 					let limit = poolSize(for: controls)
 					async let nostalgiaTask = fetchPool(sort: .playCount, ascending: false, limit: limit)
 					async let discoveryTask = fetchPool(sort: .libraryAddedDate, ascending: true, limit: limit)

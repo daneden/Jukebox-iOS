@@ -294,6 +294,14 @@ struct SongsView: View {
 				}
 				lastBuildOriginals = result.originals
 			}
+			// `AsyncThrowingStream` returns `nil` from `.next()` on
+			// consumer cancellation instead of throwing — so a tab
+			// switch mid-build exits the loop without yielding *and*
+			// without routing through the `catch`. Without this guard
+			// we'd then run the post-loop code, set `hasBuiltDeck =
+			// true` against an empty deck, and leave the user stuck on
+			// "No songs yet" with no way to retry.
+			if Task.isCancelled { return }
 			// Seed the toolbar progress tracker with the final deck.
 			// The background warm task (kicked off inside GemDeckBuilder)
 			// will then drive `recordProcessed` calls into it as each song's
