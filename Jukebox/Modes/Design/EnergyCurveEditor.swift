@@ -173,9 +173,16 @@ struct EnergyCurveEditor: View {
 		// material backdrop + system-driven shimmer on touch; the small
 		// inner dot is a non-functional centre cue so the thumb reads
 		// as a discrete handle rather than an abstract glass blob.
+		//
+		// `.fill(.clear)` paints nothing, so on macOS only the inner
+		// 6pt dot was hit-testable — gestures starting on the glass
+		// rim missed the thumb entirely. `.contentShape(Circle())`
+		// declares the full 44pt circle as the gesture target
+		// regardless of fill or material participation.
 		return Circle()
 			.fill(.clear)
 			.frame(width: Self.thumbSize, height: Self.thumbSize)
+			.contentShape(Circle())
 			.glassEffect(.regular.interactive(), in: .circle)
 			.overlay(
 				Circle()
