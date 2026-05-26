@@ -34,9 +34,14 @@
 		private static let log = Logger(subsystem: "me.daneden.Jukebox", category: "AppleScript")
 		private static let musicBundleID = "com.apple.Music"
 
-		/// Name of the recycled playlist used to play an arbitrary song
-		/// sequence. Triangle prefix sorts it visually distinct in the
-		/// sidebar so the user can spot it as a Playback-managed slot.
+		/// Name of the transient playlist used to stage a song sequence
+		/// before playback. Music.app has no scriptable "Up Next" verb,
+		/// so we have to materialise a playlist to hand it an ordered
+		/// queue — but we delete the playlist right after `play` engages
+		/// (Music keeps the loaded queue playing after the source is
+		/// gone). The triangle prefix marks any leaked instance from a
+		/// prior run where delete didn't fire, so the next play recycles
+		/// and deletes it.
 		private static let queuePlaylistName = "▶ Playback"
 
 		enum BridgeError: LocalizedError {
@@ -160,11 +165,14 @@
 			}
 		}
 
-		/// Stage an ordered list of songs into a recycled `▶ Playback` user
-		/// playlist and play it. This is the macOS counterpart to iOS's
-		/// `SystemMusicPlayer.queue = .init(for: songs)`: Music.app has no
-		/// scriptable "Up Next" verb, so a real playlist is the only way to
-		/// hand it a multi-track queue.
+		/// Stage an ordered list of songs into a transient playlist and
+		/// play it, then delete the playlist as soon as playback engages.
+		/// The macOS counterpart to iOS's `SystemMusicPlayer.queue = .init(for: songs)`:
+		/// Music.app has no scriptable "Up Next" verb, so a playlist is
+		/// the only way to hand it a multi-track ordered queue — but
+		/// Music snapshots the queue when `play` is invoked, so deleting
+		/// the source playlist after that leaves playback intact while
+		/// keeping the user's sidebar clean.
 		///
 		/// Tracks are matched by `name + artist`; if that misses we retry
 		/// by `name` alone (Music.app drops trailing parenthetical bits
@@ -176,11 +184,70 @@
 			await launchMusicIfNeeded()
 			try await waitForLibrary()
 
-			let result = try run(queueScript(
-				queuePlaylistName: queuePlaylistName,
-				songs: songs,
-				playAfter: true
-			))
+			let escapedQueueName = escape(queuePlaylistName)
+			let titlesLiteral = literalList(songs.map(\.title))
+			let artistsLiteral = literalList(songs.map(\.artistName))
+
+			// Reuses any leaked queue playlist from a prior run where
+			// delete didn't fire (clears + refills it instead of stacking
+			// a duplicate), otherwise creates a fresh one. After `play`
+			// loads the queue, we wait for `player state is playing` then
+			// delete the source. Music keeps streaming through the loaded
+			// queue snapshot once `play` has engaged.
+			let result = try run("""
+			tell application "Music"
+				set queueName to "\(escapedQueueName)"
+				set existing to (every playlist whose name is queueName)
+				if (count of existing) > 0 then
+					set queueList to item 1 of existing
+					try
+						delete every track of queueList
+					end try
+				else
+					set queueList to make new user playlist with properties {name:queueName}
+				end if
+
+				set trackTitles to \(titlesLiteral)
+				set trackArtists to \(artistsLiteral)
+				set matchedCount to 0
+				repeat with i from 1 to (count of trackTitles)
+					set t to (item i of trackTitles)
+					set a to (item i of trackArtists)
+					set matches to (every track whose name is t and artist is a)
+					if (count of matches) is 0 then
+						set matches to (every track whose name is t)
+					end if
+					if (count of matches) > 0 then
+						duplicate (item 1 of matches) to queueList
+						set matchedCount to matchedCount + 1
+					end if
+				end repeat
+
+				if matchedCount is 0 then
+					try
+						delete queueList
+					end try
+					return "OK matched=0"
+				end if
+
+				play queueList
+
+				-- Poll for playback to actually engage (up to ~4s) so the
+				-- queue snapshot is fully resident before we drop the
+				-- source. Then a small buffer for Music to finish loading
+				-- subsequent tracks into its internal queue.
+				repeat 40 times
+					if player state is playing then exit repeat
+					delay 0.1
+				end repeat
+				delay 0.5
+				try
+					delete queueList
+				end try
+
+				return "OK matched=" & matchedCount
+			end tell
+			""")
 
 			let matched = matchedCount(in: result) ?? 0
 			log.info("play(songs:) matched \(matched)/\(songs.count)")
@@ -235,59 +302,6 @@
 		}
 
 		// MARK: - Script helpers
-
-		/// Build the queue-staging script. Used by `play(songs:)`; the
-		/// `playAfter` flag exists so a future caller can stage without
-		/// auto-play if needed.
-		///
-		/// Enumerates the queue via the abstract `playlist` element
-		/// because subclass enumeration (`every user playlist`) trips
-		/// -10004 under sandbox + scripting-targets. See `play(playlist:)`
-		/// for the full rationale.
-		private static func queueScript(queuePlaylistName: String, songs: [Song], playAfter: Bool) -> String {
-			let escapedQueueName = escape(queuePlaylistName)
-			let titlesLiteral = literalList(songs.map(\.title))
-			let artistsLiteral = literalList(songs.map(\.artistName))
-			let playClause = playAfter ? "play queueList" : ""
-
-			return """
-			tell application "Music"
-				set queueName to "\(escapedQueueName)"
-				set existing to (every playlist whose name is queueName)
-				if (count of existing) > 0 then
-					set queueList to item 1 of existing
-					try
-						delete every track of queueList
-					end try
-				else
-					set queueList to make new user playlist with properties {name:queueName}
-				end if
-
-				set trackTitles to \(titlesLiteral)
-				set trackArtists to \(artistsLiteral)
-				set matchedCount to 0
-				repeat with i from 1 to (count of trackTitles)
-					set t to (item i of trackTitles)
-					set a to (item i of trackArtists)
-					set matches to (every track whose name is t and artist is a)
-					if (count of matches) is 0 then
-						set matches to (every track whose name is t)
-					end if
-					if (count of matches) > 0 then
-						duplicate (item 1 of matches) to queueList
-						set matchedCount to matchedCount + 1
-					end if
-				end repeat
-
-				if matchedCount is 0 then
-					return "OK matched=0"
-				end if
-
-				\(playClause)
-				return "OK matched=" & matchedCount
-			end tell
-			"""
-		}
 
 		private static func matchedCount(in result: String) -> Int? {
 			guard let range = result.range(of: "matched=") else { return nil }
