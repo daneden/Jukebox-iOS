@@ -132,26 +132,21 @@
 
 		// MARK: - Public verbs
 
-		/// Play a library playlist by name. Match order: user playlist →
-		/// non-smart library playlist → any playlist. Duplicate names
-		/// resolve to the first match (MusicKit doesn't expose Music.app's
-		/// persistent ID so name is our only key).
+		/// Play a library playlist by name. Sandbox + scripting-targets only
+		/// authorises the abstract `playlist` element of the application
+		/// class — enumerating `every user playlist` / `every library
+		/// playlist` trips -10004 ("privilege violation") even with
+		/// `library.read`. So we enumerate the abstract class and take the
+		/// first match. Duplicate names go to whichever Music finds first
+		/// (MusicKit doesn't expose Music.app's persistent ID, so name is
+		/// our only key).
 		static func play(playlist: Playlist) async throws {
 			await launchMusicIfNeeded()
 			try await waitForLibrary()
 			let name = escape(playlist.name)
 			let result = try run("""
 			tell application "Music"
-				set matches to (every user playlist whose name is "\(name)")
-				if (count of matches) is 0 then
-					set matches to (every library playlist whose name is "\(name)" and smart is false)
-				end if
-				if (count of matches) is 0 then
-					set matches to (every library playlist whose name is "\(name)")
-				end if
-				if (count of matches) is 0 then
-					set matches to (every playlist whose name is "\(name)")
-				end if
+				set matches to (every playlist whose name is "\(name)")
 				if (count of matches) is 0 then
 					return "ERR not_found"
 				end if
@@ -244,6 +239,11 @@
 		/// Build the queue-staging script. Used by `play(songs:)`; the
 		/// `playAfter` flag exists so a future caller can stage without
 		/// auto-play if needed.
+		///
+		/// Enumerates the queue via the abstract `playlist` element
+		/// because subclass enumeration (`every user playlist`) trips
+		/// -10004 under sandbox + scripting-targets. See `play(playlist:)`
+		/// for the full rationale.
 		private static func queueScript(queuePlaylistName: String, songs: [Song], playAfter: Bool) -> String {
 			let escapedQueueName = escape(queuePlaylistName)
 			let titlesLiteral = literalList(songs.map(\.title))
@@ -253,7 +253,7 @@
 			return """
 			tell application "Music"
 				set queueName to "\(escapedQueueName)"
-				set existing to (every user playlist whose name is queueName)
+				set existing to (every playlist whose name is queueName)
 				if (count of existing) > 0 then
 					set queueList to item 1 of existing
 					try
@@ -316,9 +316,10 @@
 
 		/// Synchronously execute a script and return its trimmed string
 		/// result. Errors are logged with their AppleScript code (e.g. -1743
-		/// = TCC denied, -1728 = no such object, -10004 = privilege denied,
-		/// -600 = Music.app not running) and thrown so callers can decide
-		/// what to surface.
+		/// = TCC denied, -1728 = no such object, -10004 = privilege denied
+		/// — usually sandbox/scripting-targets enumerating an undeclared
+		/// element subclass, -600 = Music.app not running) along with the
+		/// failing source snippet so future sandbox traps name the line.
 		@discardableResult
 		private static func run(_ source: String) throws -> String {
 			guard let script = NSAppleScript(source: source) else {
@@ -330,7 +331,8 @@
 			if let errorInfo {
 				let code = (errorInfo[NSAppleScript.errorNumber] as? Int) ?? 0
 				let message = (errorInfo[NSAppleScript.errorMessage] as? String) ?? "unknown"
-				log.error("AppleScript error \(code, privacy: .public): \(message, privacy: .public)")
+				let snippet = failingSnippet(in: source, errorInfo: errorInfo)
+				log.error("AppleScript error \(code, privacy: .public): \(message, privacy: .public) — at: \(snippet, privacy: .public)")
 				if code == -600 || code == -1743 {
 					throw BridgeError.musicUnreachable
 				}
@@ -343,6 +345,23 @@
 				log.debug("AppleScript returned \(result, privacy: .public)")
 			}
 			return result
+		}
+
+		/// Pull the source substring named by `NSAppleScript.errorRange`
+		/// (an `NSRange` boxed as `NSValue`) so error logs identify the
+		/// exact failing fragment. Returns "<unknown range>" if the dict
+		/// doesn't carry one — most runtime errors do.
+		private static func failingSnippet(in source: String, errorInfo: NSDictionary) -> String {
+			guard let value = errorInfo[NSAppleScript.errorRange] as? NSValue else {
+				return "<unknown range>"
+			}
+			let nsRange = value.rangeValue
+			guard nsRange.location != NSNotFound,
+			      let range = Range(nsRange, in: source)
+			else {
+				return "<unknown range>"
+			}
+			return String(source[range]).trimmingCharacters(in: .whitespacesAndNewlines)
 		}
 	}
 #endif
