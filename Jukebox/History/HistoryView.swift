@@ -254,6 +254,7 @@ struct HistoryDetailView: View {
 						cover
 					}
 					.buttonStyle(.plain)
+					.draggable(coverShare) { cover }
 				} else {
 					cover
 				}

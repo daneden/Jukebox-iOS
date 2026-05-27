@@ -26,8 +26,8 @@
 //  blend for songs with no cached BPM.
 //
 
-import AVFoundation
 import Accelerate
+import AVFoundation
 import Foundation
 
 enum BPMDetector {

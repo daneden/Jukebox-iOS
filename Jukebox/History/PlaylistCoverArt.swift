@@ -37,6 +37,12 @@ struct PlaylistCoverArt: View {
 	/// while a single playlist stays visually stable across renders.
 	var seed: UInt64 = 0
 	var size: CGFloat = 280
+	/// Clip to a rounded rectangle for in-app presentation (default).
+	/// The exported PNG passes `false` so the bitmap has sharp corners
+	/// — Apple Music's playlist-artwork picker and the user's file
+	/// manager apply their own corner treatment, and a pre-rounded
+	/// bitmap shows transparent corners against any backdrop.
+	var rounded: Bool = true
 
 	private var basePalette: [Color] {
 		guard let palette, !palette.isEmpty else {
@@ -155,7 +161,7 @@ struct PlaylistCoverArt: View {
 			.padding(size * 0.065)
 		}
 		.frame(width: size, height: size)
-		.clipShape(RoundedRectangle(cornerRadius: size * 0.045))
+		.clipShape(RoundedRectangle(cornerRadius: rounded ? size * 0.045 : 0))
 		.compositingGroup()
 	}
 }
@@ -281,7 +287,8 @@ enum PlaylistCoverRenderer {
 			title: title,
 			palette: palette,
 			seed: seed,
-			size: pixelSize
+			size: pixelSize,
+			rounded: false
 		)
 		let renderer = ImageRenderer(content: view)
 		renderer.scale = 1

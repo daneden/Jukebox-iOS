@@ -22,6 +22,7 @@ struct DesignView: View {
 	@State private var isGenerating = false
 	@State private var generationError: String?
 	@State private var generatedEntry: HistoryEntrySnapshot?
+	@State private var showingHistory = false
 
 	var body: some View {
 		NavigationStack {
@@ -48,8 +49,18 @@ struct DesignView: View {
 				#if os(iOS)
 					ToolbarItem(placement: .principal) { ToolbarLogo() }
 				#endif
+				ToolbarItem(placement: .trailingAction) {
+					Button {
+						showingHistory = true
+					} label: {
+						Label("History", systemImage: "clock.arrow.circlepath")
+					}
+				}
 			}
 			.task { restoreCurveIfNeeded() }
+			.sheet(isPresented: $showingHistory) {
+				HistoryView()
+			}
 			.sheet(item: $generatedEntry) { entry in
 				NavigationStack {
 					HistoryDetailView(entry: entry, onChange: {})
@@ -82,7 +93,7 @@ struct DesignView: View {
 			} label: {
 				Text("Playlist length")
 			}
-			
+
 			Slider(
 				value: Binding(
 					get: { Double(songCount) },

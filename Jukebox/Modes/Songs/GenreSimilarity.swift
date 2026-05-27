@@ -143,6 +143,7 @@ enum GenreSimilarity {
 	/// the literal value MusicKit returns.
 	private static let chains: [[String]] = [
 		// MARK: Electronic / Dance
+
 		// Apple splits House/Techno/Trance under Dance (id 17) and
 		// keeps Dubstep/Ambient/IDM/Industrial under Electronic (id
 		// 7). Both are top-level genres; chains bridge them via
@@ -169,6 +170,7 @@ enum GenreSimilarity {
 		["dubstep", "bass"],
 
 		// MARK: Reggae lineage — the surprising-chain spine
+
 		// Ska → Reggae → Dub is documented in every reggae history
 		// (Wikipedia Reggae infobox: ska, rocksteady, mento as
 		// origins). Apple has no "Rocksteady" tag so that link is
@@ -193,6 +195,7 @@ enum GenreSimilarity {
 		["reggae", "dub", "dubstep", "techno", "house"],
 
 		// MARK: Rock / Alternative / Indie / Punk / Wave
+
 		// Apple keeps Punk + New Wave + Indie Rock + Indie Pop +
 		// Grunge + Goth Rock + College Rock + Pop Punk + EMO all
 		// under Alternative. Heavy Metal + Hard Rock + Glam Rock +
@@ -217,6 +220,7 @@ enum GenreSimilarity {
 		["psychedelic", "prog-rock/art rock"],
 
 		// MARK: Metal
+
 		// Wikipedia Heavy metal infobox: origins blues rock,
 		// psychedelic rock, hard rock. Thrash → Death/Black is the
 		// canonical extreme-metal evolution.
@@ -225,6 +229,7 @@ enum GenreSimilarity {
 		["metal", "hair metal", "glam rock"],
 
 		// MARK: Hip-Hop / R&B / Soul / Funk / Disco
+
 		// Soul → Funk → Disco → House is the Black-American
 		// dance-music spine (Wikipedia Soul music + Disco
 		// derivatives). Hip-hop emerged from funk + disco sampling
@@ -246,6 +251,7 @@ enum GenreSimilarity {
 		["dub", "downtempo", "hip-hop/rap"],
 
 		// MARK: Jazz / Blues / Gospel
+
 		// Wikipedia Jazz fusion: bridges jazz and funk/rock.
 		["blues", "soul"],
 		["blues", "rock", "blues-rock"],
@@ -259,6 +265,7 @@ enum GenreSimilarity {
 		["country gospel", "gospel"],
 
 		// MARK: Folk / Country / Americana / Bluegrass
+
 		// Americana Music Association defines Americana as country,
 		// folk, blues, soul, bluegrass, gospel, rock (Wikipedia
 		// Americana music). Bluegrass infobox: Appalachian folk +
@@ -272,6 +279,7 @@ enum GenreSimilarity {
 		["country", "honky tonk", "outlaw country"],
 
 		// MARK: Pop bridges
+
 		// Apple has no "Dance Pop" tag; bridge via Disco → Pop
 		// (Wikipedia Dance-pop origins: disco, post-disco,
 		// synth-pop).
@@ -283,6 +291,7 @@ enum GenreSimilarity {
 		["pop", "synth-pop"],
 
 		// MARK: Latin
+
 		// Apple stores Latin parent (id 12) with Salsa y Tropical,
 		// Pop Latino, Música Mexicana, Latin Jazz, Latin Urban,
 		// Urbano latino as common children. Latin Jazz overlaps the
@@ -293,6 +302,7 @@ enum GenreSimilarity {
 		["latin", "música mexicana"],
 
 		// MARK: Classical / Soundtrack
+
 		["classical", "soundtrack", "original score"],
 		// Wikipedia Ambient music: minimalist + classical influence.
 		["classical", "ambient"],
