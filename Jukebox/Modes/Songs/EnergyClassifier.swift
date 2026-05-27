@@ -139,42 +139,84 @@ enum EnergyClassifier {
 	) -> [Song] {
 		guard let targetKey = targetBand.bundleKey else { return [] }
 
-		// Flatten to a single iteration list; precompute slug→token
-		// once. Stable order doesn't matter for argmax but keeps the
-		// nested closures readable.
-		let flat: [(bandKey: String, payload: EnergyCentroidPayload, token: String)] =
-			bundle.bands.flatMap { band, payloads in
-				payloads
-					.filter { !$0.centroid.isEmpty }
-					.map { (band, $0, genreToken(forSlug: $0.subStyle)) }
-			}
+		let flat = flatten(bundle: bundle)
 		guard !flat.isEmpty else { return [] }
 
 		return songs.filter { song in
 			if let emb = embeddings[song.id] {
-				return embeddedSongBelongs(song, embedding: emb, target: targetKey, flat: flat)
+				return winningBundleKey(embedding: emb, genres: song.genreNames, flat: flat) == targetKey
 			}
 			return nonEmbeddedSongBelongs(song, target: targetKey, bundle: bundle)
 		}
 	}
 
-	/// Argmax over all sub-styles with genre boost; gated by the
-	/// winning sub-style's own threshold so we don't categorise songs
-	/// the embedding genuinely can't place.
-	private static func embeddedSongBelongs(
-		_ song: Song,
+	/// Flattened sub-style entry — one row per (band, sub-style). Built
+	/// once per classification pass via `flatten(bundle:)` and reused
+	/// across every song so bulk callers (filter + stats) don't pay the
+	/// flatten cost on each song.
+	typealias FlatEntry = (bandKey: String, payload: EnergyCentroidPayload, token: String)
+
+	static func flatten(bundle: EnergyCentroidBundle) -> [FlatEntry] {
+		bundle.bands.flatMap { band, payloads in
+			payloads
+				.filter { !$0.centroid.isEmpty }
+				.map { (band, $0, genreToken(forSlug: $0.subStyle)) }
+		}
+	}
+
+	/// Single-song band assignment. Returns the band whose centroid (or,
+	/// for non-embedded songs, whose sub-style slugs) best matches the
+	/// song, or nil if no reliable assignment is possible. Used by the
+	/// Library Overview view to bucket every analysis-pool song.
+	///
+	/// Bulk callers (one call per library song) should flatten once via
+	/// `flatten(bundle:)` and pass the result to the `flat:` overload.
+	static func band(
+		for song: Song,
+		embedding: [Float]?,
+		bundle: EnergyCentroidBundle?
+	) -> EnergyBand? {
+		guard let bundle else { return nil }
+		return band(
+			for: song,
+			embedding: embedding,
+			bundle: bundle,
+			flat: flatten(bundle: bundle)
+		)
+	}
+
+	static func band(
+		for song: Song,
+		embedding: [Float]?,
+		bundle: EnergyCentroidBundle,
+		flat: [FlatEntry]
+	) -> EnergyBand? {
+		if let emb = embedding, !flat.isEmpty,
+		   let key = winningBundleKey(embedding: emb, genres: song.genreNames, flat: flat)
+		{
+			return EnergyBand.allCases.first { $0.bundleKey == key }
+		}
+		return firstMatchingBand(forGenres: song.genreNames, bundle: bundle)
+	}
+
+	/// Argmax-with-genre-boost across all flattened sub-styles. Returns
+	/// the winning band's bundle key, gated by the winning sub-style's
+	/// own raw-cosine threshold (the boost helps pick the band; it
+	/// shouldn't lower the bar for "did this song match anything").
+	/// Nil when no sub-style clears its threshold.
+	private static func winningBundleKey(
 		embedding: [Float],
-		target: String,
-		flat: [(bandKey: String, payload: EnergyCentroidPayload, token: String)]
-	) -> Bool {
-		let genres = song.genreNames.map { $0.lowercased() }
+		genres: [String],
+		flat: [FlatEntry]
+	) -> String? {
+		let lowered = genres.map { $0.lowercased() }
 		var bestScore: Float = -.infinity
 		var winningBand: String?
 		var winningCosine: Float = 0
 		var winningThreshold: Float = 0
 		for entry in flat {
 			let cosine = AudioEmbeddingService.cosineSimilarity(embedding, entry.payload.centroid)
-			let genreMatch = genres.contains { $0.contains(entry.token) }
+			let genreMatch = lowered.contains { $0.contains(entry.token) }
 			let score = cosine + (genreMatch ? genreBoost : 0)
 			if score > bestScore {
 				bestScore = score
@@ -183,16 +225,36 @@ enum EnergyClassifier {
 				winningThreshold = entry.payload.threshold
 			}
 		}
-		guard winningBand == target else { return false }
-		// Threshold guard uses raw cosine (not boosted score) — the
-		// boost should help us *pick the right band*, not lower the
-		// bar for "did this song actually match anything."
-		return winningCosine >= winningThreshold
+		guard let key = winningBand, winningCosine >= winningThreshold else { return nil }
+		return key
 	}
 
-	/// Sub-style-granular keyword fallback. The slugs are Apple-aligned,
-	/// so a song tagged "Metal" lands on `intense.metal`, "Hip-Hop/Rap"
-	/// lands on `energetic.hip_hop` or `intense.hip_hop`, etc.
+	/// First-match-in-band-order substring fallback for non-embedded
+	/// songs. Multiple bands can match an ambiguous tag (e.g. "Classical"
+	/// hits glacial *and* mellow); the per-band filter path in
+	/// `filterUsingBundledCentroids` checks each band independently, but
+	/// for the stats path we have to pick one — band order (glacial →
+	/// intense) is the same order the UI surfaces, so a tie there reads
+	/// the same way as the chip row.
+	private static func firstMatchingBand(
+		forGenres genreNames: [String],
+		bundle: EnergyCentroidBundle
+	) -> EnergyBand? {
+		let lowered = genreNames.map { $0.lowercased() }
+		for band in EnergyBand.allCases where band != .any {
+			guard let key = band.bundleKey, let payloads = bundle.bands[key] else { continue }
+			let tokens = payloads.map { genreToken(forSlug: $0.subStyle) }
+			if !tokens.isEmpty, lowered.contains(where: { g in tokens.contains(where: g.contains) }) {
+				return band
+			}
+		}
+		return nil
+	}
+
+	/// Sub-style-granular keyword fallback for the *filter* path —
+	/// multi-band overlap is fine here because the filter picks one
+	/// band at a time. Distinct from `firstMatchingBand` which has to
+	/// commit to a single band for the stats path.
 	private static func nonEmbeddedSongBelongs(
 		_ song: Song,
 		target: String,
