@@ -17,6 +17,7 @@ import SwiftUI
 struct EmbeddingProgressIndicator: View {
 	let progress: EmbeddingProgress
 	@State private var showingPopover = false
+	@State private var showingDetails = false
 
 	var body: some View {
 		if progress.hasDeck {
@@ -26,8 +27,14 @@ struct EmbeddingProgressIndicator: View {
 				indicator
 			}
 			.popover(isPresented: $showingPopover, arrowEdge: .top) {
-				EmbeddingProgressPopover(progress: progress)
-					.presentationCompactAdaptation(.popover)
+				EmbeddingProgressPopover(progress: progress) {
+					showingPopover = false
+					showingDetails = true
+				}
+				.presentationCompactAdaptation(.popover)
+			}
+			.sheet(isPresented: $showingDetails) {
+				LibraryOverviewView()
 			}
 			.accessibilityLabel("Library analysis progress")
 			.accessibilityValue(accessibilityValue)
@@ -67,6 +74,7 @@ struct EmbeddingProgressIndicator: View {
 
 private struct EmbeddingProgressPopover: View {
 	let progress: EmbeddingProgress
+	let onShowDetails: () -> Void
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 16) {
@@ -80,6 +88,20 @@ private struct EmbeddingProgressPopover: View {
 				.font(.footnote)
 				.foregroundStyle(.secondary)
 				.fixedSize(horizontal: false, vertical: true)
+
+			Divider()
+
+			Button(action: onShowDetails) {
+				HStack {
+					Text("Library overview")
+					Spacer()
+					Image(systemName: "chevron.right")
+						.font(.caption.weight(.semibold))
+						.foregroundStyle(.tertiary)
+				}
+			}
+			.buttonStyle(.plain)
+			.contentShape(.rect)
 		}
 		.padding()
 		.frame(minWidth: 280, idealWidth: 320)
