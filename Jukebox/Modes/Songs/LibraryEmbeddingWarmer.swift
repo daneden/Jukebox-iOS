@@ -208,7 +208,7 @@ actor LibraryEmbeddingWarmer {
 
 		let union: [Song]
 		do {
-			union = try await libraryUnion()
+			union = try await librarySnapshot()
 		} catch {
 			return
 		}
@@ -267,8 +267,10 @@ actor LibraryEmbeddingWarmer {
 
 	/// Three-pool union of library songs (mirrors the deck builder's
 	/// pools so the long-tail warmer hits the same songs each axis
-	/// will surface). Capped at `libraryCap`.
-	private func libraryUnion() async throws -> [Song] {
+	/// will surface). Capped at `libraryCap`. Also exposed so the
+	/// Library Overview view can compute its analysis-pool stats over
+	/// the same set the warmer will actually embed.
+	func librarySnapshot() async throws -> [Song] {
 		async let nostalgia = fetchPool(sort: .playCount, ascending: false)
 		async let discovery = fetchPool(sort: .libraryAddedDate, ascending: true)
 		async let freshness = fetchPool(sort: .libraryAddedDate, ascending: false)
