@@ -456,10 +456,11 @@ enum GemDeckBuilder {
 			}
 
 			// Deck is fully warm (or as warm as it'll get this session).
-			// Hand off to the library warmer for the long tail — it
-			// self-gates on WiFi + power, so this is cheap if conditions
-			// aren't favourable.
-			await LibraryEmbeddingWarmer.shared.runWarmPass()
+			// Hand off to the library warmer for the long tail. Foreground
+			// pass: gates on WiFi + not-Low-Power-Mode (no external-power
+			// requirement) so it makes progress while the user browses on
+			// battery — cheap if conditions aren't favourable.
+			await LibraryEmbeddingWarmer.shared.runWarmPass(requirePower: false)
 			#if os(iOS)
 				LibraryEmbeddingWarmer.scheduleNextBackgroundTask()
 			#endif
