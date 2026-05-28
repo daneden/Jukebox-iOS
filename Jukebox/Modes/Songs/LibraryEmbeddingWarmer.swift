@@ -18,22 +18,27 @@
 //  filter combos, or after library mutations, start with audio
 //  similarity instead of the fallback.
 //
-//  Gating — all required, all checked between each song:
+//  Gating — checked at entry and between each song. WiFi is always
+//  required; the power requirement depends on which mode is running
+//  (see `conditionsFavorable(requirePower:)`):
 //   - WiFi reachable (`NWPathMonitor`). 30s previews are ~500KB; a
 //     full 10k pass is ~5GB of downloads, which we won't burn on
 //     cellular.
-//   - External power connected on iOS (`UIDevice.batteryState`,
-//     cached via `batteryStateDidChangeNotification` so the gating
-//     check stays synchronous). macOS is treated as always-powered.
+//   - Power: background passes require external power; foreground
+//     passes run on battery but defer to Low Power Mode.
 //
 //  Triggered in two modes:
 //   - Foreground opportunistic: kicked from `GemDeckBuilder` after
-//     deck-warm finishes. Runs at `.utility` QoS so it doesn't
-//     compete with the dial. No-op if conditions aren't met.
+//     deck-warm finishes, `requirePower: false`. Runs at `.utility`
+//     QoS so it doesn't compete with the dial, on battery as long as
+//     the user isn't in Low Power Mode. Without the battery path the
+//     warmer never progressed for a phone that's rarely charged on
+//     WiFi — it bailed on every battery session. No-op if conditions
+//     aren't met.
 //   - Background processing: via `BGProcessingTask` on iOS, registered
-//     with `requiresExternalPower` + `requiresNetworkConnectivity` so
-//     the system only wakes us when the conditions we care about are
-//     mostly satisfied. WiFi is checked at handler entry because
+//     with `requiresExternalPower` + `requiresNetworkConnectivity`, run
+//     `requirePower: true`. The system only wakes us when those are
+//     mostly satisfied; WiFi is re-checked at handler entry because
 //     `requiresNetworkConnectivity` doesn't differentiate WiFi from
 //     cellular — cellular runs return immediately and reschedule.
 //
@@ -183,7 +188,7 @@ actor LibraryEmbeddingWarmer {
 			// crashes or expires uncleanly, we still get re-fired later.
 			Self.scheduleNextBackgroundTask()
 
-			let workTask = Task { await runWarmPass() }
+			let workTask = Task { await runWarmPass(requirePower: true) }
 			task.expirationHandler = { workTask.cancel() }
 			_ = await workTask.value
 			task.setTaskCompleted(success: true)
@@ -194,12 +199,12 @@ actor LibraryEmbeddingWarmer {
 	/// conditions become unfavourable, or the surrounding task is
 	/// cancelled. Concurrent callers are coalesced — second caller
 	/// no-ops while the first is still running.
-	func runWarmPass() async {
+	func runWarmPass(requirePower: Bool) async {
 		if isRunning { return }
 		isRunning = true
 		defer { isRunning = false }
 
-		guard conditionsFavorable else { return }
+		guard conditionsFavorable(requirePower: requirePower) else { return }
 
 		let union: [Song]
 		do {
@@ -210,7 +215,7 @@ actor LibraryEmbeddingWarmer {
 
 		for song in await embeddingEligible(union) {
 			if Task.isCancelled { return }
-			if !conditionsFavorable { return }
+			if !conditionsFavorable(requirePower: requirePower) { return }
 
 			do {
 				try await AudioEmbeddingService.ensureCached(song: song)
@@ -232,7 +237,7 @@ actor LibraryEmbeddingWarmer {
 		let resolved = await OriginalReleaseStore.shared.resolvedIDs(for: union.map(\.id))
 		for song in union where !resolved.contains(song.id.rawValue) {
 			if Task.isCancelled { return }
-			if !conditionsFavorable { return }
+			if !conditionsFavorable(requirePower: requirePower) { return }
 
 			try? await OriginalReleaseResolver.resolveAndStore(song: song)
 			try? await Task.sleep(for: Self.breath)
@@ -241,10 +246,23 @@ actor LibraryEmbeddingWarmer {
 
 	/// Synchronous read of the latest cached gating state. Cheap enough
 	/// to call between every embed.
-	private nonisolated var conditionsFavorable: Bool {
+	///
+	/// WiFi is always required — a full pass is ~5GB, never on cellular.
+	/// The power requirement is conditional on who's asking:
+	///   - Background passes (`requirePower: true`) require external
+	///     power, so an unattended pass never drains the battery while
+	///     the user isn't even in the app.
+	///   - Foreground passes (`requirePower: false`) run on battery too,
+	///     but defer to Low Power Mode: if the user has signalled "save
+	///     battery," we don't compete. Without this the foreground pass
+	///     bailed on every battery session, so a phone that's rarely
+	///     charged-on-WiFi never embedded past its deck.
+	private nonisolated func conditionsFavorable(requirePower: Bool) -> Bool {
 		guard _pathSatisfied.withLock({ $0 }) else { return false }
-		guard _externalPowerConnected.withLock({ $0 }) else { return false }
-		return true
+		if requirePower {
+			return _externalPowerConnected.withLock { $0 }
+		}
+		return !ProcessInfo.processInfo.isLowPowerModeEnabled
 	}
 
 	/// Three-pool union of library songs (mirrors the deck builder's
