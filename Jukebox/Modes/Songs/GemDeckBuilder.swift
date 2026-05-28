@@ -132,6 +132,11 @@ enum GemDeckBuilder {
 						now: now,
 						recentPlays: recentPlays
 					)
+					// Songs/albums/artists the user has explicitly removed
+					// from the deck. Hard-excluded below — unlike the recency
+					// downrank, there's no soft-fallback resurfacing: the user
+					// said remove, so they stay gone.
+					let exclusions = await ExclusionStore.shared.exclusions()
 					let seed = UInt64.random(in: 0 ... UInt64.max)
 
 					// Gate fan-out behind the process-wide MusicKit probe.
@@ -156,6 +161,7 @@ enum GemDeckBuilder {
 					let freshness = try await freshnessTask
 					let bandSlice = await bandSliceTask
 					let union = dedupeUnion(nostalgia, discovery, freshness, bandSlice)
+						.filter { !exclusions.excludes(song: $0) }
 					let final = await rank(
 						songs: union,
 						scorer: scorer,
