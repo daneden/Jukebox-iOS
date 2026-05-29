@@ -25,34 +25,31 @@ struct CoverArtView: View {
 	var body: some View {
 		if let artwork {
 			let request = requestedWidth ?? width
-			let pixels = Int((request * displayScale).rounded())
 			ZStack {
 				// Backdrop fill matching the album's predominant color, so a
-				// half-loaded cover during a fast spin reads as "this album"
-				// rather than the music-note placeholder. Falls through to
-				// material when MusicKit didn't supply a backgroundColor.
+				// not-yet-loaded cover reads as "this album" rather than a
+				// blank tile. Library artwork carries no backgroundColor
+				// (catalog-only metadata), so it falls through to material.
 				if let cgColor = artwork.backgroundColor {
 					Color(cgColor: cgColor)
 				} else {
 					Rectangle().fill(.regularMaterial)
 				}
 
-				// AsyncImage (rather than ArtworkImage) so we can observe the
-				// load phase and fade the image in over the colored backdrop —
-				// ArtworkImage snap-replaces its internal placeholder.
-				// `requestedWidth` still controls pixel-buffer size via the URL.
-				if let url = artwork.url(width: pixels, height: pixels) {
-					AsyncImage(
-						url: url,
-						transaction: Transaction(animation: .easeOut(duration: 0.25))
-					) { phase in
-						if case let .success(image) = phase {
-							image
-								.resizable()
-								.transition(.opacity)
-						}
-					}
-				}
+				// ArtworkImage — MusicKit's own loader — rather than
+				// AsyncImage(artwork.url(…)). Library covers resolve through a
+				// musickit:// URL served by itunescloudd / mediaartworkd;
+				// ArtworkImage fetches them via MusicKit's coordinated, cached
+				// pipeline. Driving one AsyncImage per tile instead spun up
+				// independent, uncached URLSession loads against those daemons,
+				// and the 7-tile burst the moment a deck landed raced musicd's
+				// cold-launch init and wedged it — blank covers, library
+				// requests that never returned, and SwiftData reads stalling
+				// behind the back-pressure, until the daemon recovered.
+				// `requestedWidth` keeps the decoded buffer small; scaleEffect
+				// upsamples non-focused tiles to display size.
+				ArtworkImage(artwork, width: request, height: request)
+					.scaleEffect(width / request, anchor: .center)
 			}
 			.frame(width: width, height: width)
 			.clipShape(clipShape)
