@@ -216,7 +216,7 @@ struct EnergyCurveEditor: View {
 	}
 
 	private static func accessibilityValue(for y: Double) -> String {
-		"\(Int((y * 100).rounded()))% — \(EnergyBand.forCurveValue(y).displayName)"
+		"\(Int((y * 100).rounded()))% — \(EnergyBand.forValue(y).displayName)"
 	}
 }
 

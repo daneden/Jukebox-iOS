@@ -18,7 +18,11 @@ struct SongsView: View {
 
 	@AppStorage(SettingsKeys.autoplay) private var autoplay: Bool = true
 	@AppStorage(SettingsKeys.walkMeander) private var meander: Double = WalkControls.default.meander
-	@AppStorage(SettingsKeys.walkEnergy) private var energyRaw: Int = WalkControls.default.energy.rawValue
+	// Energy target persisted as a Double with -1 as the "no filter"
+	// sentinel (AppStorage can't hold an optional cleanly); window is a
+	// plain half-width.
+	@AppStorage(SettingsKeys.walkEnergyTarget) private var energyTarget: Double = -1
+	@AppStorage(SettingsKeys.walkEnergyWindow) private var energyWindow: Double = EnergyFilter.defaultWindow
 	@AppStorage(SettingsKeys.walkDecadeLower) private var decadeLower: Int = WalkControls.default.decadeRange.lower
 	@AppStorage(SettingsKeys.walkDecadeUpper) private var decadeUpper: Int = WalkControls.default.decadeRange.upper
 
@@ -56,7 +60,7 @@ struct SongsView: View {
 	private var walkControls: WalkControls {
 		WalkControls(
 			meander: meander,
-			energy: EnergyBand(rawValue: energyRaw) ?? .any,
+			energy: EnergyFilter(target: energyTarget < 0 ? nil : energyTarget, window: energyWindow),
 			decadeRange: DecadeRange(lower: decadeLower, upper: decadeUpper)
 		)
 	}
@@ -66,7 +70,8 @@ struct SongsView: View {
 			get: { walkControls },
 			set: { new in
 				meander = new.meander
-				energyRaw = new.energy.rawValue
+				energyTarget = new.energy.target ?? -1
+				energyWindow = new.energy.window
 				decadeLower = new.decadeRange.lower
 				decadeUpper = new.decadeRange.upper
 			}

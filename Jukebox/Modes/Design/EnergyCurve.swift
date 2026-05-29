@@ -70,21 +70,8 @@ struct EnergyCurve: Equatable, Codable {
 }
 
 extension EnergyBand {
-	/// Map a [0, 1] curve sample into one of the four energy bands.
-	/// Buckets are equal-width (0.25 each); cleanly splits the four
-	/// bands across the full vertical extent of the editor. `.any`
-	/// is intentionally unreachable here — Design mode commits to a
-	/// concrete band per song.
-	static func forCurveValue(_ y: Double) -> EnergyBand {
-		switch y {
-		case ..<0.25: .glacial
-		case ..<0.5: .mellow
-		case ..<0.75: .energetic
-		default: .intense
-		}
-	}
-
-	/// Concrete bands ordered low → high, used for nearest-band fallback
-	/// when the requested band's candidate pool is empty.
+	/// Concrete bands ordered low → high. Energy → band labeling now lives
+	/// in `EnergyBand.forValue` (see SongEnergy.swift); this stays for
+	/// band-ordered iteration.
 	static let concreteOrdered: [EnergyBand] = [.glacial, .mellow, .energetic, .intense]
 }
