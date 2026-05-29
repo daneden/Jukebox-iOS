@@ -284,6 +284,35 @@ enum AudioEmbeddingService {
 		}
 	}
 
+	/// Re-run BPM detection for a song whose cached BPM is at a stale
+	/// `BPMDetector` version. Re-downloads the preview and runs BPMDetector
+	/// only (no AudioFeaturePrint, so the cached embedding vector is
+	/// untouched), then stamps the row to the current BPM version —
+	/// overwriting the value on a confident result, or just marking it
+	/// re-evaluated on a nil so the warmer stops re-fetching it.
+	static func redetectBPM(song: Song) async throws {
+		do {
+			let url = try await previewURL(for: song)
+			let detection = try await detectBPMOnly(previewURL: url)
+			await EmbeddingStore.shared.refreshBPM(
+				bpm: detection?.bpm,
+				bpmConfidence: detection?.confidence,
+				for: song.id
+			)
+		} catch let error as EmbedError {
+			switch error {
+			case .noCatalogMatch, .noPreview, .emptyOutput:
+				await EmbeddingStore.shared.recordFailure(
+					songID: song.id,
+					reason: error.errorDescription ?? "\(error)"
+				)
+			case .downloadFailed:
+				break
+			}
+			throw error
+		}
+	}
+
 	/// Download → BPMDetector, skipping AudioFeaturePrint entirely.
 	/// Used by `ensureCached` when the embedding is already cached
 	/// and we only need the BPM.

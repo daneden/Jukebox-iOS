@@ -22,6 +22,15 @@
 //  free-time). The walk treats missing BPM as "no signal" rather
 //  than a penalty, so we leave legacy rows alone instead of forcing
 //  a re-download for backfill.
+//
+//  `bpmModelVersion` versions the BPM *independently* of `modelVersion`:
+//  improving the tempo algorithm shouldn't invalidate the (expensive)
+//  embedding vector. The warmer re-detects rows below the current BPM
+//  version in the background, overwriting in place — reads keep serving
+//  the old value until then, so there's no coverage blackout. Default 0
+//  = legacy / detector v0. Non-optional scalar with a default literal:
+//  the lightweight (automatic) SwiftData migration case — existing rows
+//  backfill 0 in place, no migration plan, vectors preserved.
 
 import Foundation
 import SwiftData
@@ -34,6 +43,7 @@ final class SongEmbedding {
 	var computedAt: Date
 	var bpm: Double?
 	var bpmConfidence: Float?
+	var bpmModelVersion: Int = 0
 
 	init(
 		songID: String,
@@ -41,7 +51,8 @@ final class SongEmbedding {
 		modelVersion: Int,
 		computedAt: Date,
 		bpm: Double? = nil,
-		bpmConfidence: Float? = nil
+		bpmConfidence: Float? = nil,
+		bpmModelVersion: Int = 0
 	) {
 		self.songID = songID
 		self.vector = vector
@@ -49,5 +60,6 @@ final class SongEmbedding {
 		self.computedAt = computedAt
 		self.bpm = bpm
 		self.bpmConfidence = bpmConfidence
+		self.bpmModelVersion = bpmModelVersion
 	}
 }

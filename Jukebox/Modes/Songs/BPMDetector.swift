@@ -16,9 +16,12 @@
 //   1. Mix to mono, accumulate a per-frame RMS energy envelope at
 //      ~10ms hops.
 //   2. Half-wave-rectified differential → onset signal.
-//   3. Autocorrelate the onset signal at lags corresponding to the
-//      60–180 BPM range.
-//   4. Pick the peak; normalised peak prominence is the confidence.
+//   3. Overlap-normalized autocorrelation of the onset signal.
+//   4. Score each 60–180 BPM candidate by a harmonic comb (its salience
+//      plus its slower metrical harmonics) and pick the argmax — this
+//      resolves the half/double/third-time octave ambiguity that a raw
+//      autocorrelation peak gets wrong. Prominence over the comb-score
+//      median is the confidence.
 //
 //  Returns nil when confidence is below a threshold (ambient,
 //  classical, free-jazz) so we don't pollute the cache with values
@@ -31,13 +34,21 @@ import AVFoundation
 import Foundation
 
 enum BPMDetector {
-	/// BPM range we'll detect. Below 60, popular music is usually
-	/// the half-time perception of a 120 BPM beat; above 180 is the
-	/// double-time perception. The autocorrelation naturally picks
-	/// the most-energetic period in this range, which matches what
-	/// a listener would tap along to.
+	/// Candidate BPM range. The autocorrelation of an onset train is a
+	/// comb — it peaks at the true period *and* its multiples/sub-
+	/// multiples — so we don't trust the raw global peak; the harmonic
+	/// comb below resolves which tooth is the tap-along tempo. 60–180
+	/// keeps a runaway-fast candidate from being picked (a widened ceiling
+	/// let a genuinely-slow track read ~207 in validation); the comb still
+	/// reads harmonics beyond 180 from the extended ACF.
 	static let minBPM: Double = 60
 	static let maxBPM: Double = 180
+
+	/// Harmonic-comb weights: a true beat at lag ℓ also produces ACF peaks
+	/// at 2ℓ, 3ℓ, 4ℓ (its slower metrical levels). Summing them back onto
+	/// ℓ with decaying weight makes the faster, tap-along tempo win over
+	/// its half/third-time aliases (Percival–Tzanetakis "enhance harmonics").
+	private static let combWeights: [Float] = [1.0, 0.5, 0.5, 0.5]
 
 	/// Hop size for the energy envelope. ~10ms at 44.1kHz resolves
 	/// closely-spaced kick-drum hits without smoothing them into a
@@ -114,46 +125,62 @@ enum BPMDetector {
 		let centered = onset.map { $0 - mean }
 
 		// BPM → lag (in envelope samples). minBPM gives the longest
-		// period (largest lag); maxBPM gives the shortest.
+		// period (largest lag); maxBPM gives the shortest. The comb reads
+		// salience at integer multiples of each candidate lag, so the raw
+		// ACF must extend to combWeights.count · maxLag.
 		let minLag = Int((60.0 / maxBPM) * envelopeRate)
 		let maxLag = Int((60.0 / minBPM) * envelopeRate)
-		guard minLag > 0, maxLag < centered.count else { return nil }
+		let acfMaxLag = min(centered.count - 1, combWeights.count * maxLag)
+		guard minLag > 0, maxLag < centered.count, acfMaxLag >= maxLag else { return nil }
 
-		// Brute-force autocorrelation across the lag range. ~70 lags
-		// at typical envelope rates — bounded; no point bringing FFT
-		// machinery in for this.
-		var bestLag = minLag
-		var bestValue: Float = -.infinity
-		var values = [Float](repeating: 0, count: maxLag - minLag + 1)
-		// `centered` is non-empty here (we returned early upstream if
-		// the envelope was too short), so `baseAddress` is guaranteed
-		// non-nil — force-unwrap rather than guard-and-return-nil,
-		// which would leave `bestValue` at -.infinity and produce
-		// garbage prominence below.
+		// Overlap-normalized (unbiased) autocorrelation. Dividing each lag's
+		// dot product by its overlap count n = (count − lag) removes the raw
+		// dot product's structural tilt toward shorter (faster) lags.
+		// `centered` is non-empty here (the envelope-length guard upstream),
+		// so `baseAddress` is non-nil — force-unwrap rather than bail, which
+		// would leave the scores empty and produce garbage prominence.
+		var r = [Float](repeating: 0, count: acfMaxLag + 1)
 		centered.withUnsafeBufferPointer { ptr in
 			let base = ptr.baseAddress!
-			for (idx, lag) in (minLag ... maxLag).enumerated() {
-				var v: Float = 0
+			for lag in 1 ... acfMaxLag {
+				var dot: Float = 0
 				let n = centered.count - lag
-				vDSP_dotpr(base, 1, base.advanced(by: lag), 1, &v, vDSP_Length(n))
-				values[idx] = v
-				if v > bestValue {
-					bestValue = v
-					bestLag = lag
-				}
+				vDSP_dotpr(base, 1, base.advanced(by: lag), 1, &dot, vDSP_Length(n))
+				r[lag] = dot / Float(n)
 			}
 		}
 
-		// Confidence: peak prominence over the median of the
-		// autocorrelation across the search range. A clear-beat
-		// track has a sharp peak well above the median; ambient
-		// tracks have noisy autocorrelation with no clear winner.
-		let sorted = values.sorted()
+		// Harmonic comb across the candidate range: each candidate's score
+		// is the (non-negative) salience at its lag plus its slower
+		// metrical harmonics, so the faster tap-along tempo wins over its
+		// half/third-time aliases. No tempo prior — for an energy proxy we
+		// want calm music to read calm, not get pulled toward 120; and a
+		// salience octave-bracket was rejected in validation (it reverted
+		// the comb's correct fast picks).
+		var bestLag = minLag
+		var bestScore: Float = -.infinity
+		var scores = [Float](repeating: 0, count: maxLag - minLag + 1)
+		for (idx, lag) in (minLag ... maxLag).enumerated() {
+			var s: Float = 0
+			for k in 1 ... combWeights.count {
+				let kl = k * lag
+				if kl <= acfMaxLag { s += combWeights[k - 1] * max(0, r[kl]) }
+			}
+			scores[idx] = s
+			if s > bestScore {
+				bestScore = s
+				bestLag = lag
+			}
+		}
+
+		// Confidence: peak prominence over the median of the comb-score
+		// array (post-comb, so it reflects the consolidated octave). A
+		// clear-beat track peaks well above the median; ambient tracks
+		// have no clear winner. /5.0 is hand-tuned — peak/median ~5 reads
+		// as "obvious beat"; revisit once the re-detected cache has coverage.
+		let sorted = scores.sorted()
 		let median = sorted[sorted.count / 2]
-		let prominence = (bestValue - median) / max(abs(median), 1e-6)
-		// /5.0 is a hand-tuned scaling — peak/median ratios of ~5
-		// empirically correspond to "obvious beat." Revisit after
-		// the cache has coverage.
+		let prominence = (bestScore - median) / max(abs(median), 1e-6)
 		let normalised = max(0, min(1, prominence / 5.0))
 
 		guard normalised >= minConfidence else { return nil }
