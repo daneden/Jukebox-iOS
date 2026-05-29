@@ -24,6 +24,11 @@ struct PlaylistsView: View {
 	/// render, before `updatePlaylists` has had a chance to flip it on.
 	@State private var isLoading: Bool = true
 
+	/// Playlists the user has flagged ineligible via the context menu.
+	/// Loaded at fetch time and applied in `applyPlaylists` so removed
+	/// playlists never re-enter the dial across refetches.
+	@State private var blockedPlaylistIDs: Set<String> = []
+
 	private var focusedPlaylist: Playlist? {
 		guard !playlists.isEmpty,
 		      dial.focusedIndex >= 0,
@@ -53,7 +58,8 @@ struct PlaylistsView: View {
 					rotation: $dial.rotation,
 					focusedIndex: $dial.focusedIndex,
 					rippleCounters: dial.rippleCounters,
-					placeholderSymbol: "music.note.list"
+					placeholderSymbol: "music.note.list",
+					contextMenu: { playlist in playlistContextMenu(for: playlist) }
 				) {
 					if let playlist = focusedPlaylist {
 						Task { await play(playlist) }
@@ -157,6 +163,8 @@ struct PlaylistsView: View {
 		// can wedge — see `MusicKitWarmup`.
 		await MusicKitWarmup.waitUntilReady()
 
+		blockedPlaylistIDs = await ExclusionStore.shared.blockedPlaylistIDs()
+
 		var request = MusicLibraryRequest<Playlist>()
 		#if os(iOS)
 			// `.lastPlayedDate` as a sort keypath crashes the macOS MusicKit
@@ -183,7 +191,10 @@ struct PlaylistsView: View {
 		}
 	}
 
-	private func applyPlaylists(_ new: MusicItemCollection<Playlist>) {
+	private func applyPlaylists(_ raw: MusicItemCollection<Playlist>) {
+		let new = blockedPlaylistIDs.isEmpty
+			? raw
+			: MusicItemCollection<Playlist>(raw.filter { !blockedPlaylistIDs.contains($0.id.rawValue) })
 		let preservedID = dial.focusedItemID
 		let newIdx = preservedID.flatMap { id in new.firstIndex(where: { $0.id == id }) }
 
@@ -223,6 +234,41 @@ struct PlaylistsView: View {
 			dial.rotation = .zero
 			dial.focusedItemID = new.first?.id
 		}
+	}
+
+	// MARK: - Removal
+
+	/// Per-cover context menu. Flags the playlist ineligible for future
+	/// dials (via `ExclusionStore`) and drops it from the live collection
+	/// so the change is immediate.
+	private func playlistContextMenu(for playlist: Playlist) -> some View {
+		Button(role: .destructive) {
+			Task { await removePlaylist(playlist) }
+		} label: {
+			Label("Remove Playlist", systemImage: "minus.circle")
+		}
+	}
+
+	private func removePlaylist(_ playlist: Playlist) async {
+		blockedPlaylistIDs.insert(playlist.id.rawValue)
+
+		let remaining = playlists.filter { $0.id != playlist.id }
+		if remaining.count != playlists.count {
+			let preservedID = dial.focusedItemID
+			let oldIdx = dial.focusedIndex
+			let newCollection = MusicItemCollection<Playlist>(remaining)
+			withAnimation(.smooth(duration: 0.4)) { playlists = newCollection }
+			if newCollection.isEmpty {
+				dial.clear()
+			} else if let pid = preservedID, let idx = newCollection.firstIndex(where: { $0.id == pid }) {
+				dial.reanchor(to: idx, newID: newCollection[idx].id, count: newCollection.count)
+			} else {
+				let target = max(0, min(oldIdx, newCollection.count - 1))
+				dial.reanchor(to: target, newID: newCollection[target].id, count: newCollection.count)
+			}
+		}
+
+		await ExclusionStore.shared.blockPlaylist(id: playlist.id.rawValue, label: playlist.name)
 	}
 
 	// MARK: - Shuffle + play

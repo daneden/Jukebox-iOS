@@ -42,7 +42,7 @@ import SwiftUI
 /// Generic over any `MusicItem` that conforms to `DialItem` (i.e. has artwork).
 /// Both Playlists and Songs ride the same component — one set of physics,
 /// haptics, and bounded-rendering rules.
-struct DialView<Item: MusicItem & DialItem>: View {
+struct DialView<Item: MusicItem & DialItem, Menu: View>: View {
 	let items: MusicItemCollection<Item>
 	@Binding var rotation: Angle
 	@Binding var focusedIndex: Int
@@ -51,6 +51,11 @@ struct DialView<Item: MusicItem & DialItem>: View {
 	/// X's counter and only X ripples.
 	var rippleCounters: [MusicItemID: Int] = [:]
 	var placeholderSymbol: String = "music.note.list"
+	/// Per-cover context menu, built by the mode (which holds the concrete
+	/// `Song`/`Playlist` and so can offer item-specific actions). Declared
+	/// before `onTapFocused` so the latter stays the trailing closure at
+	/// call sites.
+	@ViewBuilder var contextMenu: (Item) -> Menu
 	var onTapFocused: () -> Void = {}
 
 	@State private var dragStartRotation: Angle?
@@ -83,6 +88,7 @@ struct DialView<Item: MusicItem & DialItem>: View {
 				radius: radius,
 				rippleCounters: rippleCounters,
 				placeholderSymbol: placeholderSymbol,
+				contextMenu: contextMenu,
 				onTap: handleTap
 			)
 			.frame(width: proxy.size.width, height: proxy.size.height)
@@ -188,7 +194,7 @@ struct DialView<Item: MusicItem & DialItem>: View {
 /// the destination. The setter is also the per-detent haptic site for
 /// animation-driven motion (drag haptics still flow through the parent's
 /// `.sensoryFeedback(trigger: focusedIndex)`).
-private struct DialContent<Item: MusicItem & DialItem>: View, Animatable {
+private struct DialContent<Item: MusicItem & DialItem, Menu: View>: View, Animatable {
 	var rotation: Double
 	let items: MusicItemCollection<Item>
 	let coverSize: Double
@@ -196,6 +202,7 @@ private struct DialContent<Item: MusicItem & DialItem>: View, Animatable {
 	let radius: Double
 	let rippleCounters: [MusicItemID: Int]
 	let placeholderSymbol: String
+	@ViewBuilder let contextMenu: (Item) -> Menu
 	let onTap: (Int) -> Void
 
 	var animatableData: Double {
@@ -232,6 +239,27 @@ private struct DialContent<Item: MusicItem & DialItem>: View, Animatable {
 				) {
 					onTap(entry.index)
 				}
+				// Custom static preview. The live cover wobbles (a TimelineView
+				// driving rotation3DEffect) and carries 3D/scale/blur/shadow
+				// transforms, so the default context-menu snapshot lifts a
+				// skewed, mid-oscillation tile. A plain CoverArtView shows the
+				// artwork flat and still. The preview variant is iOS-only —
+				// AppKit context menus have no preview, so macOS uses the
+				// menu-only form.
+				#if os(iOS)
+				.contextMenu {
+					contextMenu(entry.item)
+				} preview: {
+					CoverArtView(
+						artwork: entry.item.artwork,
+						width: coverSize,
+						requestedWidth: requestSize,
+						placeholderSymbol: placeholderSymbol
+					)
+				}
+				#else
+				.contextMenu { contextMenu(entry.item) }
+				#endif
 				// Covers entering or leaving the visible window (because
 				// the library reordered while we were backgrounded, the
 				// deck was reshuffled, or focus jumped) blur-replace

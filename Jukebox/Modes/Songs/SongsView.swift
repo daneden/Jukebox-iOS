@@ -112,7 +112,8 @@ struct SongsView: View {
 							rotation: $dial.rotation,
 							focusedIndex: $dial.focusedIndex,
 							rippleCounters: dial.rippleCounters,
-							placeholderSymbol: "music.note"
+							placeholderSymbol: "music.note",
+							contextMenu: { song in songContextMenu(for: song) }
 						) {
 							if let song = focusedSong {
 								Task { await play(from: song) }
@@ -457,6 +458,81 @@ struct SongsView: View {
 		withAnimation(.smooth(duration: 0.45)) { isReshuffling = true }
 		await runBuild(wideSample: false)
 		withAnimation(.smooth(duration: 0.45)) { isReshuffling = false }
+	}
+
+	// MARK: - Removal
+
+	/// Per-cover context menu. Each action flags the song / album / artist
+	/// ineligible for future decks (via `ExclusionStore`) and drops the
+	/// matching covers from the live deck so the change is immediate.
+	@ViewBuilder
+	private func songContextMenu(for song: Song) -> some View {
+		Button(role: .destructive) {
+			Task { await removeSong(song) }
+		} label: {
+			Label("Remove Song", systemImage: "minus.circle")
+		}
+		if let album = song.albumTitle, !album.isEmpty {
+			Button(role: .destructive) {
+				Task { await removeAlbum(song) }
+			} label: {
+				Label("Remove Album", systemImage: "rectangle.stack.badge.minus")
+			}
+		}
+		Button(role: .destructive) {
+			Task { await removeArtist(song) }
+		} label: {
+			Label("Remove Artist", systemImage: "person.crop.circle.badge.minus")
+		}
+	}
+
+	private func removeSong(_ song: Song) async {
+		applyDeckRemoval { $0.id == song.id }
+		await ExclusionStore.shared.blockSong(
+			id: song.id.rawValue,
+			label: "\(song.title) — \(song.artistName)"
+		)
+	}
+
+	private func removeAlbum(_ song: Song) async {
+		guard let album = song.albumTitle, !album.isEmpty else { return }
+		applyDeckRemoval { $0.artistName == song.artistName && $0.albumTitle == album }
+		await ExclusionStore.shared.blockAlbum(
+			artist: song.artistName,
+			title: album,
+			label: "\(album) — \(song.artistName)"
+		)
+	}
+
+	private func removeArtist(_ song: Song) async {
+		applyDeckRemoval { $0.artistName == song.artistName }
+		await ExclusionStore.shared.blockArtist(name: song.artistName, label: song.artistName)
+	}
+
+	/// Drop every deck song matching `shouldRemove`, animating the covers
+	/// out and re-anchoring the dial. Mirrors `applyDeck`'s reanchor
+	/// pattern (data change animates via blur-replace; rotation is set
+	/// instantly through `reanchoredRotation` so the wheel doesn't
+	/// teleport) — but this path is visible, so a removed focus lands on
+	/// the song that shifts into its slot rather than a random jump.
+	private func applyDeckRemoval(_ shouldRemove: (Song) -> Bool) {
+		let remaining = deck.filter { !shouldRemove($0) }
+		guard remaining.count != deck.count else { return }
+
+		let preservedID = dial.focusedItemID
+		let oldIdx = dial.focusedIndex
+		let newCollection = MusicItemCollection<Song>(remaining)
+
+		withAnimation(.smooth(duration: 0.4)) { deck = newCollection }
+
+		if newCollection.isEmpty {
+			dial.clear()
+		} else if let id = preservedID, let idx = newCollection.firstIndex(where: { $0.id == id }) {
+			dial.reanchor(to: idx, newID: newCollection[idx].id, count: newCollection.count)
+		} else {
+			let target = max(0, min(oldIdx, newCollection.count - 1))
+			dial.reanchor(to: target, newID: newCollection[target].id, count: newCollection.count)
+		}
 	}
 
 	// MARK: - Playback
