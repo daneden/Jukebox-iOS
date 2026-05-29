@@ -185,6 +185,7 @@ struct LibraryOverviewView: View {
 					}
 				}
 				.pickerStyle(.segmented)
+				.frame(maxWidth: .infinity)
 				.labelsHidden()
 
 				EnergyScatter(points: stats.energyPoints, timeBasis: energyTimeBasis)
