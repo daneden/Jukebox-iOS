@@ -395,7 +395,10 @@ private struct EnergyEraHeatmap: View {
 			.cornerRadius(3)
 		}
 		.chartXScale(domain: decades.map(decadeLabel))
-		.chartYScale(domain: Self.bandOrder.map(\.displayName) + [Self.unclassifiedLabel])
+		// Swift Charts puts the first y-domain entry at the top, so feed it
+		// top→bottom (Intense…Glacial, then Unclassified) to read bottom-up
+		// as Unclassified → Glacial → Mellow → Energetic → Intense.
+		.chartYScale(domain: Self.bandOrder.reversed().map(\.displayName) + [Self.unclassifiedLabel])
 		.chartXAxis {
 			AxisMarks { value in
 				AxisValueLabel {
