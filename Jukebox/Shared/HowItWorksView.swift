@@ -56,15 +56,14 @@ struct HowItWorksView: View {
 				.frame(maxWidth: .infinity)
 				.padding(.vertical, 8)
 
-			body(Text("Three complementary pools of \(GemDeckBuilder.basePoolSize) songs each — songs you used to play a lot, songs you saved long ago but barely touched, and songs you added recently but only half-explored. Together they cover lost favorites, neglected adds, and unfinished discoveries."))
+			body(Text("Three complementary pools of \(GemDeckBuilder.basePoolSize) songs each: songs you used to play a lot, songs you saved long ago but barely touched, and songs you added recently but only half-explored. Together they cover forgotten favorites, untapped potential, and hidden gems."))
 
 			VStack(alignment: .leading, spacing: 6) {
 				bullet(Text("Nostalgia: `log(plays + 1) × min(monthsDormant, 60)`"))
 				bullet(Text("Discovery: `monthsInLibrary / (plays + 1)`"))
 				bullet(Text("Freshness: `exp(−daysSinceAdded / 90) × log(plays + 1) × dormantWeeks`"))
 				bullet(Text("Final score: each is normalised to `[0, 1]` across the pool, then blended `0.50` nostalgia + `0.25` discovery + `0.25` freshness"))
-				bullet(Text("Recently-played songs are down-ranked, not excluded — songs played today score at `10%`, recovering linearly over `14 days`"))
-				bullet(Text("After scoring, no more than `\(GemDeckBuilder.perArtistCap)` songs per artist or `\(GemDeckBuilder.perAlbumCap)` per album make the cut"))
+				bullet(Text("Recently-played songs are down-ranked, not excluded. Songs played today score at 10%, recovering linearly over 14 days"))
 			}
 			.font(.footnote)
 			.fontDesign(.serif)
@@ -78,20 +77,20 @@ struct HowItWorksView: View {
 		VStack(alignment: .leading, spacing: 12) {
 			sectionHeading("Ordering the songs")
 
-			body(Text("The final \(GemDeckBuilder.deckSize) songs are threaded into a path where consecutive entries share sonic mood. Each step picks the next song with the highest similarity to the previous, with diversity rules so the path doesn’t clump:"))
+			body(Text("The top-scoring \(GemDeckBuilder.deckSize) songs are threaded into a path where consecutive entries share sonic mood. Each step picks the next song with the highest similarity to the previous, with diversity rules so the path doesn’t clump:"))
 
 			VStack(alignment: .leading, spacing: 6) {
-				bullet(Text("No same artist within the previous `\(SongDeckWalk.artistLookback)` songs"))
-				bullet(Text("No same album within the previous `\(SongDeckWalk.albumLookback)` songs"))
+				bullet(Text("No same artist within the previous \(SongDeckWalk.artistLookback) songs"))
+				bullet(Text("No same album within the previous \(SongDeckWalk.albumLookback) songs"))
 				bullet(Text("Pairs you’ve flagged as bad are skipped"))
 			}
 			.font(.footnote)
 			.fontDesign(.serif)
 			.foregroundStyle(.secondary)
 
-			body(Text("The starting song is picked from the top `\(SongDeckWalk.seedTier)` by score, biased away from the artist and decade you last landed on so shuffles actually jump."))
+			body(Text("The starting song is picked from the top \(SongDeckWalk.seedTier) by score, biased away from the artist and decade you last landed on, so each time you press \(Image(systemName: "shuffle")) Shuffle, it feels different."))
 
-			body(Text("Filters (Energy, Decade, Variety) feed into the same pipeline. Energy and Decade narrow the pool *before* scoring; Variety changes how greedy the ordering is — Steady stays close to the starting song’s mood, Varied lets less-similar candidates win sometimes."))
+			body(Text("Filters (Energy, Decade, Variety) feed into the same pipeline. Energy and Decade narrow the pool *before* scoring; Variety changes how greedy the ordering is — Steady stays close to the starting song’s mood, Varied lets less-similar candidates win more often."))
 		}
 	}
 
@@ -101,9 +100,9 @@ struct HowItWorksView: View {
 		VStack(alignment: .leading, spacing: 12) {
 			sectionHeading("Audio fingerprints")
 
-			body(Text("Each song’s audio is fingerprinted from its 30-second preview using Apple’s built-in audio analyzer. The resulting 512-number vector captures the song’s sonic character and is cached locally on your device."))
+			body(Text("Each song’s audio is fingerprinted from its 30-second iTunes preview using Apple’s built-in audio analyzer. The resulting 512-number vector captures the song’s sonic character and is cached locally on your device."))
 
-			body(Text("Cosine similarity between two vectors tells the ordering how alike two songs sound. That signal is blended with tempo, genre, and release date so the ordering can tell apart songs the embedding bunches together. Weights depend on what’s cached:"))
+			body(Text("Cosine similarity between two vectors tells the ordering how alike two songs sound. That signal is blended with tempo, genre, and release date to create playlists that feel curated. Weights depend on what’s cached:"))
 
 			VStack(alignment: .leading, spacing: 6) {
 				bullet(Text("Full signal: `35%` fingerprint + `20%` tempo + `20%` genre + `25%` release date"))
@@ -122,7 +121,7 @@ struct HowItWorksView: View {
 		VStack(alignment: .leading, spacing: 16) {
 			sectionHeading("Energy")
 
-			body(Text("Every song gets an energy score from 0 to 1. The four bands you can filter by — Glacial, Mellow, Energetic, Intense — are named stretches of that one axis, not separate buckets."))
+			body(Text("Every song gets an energy score from 0 to 1. The four bands you can filter by—\(EnergyBand.glacial.textView), \(EnergyBand.mellow.textView), \(EnergyBand.energetic.textView), \(EnergyBand.intense.textView)—span the range."))
 
 			VStack(spacing: 8) {
 				EnergyScale()

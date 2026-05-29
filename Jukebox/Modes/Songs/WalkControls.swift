@@ -147,6 +147,13 @@ enum EnergyBand: Int, CaseIterable, Identifiable {
 		case .intense: ["metal", "hardcore", "punk", "industrial", "techno", "drum'n'bass", "jungle", "dubstep"]
 		}
 	}
+	
+	var textView: Text {
+		Text(self == .any ? self.displayName : self.displayName.uppercased())
+			.fontWidth(self.fontWidth)
+			.fontDesign(.default)
+			.foregroundStyle(self.tint)
+	}
 }
 
 /// Inclusive decade range (e.g. 1970...2000 = 1970s, 1980s, 1990s, 2000s).
