@@ -15,11 +15,11 @@ import TipKit
 
 struct SongsTip: Tip {
 	var title: Text {
-		Text("Hidden gems")
+		Text("Songs")
 	}
 
 	var message: Text? {
-		Text("Spin the dial through songs that have gone quiet in your library, then tap to play.")
+		Text("Rediscover old favourites, new arrivals, and hidden gems. Hit shuffle to see a new mix.")
 	}
 
 	var image: Image? {
@@ -29,11 +29,11 @@ struct SongsTip: Tip {
 
 struct PlaylistsTip: Tip {
 	var title: Text {
-		Text("Spin your playlists")
+		Text("Playlists")
 	}
 
 	var message: Text? {
-		Text("Flick the dial to land on a playlist you forgot you saved.")
+		Text("Flick the dial or hit shuffle to land on a playlist you forgot you saved.")
 	}
 
 	var image: Image? {
@@ -43,11 +43,11 @@ struct PlaylistsTip: Tip {
 
 struct DesignTip: Tip {
 	var title: Text {
-		Text("Design by energy")
+		Text("Design")
 	}
 
 	var message: Text? {
-		Text("Draw a curve from calm to intense and Playback builds a playlist that follows it.")
+		Text("Create playlists from your library based on their energy. Works best after a few days of use.")
 	}
 
 	var image: Image? {
@@ -56,15 +56,28 @@ struct DesignTip: Tip {
 }
 
 extension View {
-	/// Pins a dismissible onboarding `TipView` to the top of a tab. The inset
-	/// sits outside the tab's content `VStack`, so it never enters the dial's
-	/// animation scope; `TipView` collapses to nothing once the tip is
-	/// dismissed (its state persists via TipKit's datastore).
-	func tabOnboardingTip(_ tip: some Tip) -> some View {
+	/// The two stacked top safe-area insets every tab shares: the dismissible
+	/// onboarding tip just above the content, and — on macOS, which has no
+	/// principal-toolbar slot — the Playback wordmark pinned above the tip.
+	/// (iOS hosts the wordmark in the navigation bar via `.toolbar`.) Both sit
+	/// outside the content `VStack`, so neither enters the dial's animation
+	/// scope; `TipView` collapses to nothing once the tip is dismissed (its
+	/// state persists via TipKit's datastore).
+	///
+	/// Applied tip-first so the macOS wordmark inset is the outer (topmost)
+	/// one: wordmark → tip → content.
+	func tabHeader(tip: some Tip) -> some View {
 		safeAreaInset(edge: .top, spacing: 0) {
 			TipView(tip)
 				.padding(.horizontal)
 				.padding(.top, 8)
 		}
+		#if os(macOS)
+		.safeAreaInset(edge: .top, spacing: 0) {
+			ToolbarLogo()
+				.frame(maxWidth: .infinity)
+				.padding(.top, 8)
+		}
+		#endif
 	}
 }

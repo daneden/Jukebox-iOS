@@ -27,11 +27,6 @@ struct DesignView: View {
 	var body: some View {
 		NavigationStack {
 			VStack(spacing: 24) {
-				#if os(macOS)
-					ToolbarLogo()
-						.padding(.top, 8)
-				#endif
-
 				EnergyCurveEditor(curve: $curve, songCount: songCount)
 					.padding(.horizontal)
 					.padding(.vertical, 8)
@@ -41,7 +36,7 @@ struct DesignView: View {
 
 				Spacer(minLength: 0)
 			}
-			.tabOnboardingTip(DesignTip())
+			.tabHeader(tip: DesignTip())
 			.safeAreaBar(edge: .bottom, alignment: .center) {
 				bottomBar
 			}

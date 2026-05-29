@@ -46,11 +46,6 @@ struct PlaylistsView: View {
 	var body: some View {
 		NavigationStack {
 			VStack(spacing: 0) {
-				#if os(macOS)
-					ToolbarLogo()
-						.padding(.top, 8)
-				#endif
-
 				Spacer(minLength: 0)
 
 				DialView(
@@ -86,7 +81,7 @@ struct PlaylistsView: View {
 				if scenePhase == .active { await updatePlaylists() }
 			}
 			.refreshable { await updatePlaylists() }
-			.tabOnboardingTip(PlaylistsTip())
+			.tabHeader(tip: PlaylistsTip())
 			.safeAreaBar(edge: .bottom, alignment: .trailing) {
 				PlaybackControls(
 					disabled: dial.isSpinning || playlists.isEmpty,

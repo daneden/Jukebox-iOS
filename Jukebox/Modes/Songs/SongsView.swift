@@ -95,11 +95,6 @@ struct SongsView: View {
 	var body: some View {
 		NavigationStack {
 			VStack(spacing: 0) {
-				#if os(macOS)
-					ToolbarLogo()
-						.padding(.top, 8)
-				#endif
-
 				Spacer(minLength: 0)
 
 				WalkFilterChips(controls: walkControls) {
@@ -150,7 +145,7 @@ struct SongsView: View {
 				if scenePhase == .active, !hasBuiltDeck { await buildDeck() }
 			}
 			.refreshable { await buildDeck() }
-			.tabOnboardingTip(SongsTip())
+			.tabHeader(tip: SongsTip())
 			.safeAreaBar(edge: .bottom, alignment: .trailing) {
 				PlaybackControls(
 					disabled: dial.isSpinning || deck.isEmpty || isReshuffling,
