@@ -49,6 +49,7 @@ enum SongDeckWalk {
 		embeddings: [MusicItemID: [Float]],
 		bpms: [MusicItemID: Double] = [:],
 		originals: [MusicItemID: Date] = [:],
+		genres: [MusicItemID: [String]] = [:],
 		blockedPairs: Set<String> = [],
 		seed: UInt64,
 		controls: WalkControls = .default,
@@ -105,10 +106,10 @@ enum SongDeckWalk {
 					if !isEligible(candidate: candidate, history: history, relaxLevel: relaxLevel) {
 						continue
 					}
-					let simPrev = similarity(candidate, previous, embeddings: embeddings, bpms: bpms, originals: originals)
+					let simPrev = similarity(candidate, previous, embeddings: embeddings, bpms: bpms, originals: originals, genres: genres)
 					let score: Float
 					if g > 0 {
-						let simSeed = similarity(candidate, seedSong, embeddings: embeddings, bpms: bpms, originals: originals)
+						let simSeed = similarity(candidate, seedSong, embeddings: embeddings, bpms: bpms, originals: originals, genres: genres)
 						score = (1 - g) * simPrev + g * simSeed
 					} else {
 						score = simPrev
@@ -208,10 +209,13 @@ enum SongDeckWalk {
 	/// pairwise cosine into a narrow 0.80–0.94 band that the walk can't
 	/// use to make meaningful next-song decisions.
 	///
-	/// We compensate by blending the cosine with metadata signals we have
-	/// at near-total coverage (genre 99.9%, releaseDate close to 100%)
-	/// and — when both sides have BPM cached — a tempo-proximity term
-	/// that captures the rhythmic dimension the timbral embedding
+	/// We compensate by blending the cosine with metadata signals: era
+	/// (releaseDate, ~100% via the original-date cache) and genre (from
+	/// `GenreStore` — the `.genres` relationship the warmer caches, since
+	/// `Song.genreNames` is empty on library songs; coverage grows as the
+	/// warmer fills, so an un-warmed pair scores neutral rather than
+	/// wrong) and — when both sides have BPM cached — a tempo-proximity
+	/// term that captures the rhythmic dimension the timbral embedding
 	/// flattens. BPM coverage is partial (legacy embeddings have nil
 	/// BPM, ambient/classical defeats the detector), so pairs without
 	/// it fall through to the no-BPM blend.
@@ -229,9 +233,10 @@ enum SongDeckWalk {
 		_ b: Song,
 		embeddings: [MusicItemID: [Float]],
 		bpms: [MusicItemID: Double] = [:],
-		originals: [MusicItemID: Date] = [:]
+		originals: [MusicItemID: Date] = [:],
+		genres: [MusicItemID: [String]] = [:]
 	) -> Float {
-		let genre = GenreSimilarity.score(a.genreNames, b.genreNames)
+		let genre = GenreSimilarity.score(genres[a.id] ?? [], genres[b.id] ?? [])
 		let era = eraProximity(a, b, originals: originals)
 
 		if let eA = embeddings[a.id], let eB = embeddings[b.id] {

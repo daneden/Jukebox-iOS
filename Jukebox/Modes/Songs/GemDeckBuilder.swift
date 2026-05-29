@@ -338,6 +338,10 @@ enum GemDeckBuilder {
 		// top-N. Returns only songs with a non-nil BPM; the walk's
 		// similarity blend gates on per-pair coverage.
 		let bpms = await EmbeddingStore.shared.bpms(for: top.map(\.id))
+		// Cached genres for the walk's genre-similarity term. `genreNames`
+		// is empty on library songs, so this is the only genre signal;
+		// coverage grows as the warmer fills GenreStore.
+		let genres = await GenreStore.shared.genres(for: top.map(\.id))
 		// Pull the user's blocked-pair feedback so the walk avoids
 		// recreating transitions they've explicitly rejected.
 		let blockedPairs = await TransitionFeedbackStore.shared.allBlockedPairs()
@@ -346,6 +350,7 @@ enum GemDeckBuilder {
 			embeddings: embeddings,
 			bpms: bpms,
 			originals: originals,
+			genres: genres,
 			blockedPairs: blockedPairs,
 			seed: seed,
 			controls: controls,
