@@ -72,6 +72,11 @@ actor LibraryEmbeddingWarmer {
 	/// gentler cadence is friendlier on battery + Apple's preview CDN.
 	static let breath: Duration = .milliseconds(500)
 
+	/// Sleep between songs in the genre-hydration loop. Much shorter than
+	/// `breath` — `.with([.genres])` is a lightweight relationship fetch,
+	/// no audio download — so the broadest-impact signal fills quickly.
+	static let genreBreath: Duration = .milliseconds(80)
+
 	/// Window during which a permanently-failed song stays in the
 	/// negative cache. After this we retry once — Apple's catalog
 	/// occasionally backfills previews for older library items.
@@ -211,6 +216,27 @@ actor LibraryEmbeddingWarmer {
 			union = try await librarySnapshot()
 		} catch {
 			return
+		}
+
+		// Genre hydration. Bare `MusicLibraryRequest` songs come back with
+		// an empty `genreNames`; the genres only exist on the `.genres`
+		// relationship, which has to be hydrated per song. Cache the names
+		// so the energy fallback, the deck builders' band slices, and the
+		// walk's genre blend have a signal to read. Run first and on a
+		// short breath — it's the lightest pass and the broadest in impact,
+		// so it should land before the heavier embed pass across sessions.
+		let genreResolved = await GenreStore.shared.resolvedIDs(for: union.map(\.id))
+		for song in union where !genreResolved.contains(song.id.rawValue) {
+			if Task.isCancelled { return }
+			if !conditionsFavorable(requirePower: requirePower) { return }
+
+			// Only record on a successful hydration — a thrown error is
+			// transient, so leave the song unresolved to retry next pass
+			// rather than caching an empty list it doesn't deserve.
+			if let hydrated = try? await song.with([.genres]) {
+				await GenreStore.shared.store(hydrated.genres?.map(\.name) ?? [], for: song.id)
+			}
+			try? await Task.sleep(for: Self.genreBreath)
 		}
 
 		for song in await embeddingEligible(union) {
