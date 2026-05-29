@@ -256,39 +256,34 @@ struct LibraryOverviewView: View {
 
 // MARK: - Bar charts
 
-/// Horizontal bar per energy band (+ Unclassified), colored by band tint,
-/// count as a trailing annotation. Swift Charts handles the bar scaling,
-/// layout, and animation that the old hand-rolled `BarRow` did by hand.
+/// Single stacked bar showing the library's energy *mix* — one band-tinted
+/// segment per band (Glacial→Intense, low energy left to high right). Counts
+/// ride in the legend so they're not lost in the thin segments. Reads as a
+/// compact "energy fingerprint" rather than four magnitude bars.
 private struct EnergyChart: View {
 	let rows: [LibraryStats.EnergyCount]
+
+	/// Legend entry per band carries the count, e.g. "Mellow  340".
+	private func legendLabel(_ row: LibraryStats.EnergyCount) -> String {
+		"\(row.label)  \(row.count.formatted())"
+	}
 
 	var body: some View {
 		Chart(rows) { row in
 			BarMark(
 				x: .value("Songs", row.count),
-				y: .value("Energy", row.label)
+				y: .value("Library", "")
 			)
-			.foregroundStyle(row.band?.tint ?? .secondary)
-			.cornerRadius(4)
-			.annotation(position: .trailing, alignment: .leading) {
-				Text(row.count, format: .number)
-					.font(.caption)
-					.monospacedDigit()
-					.foregroundStyle(.secondary)
-			}
+			.foregroundStyle(by: .value("Band", legendLabel(row)))
 		}
-		// rows are in band order (Glacial…Intense); the first y-domain
-		// entry sits at the top, matching that order.
-		.chartYScale(domain: rows.map(\.label))
+		.chartForegroundStyleScale(
+			domain: rows.map(legendLabel),
+			range: rows.map { $0.band?.tint ?? .secondary }
+		)
 		.chartXAxis(.hidden)
-		.chartYAxis {
-			// Labels only, no gridlines — a clean left label column.
-			AxisMarks(position: .leading) {
-				AxisValueLabel()
-			}
-		}
-		.chartLegend(.hidden)
-		.frame(height: CGFloat(rows.count) * 32)
+		.chartYAxis(.hidden)
+		.chartPlotStyle { $0.frame(height: 28) }
+		.chartLegend(position: .bottom, alignment: .leading)
 	}
 }
 
