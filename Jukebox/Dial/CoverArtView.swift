@@ -23,53 +23,59 @@ struct CoverArtView: View {
 	private let clipShape = RoundedRectangle(cornerRadius: 12)
 
 	var body: some View {
-		if let artwork {
-			let request = requestedWidth ?? width
-			ZStack {
-				// Backdrop fill matching the album's predominant color, so a
-				// not-yet-loaded cover reads as "this album" rather than a
-				// blank tile. Library artwork carries no backgroundColor
-				// (catalog-only metadata), so it falls through to material.
-				if let cgColor = artwork.backgroundColor {
-					Color(cgColor: cgColor)
-				} else {
-					Rectangle().fill(.regularMaterial)
+		Group {
+			if let artwork {
+				let request = requestedWidth ?? width
+				ZStack {
+					// Backdrop fill matching the album's predominant color, so a
+					// not-yet-loaded cover reads as "this album" rather than a
+					// blank tile. Library artwork carries no backgroundColor
+					// (catalog-only metadata), so it falls through to material.
+					if let cgColor = artwork.backgroundColor {
+						Color(cgColor: cgColor)
+					} else {
+						Rectangle().fill(.regularMaterial)
+					}
+					
+					// ArtworkImage — MusicKit's own loader — rather than
+					// AsyncImage(artwork.url(…)). Library covers resolve through a
+					// musickit:// URL served by itunescloudd / mediaartworkd;
+					// ArtworkImage fetches them via MusicKit's coordinated, cached
+					// pipeline. Driving one AsyncImage per tile instead spun up
+					// independent, uncached URLSession loads against those daemons,
+					// and the 7-tile burst the moment a deck landed raced musicd's
+					// cold-launch init and wedged it — blank covers, library
+					// requests that never returned, and SwiftData reads stalling
+					// behind the back-pressure, until the daemon recovered.
+					// `requestedWidth` keeps the decoded buffer small; scaleEffect
+					// upsamples non-focused tiles to display size.
+					ArtworkImage(artwork, width: request, height: request)
+						.scaleEffect(width / request, anchor: .center)
 				}
-
-				// ArtworkImage — MusicKit's own loader — rather than
-				// AsyncImage(artwork.url(…)). Library covers resolve through a
-				// musickit:// URL served by itunescloudd / mediaartworkd;
-				// ArtworkImage fetches them via MusicKit's coordinated, cached
-				// pipeline. Driving one AsyncImage per tile instead spun up
-				// independent, uncached URLSession loads against those daemons,
-				// and the 7-tile burst the moment a deck landed raced musicd's
-				// cold-launch init and wedged it — blank covers, library
-				// requests that never returned, and SwiftData reads stalling
-				// behind the back-pressure, until the daemon recovered.
-				// `requestedWidth` keeps the decoded buffer small; scaleEffect
-				// upsamples non-focused tiles to display size.
-				ArtworkImage(artwork, width: request, height: request)
-					.scaleEffect(width / request, anchor: .center)
-			}
-			.frame(width: width, height: width)
-			.clipShape(clipShape)
-			.overlay {
-				clipShape
-					.fill(.clear)
-					.strokeBorder(Color.white.opacity(0.2), lineWidth: 1.0 / displayScale)
-					.blendMode(.plusLighter)
-			}
-		} else {
-			clipShape
-				.fill(.regularMaterial)
 				.frame(width: width, height: width)
+				.clipShape(clipShape)
 				.overlay {
-					Image(systemName: placeholderSymbol)
-						.resizable()
-						.aspectRatio(contentMode: .fit)
-						.frame(width: width / 2)
-						.foregroundStyle(.tertiary)
+					clipShape
+						.fill(.clear)
+						.strokeBorder(Color.white.opacity(0.2), lineWidth: 1.0 / displayScale)
+						.blendMode(.plusLighter)
 				}
+			} else {
+				clipShape
+					.fill(.regularMaterial)
+					.frame(width: width, height: width)
+					.overlay {
+						Image(systemName: placeholderSymbol)
+							.resizable()
+							.aspectRatio(contentMode: .fit)
+							.frame(width: width / 2)
+							.foregroundStyle(.tertiary)
+					}
+			}
 		}
+		#if os(iOS)
+		.contentShape(.contextMenuPreview, clipShape)
+		#endif
+		.contentShape(.dragPreview, clipShape)
 	}
 }
