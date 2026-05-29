@@ -181,6 +181,7 @@ struct LibraryOverviewView: View {
 				Picker("Time basis", selection: $energyTimeBasis) {
 					ForEach(EnergyTimeBasis.allCases) { basis in
 						Text(basis.label).tag(basis)
+							.frame(maxWidth: .infinity)
 					}
 				}
 				.pickerStyle(.segmented)
@@ -190,8 +191,6 @@ struct LibraryOverviewView: View {
 			}
 		} header: {
 			Text("Energy over time")
-		} footer: {
-			Text(energyTimeBasis.footer)
 		}
 	}
 
@@ -348,26 +347,21 @@ private enum EnergyTimeBasis: String, CaseIterable, Identifiable {
 
 	var label: String {
 		switch self {
-		case .release: "Release"
-		case .added: "Added"
-		}
-	}
-
-	var footer: String {
-		switch self {
-		case .release: "By each song’s release year."
-		case .added: "By when you added each song — a read on how your taste has shifted."
+		case .release: "Release date"
+		case .added: "Date added to library"
 		}
 	}
 }
 
 /// One dot per classified song: continuous energy (y) against a time axis
-/// (x) the caller chooses — release year, or the year the song was added to
-/// the library. Finer than bucketing into bands — energy is a 0–1 scalar
-/// (band centre nudged by tempo), so the dots resolve into a cloud as BPM
-/// coverage grows. The y-axis is labelled at the four band centres so the
-/// continuous value still reads as Glacial…Intense. Songs with no cached BPM
-/// land exactly on their band's centre line until tempo spreads them.
+/// (x) the caller chooses — the song's release date, or the date it was added
+/// to the library. Dates plot on a temporal axis (not bucketed to the year),
+/// so songs spread across months. Finer than bucketing into bands — energy is
+/// a 0–1 scalar (band centre nudged by tempo), so the dots resolve into a
+/// cloud as BPM coverage grows. The y-axis is labelled at the four band
+/// centres so the continuous value still reads as Glacial…Intense. Songs with
+/// no cached BPM land exactly on their band's centre line until tempo spreads
+/// them.
 private struct EnergyScatter: View {
 	let points: [LibraryStats.EnergyPoint]
 	let timeBasis: EnergyTimeBasis
@@ -381,33 +375,39 @@ private struct EnergyScatter: View {
 		(0.875, "Intense"),
 	]
 
-	/// Points plottable on the current axis. Every point has a release year;
-	/// only library-dated songs have an added year, so the added view drops
-	/// the rest rather than collapsing them onto a fake date.
-	private var plotted: [LibraryStats.EnergyPoint] {
-		timeBasis == .added ? points.filter { $0.addedYear != nil } : points
+	private static func date(year: Int) -> Date {
+		Calendar.current.date(from: DateComponents(year: year, month: 1, day: 1)) ?? .distantPast
 	}
 
-	private func year(_ point: LibraryStats.EnergyPoint) -> Int {
-		(timeBasis == .added ? point.addedYear : point.year) ?? point.year
+	/// Points plottable on the current axis. Every point has a release date;
+	/// only library-dated songs have an added date, so the added view drops
+	/// the rest rather than collapsing them onto a fake date.
+	private var plotted: [LibraryStats.EnergyPoint] {
+		timeBasis == .added ? points.filter { $0.addedDate != nil } : points
+	}
+
+	private func date(_ point: LibraryStats.EnergyPoint) -> Date {
+		(timeBasis == .added ? point.addedDate : point.releaseDate) ?? point.releaseDate
 	}
 
 	/// X-axis bounds per basis. Release clamps to plausible era bounds
-	/// (1900–2030) — without a domain Charts auto-ranges ~0–3000, and stray
-	/// year-0 metadata drags the scale; the clamp fixes both. Added range-
-	/// frames to the library's own lifetime (system-set dates are reliable),
-	/// so a years-old library fills the axis instead of hugging the right
-	/// edge of a century-wide one.
-	private var yearDomain: ClosedRange<Int> {
-		let years = plotted.map(year)
-		guard let minY = years.min(), let maxY = years.max() else { return 2000 ... 2025 }
+	/// (1900–2030) — without a domain Charts auto-ranges to the data, and a
+	/// stray year-0 release date would drag the scale; the clamp clips it.
+	/// Added range-frames to the library's own lifetime (system-set dates are
+	/// reliable), so a years-old library fills the axis instead of hugging the
+	/// right edge of a century-wide one.
+	private var dateDomain: ClosedRange<Date> {
+		let dates = plotted.map(date)
+		guard let lo = dates.min(), let hi = dates.max() else {
+			return Self.date(year: 2015) ... Self.date(year: 2025)
+		}
 		switch timeBasis {
 		case .release:
-			let lo = max(1900, minY)
-			let hi = min(2030, maxY)
-			return lo ... max(lo + 1, hi)
+			let clampedLo = max(Self.date(year: 1900), lo)
+			let clampedHi = min(Self.date(year: 2031), hi)
+			return clampedLo ... max(clampedHi, clampedLo.addingTimeInterval(1))
 		case .added:
-			return minY ... max(minY + 1, maxY)
+			return lo ... max(hi, lo.addingTimeInterval(1))
 		}
 	}
 
@@ -415,7 +415,7 @@ private struct EnergyScatter: View {
 		Chart {
 			ForEach(plotted) { point in
 				PointMark(
-					x: .value("Year", year(point)),
+					x: .value("Date", date(point)),
 					y: .value("Energy", point.energy)
 				)
 				// Blend the band tints across the energy axis so a song
@@ -425,7 +425,7 @@ private struct EnergyScatter: View {
 				.opacity(0.45)
 			}
 		}
-		.chartXScale(domain: yearDomain)
+		.chartXScale(domain: dateDomain)
 		.animation(.smooth(duration: 0.4), value: timeBasis)
 		.chartYScale(domain: 0 ... 1)
 		.chartYAxis {
@@ -444,8 +444,8 @@ private struct EnergyScatter: View {
 			AxisMarks { value in
 				AxisGridLine()
 				AxisValueLabel {
-					if let year = value.as(Int.self) {
-						Text(verbatim: String(year)).font(.caption2).foregroundStyle(.secondary)
+					if let date = value.as(Date.self) {
+						Text(date, format: .dateTime.year()).font(.caption2).foregroundStyle(.secondary)
 					}
 				}
 			}
