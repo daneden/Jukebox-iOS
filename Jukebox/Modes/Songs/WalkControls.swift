@@ -23,7 +23,7 @@ struct WalkControls: Equatable {
 	/// values add softmax temperature so the per-step pick is exploratory
 	/// rather than greedy. Zero reproduces the current default.
 	var meander: Double
-	var energy: EnergyBand
+	var energy: EnergyFilter
 	/// Inclusive decade range applied as a hard filter on the candidate
 	/// pool. Default spans `DecadeRange.fullRange` so "no filter" is
 	/// just leaving both thumbs at the extremes.
@@ -51,10 +51,41 @@ struct WalkControls: Equatable {
 	}
 }
 
-/// Flowstate-style intensity bands. Until the audio-feature classifier
-/// from #10 lands, energy is matched against the song's `genreNames`
-/// via case-insensitive substring keywords — a coarse signal but
-/// honest about what we can compute today.
+/// Continuous energy filter for the Songs walk. `target` is a position
+/// on the `[0, 1]` energy axis (`SongEnergy`); `window` is the half-width
+/// kept around it. `target == nil` means no energy filter. The matching
+/// `EnergyBand` for labeling/tinting is `EnergyBand.forValue(target)`.
+struct EnergyFilter: Equatable {
+	var target: Double?
+	var window: Double
+
+	/// Default half-width when the filter is first enabled — about one
+	/// band's worth of spread on either side.
+	static let defaultWindow: Double = 0.15
+
+	/// Sensible bounds for the window control.
+	static let minWindow: Double = 0.05
+	static let maxWindow: Double = 0.35
+
+	static let any = EnergyFilter(target: nil, window: defaultWindow)
+
+	var isActive: Bool {
+		target != nil
+	}
+
+	/// True when `energy` falls inside the target ± window. Always true
+	/// when the filter is inactive.
+	func contains(_ energy: Double) -> Bool {
+		guard let target else { return true }
+		return abs(energy - target) <= window
+	}
+}
+
+/// Flowstate-style intensity bands. Now the *labeling* layer over the
+/// continuous `SongEnergy` axis (each band is a 0.25-wide range — see
+/// `EnergyBand.forValue`/`centerValue`) as well as the unit the
+/// `EnergyClassifier` assigns. Tints/labels drive the energy chip and
+/// the overview buckets.
 enum EnergyBand: Int, CaseIterable, Identifiable {
 	case any = 0
 	case glacial = 1

@@ -52,12 +52,12 @@ enum GemDeckBuilder {
 	/// has more to bite into.
 	///
 	/// Multipliers compound, capped at `maxPoolSize`:
-	///  - energy != .any        → ×2
+	///  - energy filter active  → ×2
 	///  - decade range narrow   → ×3 (span ≤ 30 years, i.e. ≤ 3 decades)
 	///  - decade range bounded  → ×2 (4+ decades but not the full range)
 	static func poolSize(for controls: WalkControls) -> Int {
 		var multiplier = 1
-		if controls.energy != .any { multiplier *= 2 }
+		if controls.energy.isActive { multiplier *= 2 }
 		if !controls.decadeRange.isUnbounded {
 			let span = controls.decadeRange.upper - controls.decadeRange.lower
 			multiplier *= (span <= 30 ? 3 : 2)
@@ -154,7 +154,7 @@ enum GemDeckBuilder {
 					// post-filter the three base pools to almost nothing
 					// when the user asks for Intense or Energetic. No-ops
 					// when the filter is `.any`.
-					async let bandSliceTask = fetchOptionalGenreSlice(for: controls.energy)
+					async let bandSliceTask = fetchOptionalGenreSlice(for: controls.energy.target.map(EnergyBand.forValue))
 
 					let nostalgia = try await nostalgiaTask
 					let discovery = try await discoveryTask
@@ -261,29 +261,33 @@ enum GemDeckBuilder {
 		// don't need them. The 'top-only' path below short-circuits this
 		// branch.
 		var poolEmbeddings: [MusicItemID: [Float]]?
-		var poolGenres: [MusicItemID: [String]]?
-		if controls.energy != .any {
+		var poolGenres: [MusicItemID: [String]] = [:]
+		var poolBpms: [MusicItemID: Double] = [:]
+		if controls.energy.isActive {
 			poolEmbeddings = await EmbeddingStore.shared.embeddings(for: songs.map(\.id))
 			poolGenres = await GenreStore.shared.genres(for: songs.map(\.id))
+			poolBpms = await EmbeddingStore.shared.bpms(for: songs.map(\.id))
 		}
 
-		// Energy: centroid-based refinement first; if there aren't
-		// enough anchors with cached embeddings the classifier returns
-		// nil and we fall through to the keyword filter; if *that* is
-		// empty we fall through to the unfiltered pool. Soft-fail at
-		// every step so a misconfigured band can't produce a blank deck.
+		// Energy: keep songs whose continuous energy (band center floated
+		// by BPM — see SongEnergy) sits within the target window. Songs we
+		// can't place (no embedding and no cached genre) are excluded;
+		// soft-fail to the whole pool if a too-narrow window would blank
+		// the deck, so the dial is never empty.
 		let energyPool: [Song]
-		if controls.energy == .any {
-			energyPool = songs
-		} else if let emb = poolEmbeddings,
-		          let centroidFiltered = EnergyClassifier.filter(songs, band: controls.energy, embeddings: emb, genres: poolGenres ?? [:]),
-		          !centroidFiltered.isEmpty
-		{
-			energyPool = centroidFiltered
-		} else if let keywordFiltered = filterByEnergy(songs, energy: controls.energy),
-		          !keywordFiltered.isEmpty
-		{
-			energyPool = keywordFiltered
+		if let target = controls.energy.target, let bundle = EnergyCentroidsLoader.bundled {
+			let flat = EnergyClassifier.flatten(bundle: bundle)
+			let filtered = songs.filter { song in
+				let band = EnergyClassifier.band(
+					embedding: poolEmbeddings?[song.id],
+					genres: poolGenres[song.id] ?? [],
+					bundle: bundle,
+					flat: flat
+				)
+				guard let energy = SongEnergy.value(band: band, bpm: poolBpms[song.id]) else { return false }
+				return abs(energy - target) <= controls.energy.window
+			}
+			energyPool = filtered.isEmpty ? songs : filtered
 		} else {
 			energyPool = songs
 		}
@@ -363,20 +367,6 @@ enum GemDeckBuilder {
 			libraryDecadeBounds: libraryDecadeBounds,
 			originals: originals
 		)
-	}
-
-	/// Returns nil when the band imposes no filter; otherwise returns
-	/// the subset of `songs` whose `genreNames` contain (case-insensitive
-	/// substring) any of the band's keywords.
-	private static func filterByEnergy(_ songs: [Song], energy: EnergyBand) -> [Song]? {
-		guard let keywords = energy.genreKeywords else { return nil }
-		let lowered = keywords.map { $0.lowercased() }
-		return songs.filter { song in
-			song.genreNames.contains { genre in
-				let g = genre.lowercased()
-				return lowered.contains(where: g.contains)
-			}
-		}
 	}
 
 	/// Walks the score-sorted candidate list and keeps each song unless
@@ -521,8 +511,8 @@ enum GemDeckBuilder {
 	/// Returns `[]` for `.any` (the base pools already cover everything)
 	/// or when MusicKit fails the request; the union just absorbs the
 	/// empty contribution without affecting the build's success.
-	private static func fetchOptionalGenreSlice(for band: EnergyBand) async -> [Song] {
-		guard band != .any, let keyword = primarySliceKeyword[band] else { return [] }
+	private static func fetchOptionalGenreSlice(for band: EnergyBand?) async -> [Song] {
+		guard let band, band != .any, let keyword = primarySliceKeyword[band] else { return [] }
 		var request = MusicLibraryRequest<Song>()
 		request.filter(text: keyword)
 		request.sort(by: \.playCount, ascending: false)

@@ -21,12 +21,13 @@ struct WalkFilterChips: View {
 	private var chips: [WalkFilterChip] {
 		var result: [WalkFilterChip] = []
 
-		if controls.energy != .any {
+		if let target = controls.energy.target {
+			let band = EnergyBand.forValue(target)
 			result.append(WalkFilterChip(
-				id: "energy-\(controls.energy.rawValue)",
-				label: controls.energy.displayName.uppercased(),
-				tint: controls.energy.tint,
-				fontWidth: controls.energy.fontWidth
+				id: "energy-\(Int((target * 100).rounded()))",
+				label: band.displayName.uppercased(),
+				tint: band.tint,
+				fontWidth: band.fontWidth
 			))
 		}
 

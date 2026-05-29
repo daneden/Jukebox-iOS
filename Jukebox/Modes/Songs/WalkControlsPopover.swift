@@ -63,17 +63,17 @@ private struct WalkControlsForm: View {
 			}
 
 			Section {
-				Picker("Energy", selection: $controls.energy) {
-					ForEach(EnergyBand.allCases) { band in
-						Text(band.displayName).tag(band)
-					}
+				Toggle("Filter by energy", isOn: energyEnabled)
+				if controls.energy.isActive {
+					energyTargetSlider
+					energyWindowSlider
 				}
-				.pickerStyle(.segmented)
-				.labelsHidden()
 			} header: {
 				Text("Energy")
 			} footer: {
-				Text("Filters by broad genre. Falls back to the whole library if nothing in yours matches.")
+				Text(controls.energy.isActive
+					? "Keeps songs whose energy sits near the target. A wider range trades focus for variety."
+					: "Filter the deck by how energetic songs sound — calm ambient through driving, intense tracks. Off uses your whole library.")
 			}
 
 			Section {
@@ -166,6 +166,66 @@ private struct WalkControlsForm: View {
 		}
 		.labelsHidden()
 	}
+
+	// MARK: Energy
+
+	/// Toggling on seeds a mid-axis target; toggling off clears it
+	/// (nil = no filter) while leaving the window for next time.
+	private var energyEnabled: Binding<Bool> {
+		Binding(
+			get: { controls.energy.isActive },
+			set: { on in controls.energy.target = on ? 0.5 : nil }
+		)
+	}
+
+	private var energyTargetBinding: Binding<Double> {
+		Binding(
+			get: { controls.energy.target ?? 0.5 },
+			set: { controls.energy.target = $0 }
+		)
+	}
+
+	private var energyTargetSlider: some View {
+		let target = controls.energy.target ?? 0.5
+		let band = EnergyBand.forValue(target)
+		return VStack(alignment: .leading, spacing: 6) {
+			HStack {
+				Text(band.displayName)
+					.font(.subheadline.weight(.medium))
+					.fontWidth(band.fontWidth)
+					.foregroundStyle(band.tint)
+				Spacer()
+				Text("≈ \(target, format: .number.precision(.fractionLength(2)))")
+					.font(.subheadline)
+					.monospacedDigit()
+					.foregroundStyle(.secondary)
+					.contentTransition(.numericText())
+			}
+			Slider(value: energyTargetBinding, in: 0 ... 1) {
+				Text("Energy")
+			} minimumValueLabel: {
+				Text("Calm").font(.caption2).foregroundStyle(.secondary)
+			} maximumValueLabel: {
+				Text("Intense").font(.caption2).foregroundStyle(.secondary)
+			}
+			.labelsHidden()
+			.tint(band.tint)
+		}
+	}
+
+	private var energyWindowSlider: some View {
+		Slider(
+			value: $controls.energy.window,
+			in: EnergyFilter.minWindow ... EnergyFilter.maxWindow
+		) {
+			Text("Range")
+		} minimumValueLabel: {
+			Text("Focused").font(.caption2).foregroundStyle(.secondary)
+		} maximumValueLabel: {
+			Text("Wide").font(.caption2).foregroundStyle(.secondary)
+		}
+		.labelsHidden()
+	}
 }
 
 /// Visual summary of how many songs survived the current filter
@@ -207,7 +267,7 @@ private struct PoolSummaryRow: View {
 		switch severity {
 		case .fine: nil
 		case .low: "Loosen a filter for more variety."
-		case .veryLow: "Filters are very strict — try widening the decade range or switching Energy to Any."
+		case .veryLow: "Filters are very strict — try widening the decade range, widening the energy range, or turning the energy filter off."
 		}
 	}
 
