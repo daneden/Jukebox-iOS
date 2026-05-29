@@ -148,18 +148,17 @@ struct LibraryOverviewView: View {
 	}
 
 	private func energySection(rows: [LibraryStats.EnergyCount]) -> some View {
-		// Chart only the classified bands — folding the (currently huge)
-		// Unclassified count into the bar scale crushes the others to
-		// slivers. Report it in the footer instead.
-		let classified = rows.filter { $0.band != nil }
+		// Include Unclassified in the stack — even when it dominates, its
+		// share is the signal: how much of the library has rich sound data
+		// for walks, shrinking as analysis runs.
 		let unclassified = rows.first { $0.band == nil }?.count ?? 0
 		return Section {
-			EnergyChart(rows: classified)
+			EnergyChart(rows: rows)
 		} header: {
 			Text("Energy")
 		} footer: {
 			if unclassified > 0 {
-				Text("\(unclassified.formatted()) songs not yet classified — they fill in as analysis runs.")
+				Text("Unclassified songs aren't sound-analyzed yet — walks fall back to genre and era for them until coverage grows over Wi-Fi.")
 			}
 		}
 	}
@@ -257,9 +256,9 @@ struct LibraryOverviewView: View {
 // MARK: - Bar charts
 
 /// Single stacked bar showing the library's energy *mix* — one band-tinted
-/// segment per band (Glacial→Intense, low energy left to high right). Counts
-/// ride in the legend so they're not lost in the thin segments. Reads as a
-/// compact "energy fingerprint" rather than four magnitude bars.
+/// segment per band (Glacial→Intense), plus a grey Unclassified segment
+/// whose share signals how much of the library still lacks rich sound data.
+/// Counts ride in the legend so they're not lost in the thin segments.
 private struct EnergyChart: View {
 	let rows: [LibraryStats.EnergyCount]
 
