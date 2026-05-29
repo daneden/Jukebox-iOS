@@ -268,6 +268,27 @@ actor LibraryEmbeddingWarmer {
 			try? await OriginalReleaseResolver.resolveAndStore(song: song)
 			try? await Task.sleep(for: Self.breath)
 		}
+
+		// Last pass: re-detect BPM for rows whose cached value came from an
+		// older detector version. Lowest priority — it improves existing
+		// data, where the earlier passes fill missing data. Re-downloads
+		// the preview but skips AudioFeaturePrint, so the embedding vector
+		// is preserved; reads keep serving the old BPM until each is
+		// overwritten, so there's no blackout. The negative-failure cache
+		// keeps unresolvable songs from re-downloading every pass.
+		let staleBPM = await EmbeddingStore.shared.staleBPMIDs(for: union.map(\.id))
+		if !staleBPM.isEmpty {
+			let failedIDs = await EmbeddingStore.shared.recentFailures(within: Self.failureRetryAfter)
+			for song in union
+				where staleBPM.contains(song.id.rawValue) && !failedIDs.contains(song.id.rawValue)
+			{
+				if Task.isCancelled { return }
+				if !conditionsFavorable(requirePower: requirePower) { return }
+
+				try? await AudioEmbeddingService.redetectBPM(song: song)
+				try? await Task.sleep(for: Self.breath)
+			}
+		}
 	}
 
 	/// Synchronous read of the latest cached gating state. Cheap enough

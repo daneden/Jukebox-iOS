@@ -24,6 +24,14 @@ actor EmbeddingStore {
 	/// embed call.
 	static let currentModelVersion = 1
 
+	/// Bump when `BPMDetector`'s algorithm changes. Independent of
+	/// `currentModelVersion` so an improved detector re-runs over existing
+	/// rows *without* invalidating the cached embedding vector. BPM reads
+	/// deliberately do NOT gate on this — they keep serving the old value
+	/// until the warmer's re-detect pass (driven by `staleBPMIDs`)
+	/// overwrites it, so there's no coverage blackout while it catches up.
+	static let currentBPMModelVersion = 1
+
 	static let shared = EmbeddingStore()
 
 	/// Pin the actor's executor to a single QoS. Callers span `.utility`
@@ -118,6 +126,7 @@ actor EmbeddingStore {
 			if let bpm {
 				existing.bpm = bpm
 				existing.bpmConfidence = bpmConfidence
+				existing.bpmModelVersion = Self.currentBPMModelVersion
 			}
 		} else {
 			let new = SongEmbedding(
@@ -126,7 +135,8 @@ actor EmbeddingStore {
 				modelVersion: Self.currentModelVersion,
 				computedAt: Date(),
 				bpm: bpm,
-				bpmConfidence: bpmConfidence
+				bpmConfidence: bpmConfidence,
+				bpmModelVersion: bpm != nil ? Self.currentBPMModelVersion : 0
 			)
 			context.insert(new)
 		}
@@ -172,6 +182,30 @@ actor EmbeddingStore {
 		guard let existing = try? context.fetch(descriptor).first else { return }
 		existing.bpm = bpm
 		existing.bpmConfidence = bpmConfidence
+		existing.bpmModelVersion = Self.currentBPMModelVersion
+		try? context.save()
+	}
+
+	/// Re-detect outcome for a stale-version row. Always stamps the row to
+	/// the current BPM version (we've now evaluated it with the current
+	/// detector), so `staleBPMIDs` stops surfacing it and the warmer
+	/// doesn't re-download it every pass. A non-nil result overwrites the
+	/// BPM; a nil result (the new detector also gave up) keeps the old
+	/// value rather than wiping a usable-if-imperfect one.
+	func refreshBPM(bpm: Double?, bpmConfidence: Float?, for songID: MusicItemID) {
+		do { try ensureLoaded() } catch { return }
+		guard let context else { return }
+
+		let id = songID.rawValue
+		let descriptor = FetchDescriptor<SongEmbedding>(
+			predicate: #Predicate { $0.songID == id }
+		)
+		guard let existing = try? context.fetch(descriptor).first else { return }
+		if let bpm {
+			existing.bpm = bpm
+			existing.bpmConfidence = bpmConfidence
+		}
+		existing.bpmModelVersion = Self.currentBPMModelVersion
 		try? context.save()
 	}
 
@@ -198,6 +232,31 @@ actor EmbeddingStore {
 			}
 		}
 		return result
+	}
+
+	/// Song IDs with a cached embedding and a non-nil BPM detected by an
+	/// *older* `BPMDetector` version. The warmer re-runs these through the
+	/// current detector (re-downloading the preview, no re-embed) and
+	/// overwrites in place. Excludes `bpm == nil` — the old detector gave
+	/// up on those, and re-running won't recover them without also
+	/// re-downloading the genuinely-ambient long tail.
+	func staleBPMIDs(for songIDs: [MusicItemID]) -> Set<String> {
+		do { try ensureLoaded() } catch { return [] }
+		guard let context else { return [] }
+
+		let rawIDs = Set(songIDs.map(\.rawValue))
+		let version = Self.currentModelVersion
+		let bpmVersion = Self.currentBPMModelVersion
+		let descriptor = FetchDescriptor<SongEmbedding>(
+			predicate: #Predicate {
+				rawIDs.contains($0.songID)
+					&& $0.modelVersion == version
+					&& $0.bpm != nil
+					&& $0.bpmModelVersion < bpmVersion
+			}
+		)
+		guard let rows = try? context.fetch(descriptor) else { return [] }
+		return Set(rows.map(\.songID))
 	}
 
 	/// Mark a song as having permanently failed to embed. Subsequent
