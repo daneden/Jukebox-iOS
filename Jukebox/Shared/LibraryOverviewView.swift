@@ -374,23 +374,34 @@ private struct BarRow: View {
 private struct DecadeHistogram: View {
 	let rows: [LibraryStats.DecadeCount]
 
+	/// "'10", "'20" … the categorical x value AND the axis label. Plotting
+	/// the raw Int decade put the bars on a continuous 1900–2020 axis where
+	/// each was ~1 unit wide and rendered invisibly; a discrete label per
+	/// decade gives Swift Charts a real band to size each bar against.
+	private func label(_ decade: Int) -> String {
+		"'\(String(decade % 100).leftPadded(to: 2, with: "0"))"
+	}
+
 	var body: some View {
 		Chart {
 			ForEach(rows) { row in
 				BarMark(
-					x: .value("Decade", row.decade),
+					x: .value("Decade", label(row.decade)),
 					y: .value("Count", row.count),
-					width: .ratio(0.7)
+					width: .ratio(0.8)
 				)
 				.foregroundStyle(Color.accentColor)
 				.cornerRadius(2)
 			}
 		}
+		// Pin the category order to ascending decade (rows are pre-sorted);
+		// otherwise Swift Charts would order the string categories itself.
+		.chartXScale(domain: rows.map { label($0.decade) })
 		.chartXAxis {
-			AxisMarks(values: rows.map(\.decade)) { value in
-				if let decade = value.as(Int.self) {
-					AxisValueLabel {
-						Text("'\(String(decade % 100).leftPadded(to: 2, with: "0"))")
+			AxisMarks { value in
+				AxisValueLabel {
+					if let label = value.as(String.self) {
+						Text(label)
 							.font(.caption2)
 							.foregroundStyle(.secondary)
 					}
