@@ -105,7 +105,7 @@ struct LibraryOverviewView: View {
 				total: stats.analysisPool.total
 			)
 
-			Text("New songs are analyzed automatically on Wi-Fi while charging.")
+			Text("New songs are analyzed automatically over Wi-Fi — while you're in the app, and in the background while charging.")
 				.font(.footnote)
 				.foregroundStyle(.secondary)
 		}
