@@ -3,10 +3,7 @@
 //  Jukebox
 //
 //  Design mode: hand-shape a five-point energy curve, ask for a playlist
-//  that transitions between energies along it. Unlike Songs mode (which
-//  walks similarity) Design mode commits to a per-slot band — the curve
-//  is the brief, the candidate pool gets bucketed by energy, and one
-//  song per slot fills the requested band.
+//  that transitions between energies along it.
 //
 
 import MusicKit
@@ -22,7 +19,6 @@ struct DesignView: View {
 	@State private var isGenerating = false
 	@State private var generationError: String?
 	@State private var generatedEntry: HistoryEntrySnapshot?
-	@State private var showingHistory = false
 
 	var body: some View {
 		NavigationStack {
@@ -40,23 +36,8 @@ struct DesignView: View {
 			.safeAreaBar(edge: .bottom, alignment: .center) {
 				bottomBar
 			}
-			.toolbar {
-				ToolbarItem(placement: .navigation) { SettingsMenu() }
-				#if os(iOS)
-					ToolbarItem(placement: .principal) { ToolbarLogo() }
-				#endif
-				ToolbarItem(placement: .trailingAction) {
-					Button {
-						showingHistory = true
-					} label: {
-						Label("History", systemImage: "clock.arrow.circlepath")
-					}
-				}
-			}
+			.primaryToolbar()
 			.task { restoreCurveIfNeeded() }
-			.sheet(isPresented: $showingHistory) {
-				HistoryView()
-			}
 			.sheet(item: $generatedEntry) { entry in
 				NavigationStack {
 					HistoryDetailView(entry: entry, onChange: {})
@@ -136,12 +117,10 @@ struct DesignView: View {
 				.controlSize(.extraLarge)
 				.disabled(isGenerating)
 			}
-			.frame(height: 56)
+			.frame(height: 44)
 		}
 		.scenePadding(.horizontal)
-		#if os(iOS)
-			.scenePadding(.bottom)
-		#endif
+		.scenePadding(.bottom)
 	}
 
 	private var generateLabelColor: Color {
@@ -183,11 +162,9 @@ struct DesignView: View {
 				seed: snapshots[0],
 				runway: snapshots
 			)
-			// Pull the row back out — `record` may merge into an existing
-			// entry, so we can't construct the snapshot client-side.
-			// `recent(limit: 1)` is sorted by playedAt desc, and `record`
-			// sets playedAt = now on both insert and merge paths, so the
-			// just-touched row is always first.
+			// Pull the row back out: `record` may merge into an existing
+			// entry. It sets playedAt = now on both insert and merge, so
+			// the just-touched row sorts first.
 			generatedEntry = await HistoryStore.shared.recent(limit: 1).first
 		} catch {
 			generationError = error.localizedDescription

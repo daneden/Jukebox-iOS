@@ -8,19 +8,16 @@
 import MusicKit
 import SwiftUI
 
-/// Songs (hidden-gems) mode. Builds a curated deck of songs from the user's
-/// library (formerly-played-now-dormant + old-and-untouched) and rides the
-/// same dial as Playlists mode. On play, seeds the system queue with a 20-
-/// song runway so playback keeps flowing when the user puts the phone down.
+/// Songs (hidden-gems) mode. Builds a curated deck of dormant/old songs and
+/// rides the same dial as Playlists mode. On play, seeds the system queue
+/// with a 20-song runway so playback keeps flowing.
 struct SongsView: View {
 	@Environment(\.scenePhase) private var scenePhase
 	@Environment(\.openURL) private var openURL
 
 	@AppStorage(SettingsKeys.autoplay) private var autoplay: Bool = true
 	@AppStorage(SettingsKeys.walkMeander) private var meander: Double = WalkControls.default.meander
-	// Energy target persisted as a Double with -1 as the "no filter"
-	// sentinel (AppStorage can't hold an optional cleanly); window is a
-	// plain half-width.
+	// -1 is the "no filter" sentinel — AppStorage can't hold an optional.
 	@AppStorage(SettingsKeys.walkEnergyTarget) private var energyTarget: Double = -1
 	@AppStorage(SettingsKeys.walkEnergyWindow) private var energyWindow: Double = EnergyFilter.defaultWindow
 	@AppStorage(SettingsKeys.walkDecadeLower) private var decadeLower: Int = WalkControls.default.decadeRange.lower
@@ -32,29 +29,21 @@ struct SongsView: View {
 	@State private var isLoading: Bool = true
 	@State private var loadError: String?
 	@State private var hasBuiltDeck = false
-	@State private var showingHistory = false
 	@State private var showingWalkControls = false
-	/// Captured at popover-open time so we can tell on dismiss whether
-	/// the user actually changed anything and skip the rebuild if not.
+	/// Captured at popover-open so dismiss can skip the rebuild if nothing changed.
 	@State private var walkControlsAtOpen: WalkControls?
-	/// True while a shuffle-driven rebuild is in flight. The dial is
-	/// pulled offscreen for the duration so the deck swap doesn't
-	/// visibly thrash; a loading view sits in its place.
+	/// True while a shuffle rebuild is in flight; the dial is pulled
+	/// offscreen so the deck swap doesn't visibly thrash.
 	@State private var isReshuffling = false
-	/// Previous shuffle's seed neighbourhood. Passed back into the
-	/// next shuffle so the walk's seed picker actively jumps away —
-	/// without this hint the top-tier of a heavily-oldies library
-	/// tends to land on the same decade/artist cluster repeatedly.
+	/// Previous shuffle's neighbourhood, fed back so the seed picker jumps
+	/// away — without it a heavily-oldies library keeps landing the same cluster.
 	@State private var lastShuffleDecade: Int?
 	@State private var lastShuffleArtist: String?
-	/// Min/max release decades observed in the unfiltered candidate
-	/// pool — surfaced from GemDeckBuilder's BuildResult so the
-	/// walk-controls range slider can constrain its thumbs to
-	/// decades that actually exist in the user's library.
+	/// Min/max decades in the unfiltered pool, so the range slider can
+	/// constrain its thumbs to decades that exist in the library.
 	@State private var libraryDecadeBounds: ClosedRange<Int>?
-	/// `OriginalReleaseStore` snapshot from the latest build, kept on
-	/// the view so the shuffle-avoid hint can read a focused song's
-	/// original decade without another actor hop.
+	/// `OriginalReleaseStore` snapshot from the latest build, so the
+	/// shuffle-avoid hint reads a focused song's original decade without an actor hop.
 	@State private var lastBuildOriginals: [MusicItemID: Date] = [:]
 
 	private var walkControls: WalkControls {
@@ -85,9 +74,8 @@ struct SongsView: View {
 		return deck[dial.focusedIndex]
 	}
 
-	/// `focusedSong` only while the dial is at rest. Used by the title block
-	/// so the text empties out during shuffle / reshuffle instead of
-	/// disappearing, which would shift the dial up and back.
+	/// `focusedSong` only while the dial is at rest, so the title block
+	/// empties out during shuffle instead of disappearing and shifting layout.
 	private var settledSong: Song? {
 		(dial.isSpinning || isReshuffling) ? nil : focusedSong
 	}
@@ -131,12 +119,9 @@ struct SongsView: View {
 					subtitle: settledSong?.artistName ?? "",
 					onTap: { if let song = settledSong { open(song) } }
 				)
-				// Scoped to the title block subtree on purpose — applying
-				// this on the parent VStack also catches `DialContent`'s
-				// `animatableData: rotation`, so the first deck load (which
-				// changes `focusedSong?.id` from nil → some id at the same
-				// time as `dial.rotation` jumps to a non-zero landing
-				// position) visibly spins the dial on cold launch.
+				// Scoped to the title block on purpose — on the parent VStack
+				// it also animates `DialContent`'s `animatableData: rotation`,
+				// visibly spinning the dial on cold launch.
 				.animation(.easeInOut(duration: 0.25), value: settledSong?.id)
 
 				Spacer(minLength: 0)
@@ -170,10 +155,8 @@ struct SongsView: View {
 							libraryDecadeBounds: libraryDecadeBounds,
 							poolSize: hasBuiltDeck ? deck.count : nil
 						)
-						// Floating popover stays on regular size
-						// classes (iPad, macOS); compact (iPhone)
-						// adapts to a sheet — the popover frame
-						// was too cramped on phone-sized screens.
+						// Adapt to a sheet on compact (iPhone) — the popover
+						// frame is too cramped on phone-sized screens.
 						.presentationCompactAdaptation(.sheet)
 						.presentationDetents([.medium, .large])
 						.presentationDragIndicator(.visible)
@@ -181,8 +164,7 @@ struct SongsView: View {
 				}
 			}
 			.onChange(of: showingWalkControls) { wasShowing, nowShowing in
-				// Rebuild on dismiss rather than per-slider-step so the
-				// user can scrub freely without thrashing the deck.
+				// Rebuild on dismiss, not per-slider-step, so scrubbing doesn't thrash the deck.
 				if wasShowing, !nowShowing,
 				   let snap = walkControlsAtOpen, snap != walkControls
 				{
@@ -190,34 +172,10 @@ struct SongsView: View {
 					Task { await rebuildForWalkControlsChange() }
 				}
 			}
-			.toolbar {
-				ToolbarItem(placement: .navigation) { SettingsMenu() }
-				#if os(iOS)
-					// macOS renders the wordmark inline above the dial (the
-					// title-bar `.principal` slot competes with the window
-					// chrome and looks out of place there).
-					ToolbarItem(placement: .principal) { ToolbarLogo() }
-				#endif
-				ToolbarItem(placement: .trailingAction) {
-					EmbeddingProgressIndicator(progress: .shared)
-				}
-				ToolbarItem(placement: .trailingAction) {
-					Button {
-						showingHistory = true
-					} label: {
-						Label("History", systemImage: "clock.arrow.circlepath")
-					}
-				}
-			}
-			.sheet(isPresented: $showingHistory) {
-				HistoryView()
-			}
+			.primaryToolbar()
 			.sensoryFeedback(.impact(weight: .medium), trigger: dial.spinLandTick)
-			// Trigger on the focused song's *id*, not its index — a
-			// reanchor (e.g. walk-controls change keeping the same song
-			// focused at a new position) changes the index while
-			// keeping the same song focused, and the user shouldn't
-			// feel a haptic for that.
+			// Trigger on the song's id, not its index — a reanchor changes
+			// the index while keeping the same song focused; no haptic for that.
 			.sensoryFeedback(.selection, trigger: dial.focusedItemID)
 			.sensoryFeedback(.start, trigger: dial.playbackTick)
 			.onChange(of: MusicAuthorization.currentStatus) { _, newValue in
@@ -257,18 +215,13 @@ struct SongsView: View {
 		isLoading = true
 		loadError = nil
 		defer { isLoading = false }
-		// Pre-position the dial off-center BEFORE the deck arrives. If we
-		// instead set rotation in applyDeck (when items first land), the
-		// rotation mutation and the deck mutation flush in the same SwiftUI
-		// render pass and the dial visibly spins from 0 to the landing
-		// position. Setting rotation here — while the dial has no items and
-		// is still hidden behind the loading overlay — means the dial
-		// renders at its final position the moment the overlay clears.
-		// Guard: only on first build, so pull-to-refresh doesn't re-randomize.
+		// Pre-position rotation BEFORE the deck arrives. Setting it in
+		// applyDeck instead flushes the rotation and deck mutations in one
+		// render pass, visibly spinning the dial from 0. Only on first build,
+		// so pull-to-refresh doesn't re-randomize.
 		if dial.focusedItemID == nil {
-			// Cold-launch pre-position uses the base spread — we don't know
-			// the deck count yet, and this is a one-shot landing (the
-			// shuffle path is what `landingSpread(forCount:)` widens).
+			// Base spread: deck count is unknown here, and this is a one-shot
+			// landing (shuffle is what widens via `landingSpread(forCount:)`).
 			let offset = Int.random(in: -Self.baseLandingSpread ... Self.baseLandingSpread)
 			dial.rotation = .degrees(-Double(offset) * DialTunables.stepVisual)
 		}
@@ -280,9 +233,8 @@ struct SongsView: View {
 		avoidDecade: Int? = nil,
 		avoidArtist: String? = nil
 	) async {
-		// `buildStreaming` yields exactly once with the finished deck.
-		// The for-await shape is kept so cancellation still propagates
-		// through `onTermination` if the task is cancelled mid-build.
+		// `buildStreaming` yields once; the for-await shape is kept so
+		// cancellation still propagates through `onTermination` mid-build.
 		do {
 			for try await result in GemDeckBuilder.buildStreaming(
 				wideSample: wideSample,
@@ -296,18 +248,14 @@ struct SongsView: View {
 				}
 				lastBuildOriginals = result.originals
 			}
-			// `AsyncThrowingStream` returns `nil` from `.next()` on
-			// consumer cancellation instead of throwing — so a tab
-			// switch mid-build exits the loop without yielding *and*
-			// without routing through the `catch`. Without this guard
-			// we'd then run the post-loop code, set `hasBuiltDeck =
-			// true` against an empty deck, and leave the user stuck on
-			// "No songs yet" with no way to retry.
+			// `AsyncThrowingStream` returns nil from `.next()` on consumer
+			// cancellation instead of throwing, so a mid-build tab switch
+			// exits the loop without routing through `catch`. Without this
+			// guard the post-loop code sets `hasBuiltDeck = true` on an empty
+			// deck, stranding the user on "No songs yet".
 			if Task.isCancelled { return }
-			// Seed the toolbar progress tracker with the final deck.
-			// The background warm task (kicked off inside GemDeckBuilder)
-			// will then drive `recordProcessed` calls into it as each song's
-			// embedding lands or is given up on.
+			// Seed the toolbar progress tracker; the warm task then drives
+			// `recordProcessed` as each embedding lands or is given up on.
 			let deckIDs = deck.map(\.id)
 			let existing = await EmbeddingStore.shared.embeddings(for: deckIDs)
 			EmbeddingProgress.shared.setTracking(
@@ -339,17 +287,15 @@ struct SongsView: View {
 		} else if let newIdx {
 			dial.reanchor(to: newIdx, newID: newCollection[newIdx].id, count: newCollection.count)
 		} else if preservedID == nil {
-			// Cold launch. Rotation was pre-positioned in buildDeck before
-			// this fired — derive the landing index from it so the dial
-			// renders in its final position without animating from 0.
+			// Cold launch. Rotation was pre-positioned in buildDeck — derive
+			// the landing index from it so the dial renders in place, not from 0.
 			let landingIdx = Self.landingIndex(forRotation: dial.rotation, count: newCollection.count)
 			dial.focusedIndex = landingIdx
 			dial.focusedItemID = newCollection[landingIdx].id
 		} else {
-			// Had a focus but the song isn't in the new deck (typically
-			// shuffle replacing the candidate pool). The dial is hidden
-			// behind the reshuffle overlay during that path, so changing
-			// rotation here isn't visible.
+			// Focused song dropped from the new deck (typically shuffle).
+			// The dial is hidden behind the reshuffle overlay, so the
+			// rotation change here isn't visible.
 			let landingIdx = Self.randomLandingIndex(count: newCollection.count)
 			dial.focusedIndex = landingIdx
 			dial.rotation = .degrees(-Double(landingIdx) * DialTunables.stepVisual)
@@ -365,14 +311,9 @@ struct SongsView: View {
 	}
 
 	/// How far around the walk's seed the dial may land on a fresh deck.
-	/// Originally a flat 6, which gave 13 landing slots regardless of
-	/// deck size — fine for a 300-song deck on the default filters but
-	/// thin under "energy + narrow decade," where the surviving pool
-	/// might only be ~100 songs and the user kept seeing the same
-	/// cluster head shuffle after shuffle. Scale with deck size so the
-	/// landing window grows as the deck does, capped so the dial still
-	/// drops the user somewhere in the walk's early section rather
-	/// than into the dissimilar tail.
+	/// `landingSpread(forCount:)` scales with deck size — a flat spread left
+	/// narrow-filter pools cycling the same cluster head — capped so the
+	/// landing stays in the walk's early section, not the dissimilar tail.
 	private static let baseLandingSpread = 6
 	private static let maxLandingSpread = 40
 
@@ -387,12 +328,9 @@ struct SongsView: View {
 		return ((offset % count) + count) % count
 	}
 
-	/// Move the dial to a fresh landing on the current deck. Used by
-	/// shuffle to override `applyDeck`'s reanchor when the previously-
-	/// focused song happens to survive the new deck. Safe to call while
-	/// the dial is hidden behind the reshuffle overlay — rotation is set
-	/// without animation, so it's the position that's revealed when the
-	/// overlay clears.
+	/// Move the dial to a fresh landing, overriding `applyDeck`'s reanchor
+	/// when the focused song survives the new deck. Safe while hidden behind
+	/// the reshuffle overlay — rotation is set without animation.
 	private func relandRandomly() {
 		guard !deck.isEmpty else { return }
 		let landingIdx = Self.randomLandingIndex(count: deck.count)
@@ -403,16 +341,13 @@ struct SongsView: View {
 
 	// MARK: - Shuffle
 
-	/// Songs-mode shuffle = full deck rebuild. Spinning the wheel within
-	/// the current deck just re-walks the same 300 songs in roughly the
-	/// same neighborhood; rebuilding actually turns over the candidate
-	/// pool. The dial blurs out to a loading view, the new deck is
-	/// fetched and walked, and the dial blurs back in.
+	/// Songs-mode shuffle = full deck rebuild. Re-walking the current deck
+	/// just reorders the same 300 songs; rebuilding turns over the candidate
+	/// pool. The dial blurs out, the new deck is fetched, and it blurs back.
 	private func shuffle() async {
 		guard !dial.isSpinning, !isReshuffling else { return }
-		// Tell the walk to seed away from the previous shuffle's
-		// neighbourhood — without this, a library skewed toward one
-		// era keeps landing on that era's cluster shuffle after shuffle.
+		// Seed away from the previous shuffle's neighbourhood — without this,
+		// an era-skewed library keeps landing the same cluster.
 		let avoidDecade = lastShuffleDecade
 		let avoidArtist = lastShuffleArtist
 		withAnimation(.smooth(duration: 0.45)) { isReshuffling = true }
@@ -421,39 +356,27 @@ struct SongsView: View {
 			avoidDecade: avoidDecade,
 			avoidArtist: avoidArtist
 		)
-		// Force a fresh landing. `applyDeck`'s reanchor branch keeps
-		// focus on the previously-focused song whenever it survives the
-		// new wide-sample deck — fine during the partial→final swap
-		// (dial is hidden), but it defeats the whole point of shuffle.
-		// On an unfiltered library the previously-focused song is
-		// almost always in the new top 300 (high gem score → in widePool
-		// → ~50% inclusion probability; if `capPerArtistAndAlbum`
-		// trims widePool to ≤300 the inclusion becomes deterministic),
-		// so shuffle would feel like a no-op without this.
+		// Force a fresh landing. `applyDeck` keeps focus on the previous
+		// song when it survives the new deck — which it almost always does
+		// on an unfiltered library, so shuffle would feel like a no-op.
 		relandRandomly()
 		withAnimation(.smooth(duration: 0.45)) { isReshuffling = false }
-		// Record the *focused* song — what the dial actually landed on —
-		// not `deck.first`. The user sees `deck[landingIdx]`, which sits
-		// in the walk's first-few-positions cluster but often differs in
-		// artist/decade from the seed. Tracking the seed instead meant
-		// the next shuffle could jump the *seed*'s neighbourhood while
-		// still landing the user back in the same cluster head.
+		// Record the focused song (what the dial landed on), not the seed —
+		// they differ, and tracking the seed let the next shuffle jump the
+		// seed's neighbourhood while still landing the same cluster head.
 		if let focused = focusedSong {
 			lastShuffleDecade = focused.releaseDecade(override: lastBuildOriginals[focused.id])
 			lastShuffleArtist = focused.artistName
 		}
-		// Detached: same rationale as PlaylistsView.shuffle — the rebuild is
-		// the visible work; the queue handoff to MusicPlayback shouldn't
-		// keep the Shuffle button busy.
+		// Detached so the queue handoff doesn't keep the Shuffle button busy.
 		if autoplay, let song = focusedSong {
 			Task { await play(from: song) }
 		}
 	}
 
-	/// Triggered when the walk-controls popover dismisses with changes.
-	/// Reuses the reshuffle blur path (not wideSample — energy/decade
-	/// changes already turn the deck over) so the swap feels intentional
-	/// rather than mid-flight.
+	/// Rebuild when the walk-controls popover dismisses with changes. Reuses
+	/// the reshuffle blur path but not wideSample — the filter change already
+	/// turns the deck over.
 	private func rebuildForWalkControlsChange() async {
 		guard !dial.isSpinning, !isReshuffling else { return }
 		withAnimation(.smooth(duration: 0.45)) { isReshuffling = true }
@@ -463,9 +386,8 @@ struct SongsView: View {
 
 	// MARK: - Removal
 
-	/// Per-cover context menu. Each action flags the song / album / artist
-	/// ineligible for future decks (via `ExclusionStore`) and drops the
-	/// matching covers from the live deck so the change is immediate.
+	/// Per-cover context menu. Each action flags the song/album/artist
+	/// ineligible (via `ExclusionStore`) and drops matching covers immediately.
 	@ViewBuilder
 	private func songContextMenu(for song: Song) -> some View {
 		Button(role: .destructive) {
@@ -510,12 +432,9 @@ struct SongsView: View {
 		await ExclusionStore.shared.blockArtist(name: song.artistName, label: song.artistName)
 	}
 
-	/// Drop every deck song matching `shouldRemove`, animating the covers
-	/// out and re-anchoring the dial. Mirrors `applyDeck`'s reanchor
-	/// pattern (data change animates via blur-replace; rotation is set
-	/// instantly through `reanchoredRotation` so the wheel doesn't
-	/// teleport) — but this path is visible, so a removed focus lands on
-	/// the song that shifts into its slot rather than a random jump.
+	/// Drop deck songs matching `shouldRemove`, animating covers out and
+	/// reanchoring the dial. Unlike `applyDeck`, this path is visible, so a
+	/// removed focus lands on the song shifting into its slot, not a random jump.
 	private func applyDeckRemoval(_ shouldRemove: (Song) -> Bool) {
 		let remaining = deck.filter { !shouldRemove($0) }
 		guard remaining.count != deck.count else { return }
@@ -538,25 +457,18 @@ struct SongsView: View {
 
 	// MARK: - Playback
 
-	/// Seed the system queue with the picked song + the next 19 deck items
-	/// so playback keeps flowing without us having to babysit `queue.insert`
-	/// on every track end.
+	/// Seed the system queue with the picked song + next 19 deck items so
+	/// playback keeps flowing without babysitting `queue.insert` per track.
 	private func play(from song: Song) async {
-		// Diagnostic: songs with nil playParameters get silently skipped
-		// by SystemMusicPlayer (rights lapsed, lost cloud match, region-
-		// locked, etc). GemScorer filters these out of the candidate
-		// pool already, so reaching this log means a song landed in the
-		// deck that shouldn't have — worth checking the song in Apple
-		// Music to understand why.
+		// nil playParameters → silently skipped by SystemMusicPlayer. GemScorer
+		// already filters these out, so reaching this log means a song slipped
+		// into the deck that shouldn't have.
 		if song.playParameters == nil {
 			print("Songs: skipping \(song.title) — \(song.artistName); nil playParameters")
 		}
 
-		// Wrap modularly around the deck. The dial is a cylinder, so
-		// landing near the tail (e.g. position 296 after randomLandingIndex
-		// picks a negative offset) should still produce a 20-song runway —
-		// continue from the start of the deck once we fall off the end,
-		// not truncate to whatever happens to be ahead.
+		// Wrap modularly: the dial is a cylinder, so a tail landing still
+		// gets a full 20-song runway by continuing from the deck's start.
 		guard let startIdx = deck.firstIndex(where: { $0.id == song.id }) else { return }
 		let runwayLength = min(20, deck.count)
 		let runway = (0 ..< runwayLength).map { offset in
@@ -567,8 +479,7 @@ struct SongsView: View {
 		guard await MusicPlayback.play(songs: runway) else { return }
 		dial.markPlaying(id: song.id)
 
-		// Record only after playback started — no point remembering a runway
-		// that errored on the way out the door.
+		// Record only after playback started — don't remember a runway that errored.
 		let seedSnapshot = SongSnapshot(song: song)
 		let runwaySnapshots = runway.map(SongSnapshot.init(song:))
 		let name = PlaylistNamer.suggestedName(seedArtist: song.artistName)
@@ -580,13 +491,10 @@ struct SongsView: View {
 	}
 
 	private func open(_ song: Song) {
-		// Library-only songs (no Apple Music catalog match — iTunes Match
-		// uploads, personal files) have a nil `Song.url`, so the existing
-		// guard would silently bail. The iOS Music app's library deep-link
-		// scheme handles them by MusicKit id. The same URL form errors on
-		// macOS Music ("Sorry, something went wrong"), so the fallback is
-		// iOS-only — on macOS, catalog-matched songs still open via
-		// `song.url`, library-only ones no-op.
+		// Library-only songs (iTunes Match, personal files) have a nil
+		// `Song.url`; the iOS Music library deep-link scheme opens them by id.
+		// The same URL errors on macOS Music ("Sorry, something went wrong"),
+		// so the fallback is iOS-only and library-only songs no-op on macOS.
 		var url: URL? = song.url
 		#if os(iOS)
 			if url == nil {

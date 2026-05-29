@@ -4,17 +4,15 @@
 //
 //  Created by Daniel Eden on 20/05/2026.
 //
-//  A "show your work" surface for the curious user. Walks through the
-//  under-the-hood stages that produce what's on the dial: the funnel
-//  from the full library down to the final 300 songs, the similarity-
-//  based ordering that threads them into a coherent path, and the
-//  audio fingerprint cache that powers the similarity signal.
+//  "Show your work" surface: the funnel from full library to the final deck,
+//  the similarity ordering, and the audio fingerprint cache behind it.
 //
 
 import SwiftUI
 
 struct HowItWorksView: View {
 	@Environment(\.dismiss) private var dismiss
+	@State private var showingLibraryOverview = false
 
 	var body: some View {
 		NavigationStack {
@@ -34,6 +32,9 @@ struct HowItWorksView: View {
 				ToolbarItem(placement: .cancellationAction) {
 					Button(role: .close) { dismiss() }
 				}
+			}
+			.sheet(isPresented: $showingLibraryOverview) {
+				LibraryOverviewView()
 			}
 		}
 	}
@@ -112,7 +113,36 @@ struct HowItWorksView: View {
 			.font(.footnote)
 			.fontDesign(.serif)
 			.foregroundStyle(.secondary)
+
+			Button {
+				showingLibraryOverview = true
+			} label: {
+				Label {
+					VStack(alignment: .leading, spacing: 2) {
+						Text("Library analysis")
+						Text(analysisStatus)
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
+				} icon: {
+					Image(systemName: "waveform.badge.magnifyingglass")
+				}
+			}
+			.buttonStyle(.bordered)
+			.fontDesign(.default)
+			.padding(.top, 4)
 		}
+	}
+
+	/// Live analysis status for the overview entry point, mirroring the
+	/// toolbar popover's wording.
+	private var analysisStatus: String {
+		let progress = EmbeddingProgress.shared
+		guard progress.hasDeck else { return "See your library breakdown" }
+		if progress.isComplete {
+			return "All \(progress.totalCount) songs analyzed"
+		}
+		return "\(progress.embeddedCount) of \(progress.totalCount) songs analyzed"
 	}
 
 	// MARK: - Energy section
@@ -155,7 +185,7 @@ struct HowItWorksView: View {
 			.fontWeight(.semibold)
 	}
 
-	/// Serif body text — markdown-aware so inline backticks render as code.
+	/// Serif body text; markdown renders inline backticks as code.
 	private func body(_ text: Text) -> some View {
 		text
 			.fontDesign(.serif)
@@ -230,15 +260,12 @@ private struct SongFunnel: View {
 
 // MARK: - Energy scale visualization
 
-/// The continuous energy axis (0 → 1) as both legend and worked example.
-/// The track is the app-wide energy gradient with each band tint pinned at
-/// its `centerValue`, so a dot's position colour-matches the scale beneath
-/// it. Two same-band tracks placed at their *real* `SongEnergy.value` show
-/// tempo floating songs off the shared band centre — slow drops toward
-/// Mellow, fast climbs into Energetic.
+/// The continuous energy axis (0 → 1) as legend and worked example. Two
+/// same-band tracks at their real `SongEnergy.value` show tempo floating songs
+/// off the shared band centre.
 private struct EnergyScale: View {
-	/// Same band (Energetic), split only by tempo. Energies come straight
-	/// from `SongEnergy.value` so the dots can't drift from the real model.
+	/// Same band (Energetic), split only by tempo. Energies come straight from
+	/// `SongEnergy.value` so the dots can't drift from the real model.
 	private var examples: [(bpm: Int, energy: Double)] {
 		[72, 134].map { bpm in
 			(bpm, SongEnergy.value(band: .energetic, bpm: Double(bpm)) ?? 0.5)

@@ -8,9 +8,7 @@
 import SwiftUI
 import TipKit
 
-/// Top-leading toolbar menu. Lives in its own component so both tabs render
-/// the same menu without copy-paste; all settings are `@AppStorage`-backed
-/// so the two tabs stay in sync.
+/// Top-leading toolbar menu. `@AppStorage`-backed so both tabs stay in sync.
 struct SettingsMenu: View {
 	@AppStorage(SettingsKeys.autoplay) private var autoplay: Bool = true
 	@State private var showingHowItWorks = false
@@ -40,8 +38,6 @@ struct SettingsMenu: View {
 				} label: {
 					Label("Build energy centroids", systemImage: "scope")
 				}
-				// In-session override (resets on relaunch) — re-shows the
-				// dismissed tab tips so the onboarding copy can be re-checked.
 				Button {
 					Tips.showAllTipsForTesting()
 				} label: {
@@ -67,6 +63,8 @@ struct SettingsMenu: View {
 
 enum SettingsKeys {
 	static let autoplay = "autoplay"
+	/// So the first-shuffle autoplay prompt fires exactly once.
+	static let askedShuffleAutoplay = "askedShuffleAutoplay"
 	static let walkMeander = "walkControls.meander"
 	static let walkEnergyTarget = "walkControls.energyTarget"
 	static let walkEnergyWindow = "walkControls.energyWindow"

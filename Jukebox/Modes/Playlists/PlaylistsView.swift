@@ -8,9 +8,8 @@
 import MusicKit
 import SwiftUI
 
-/// Playlist-shuffle mode. The original Playback surface, now living inside a
-/// tab. Mechanics (shuffle, reanchor, ripple) live in DialState; this view
-/// owns playlist fetching and Apple-Music playback.
+/// Playlist-shuffle mode. Mechanics (shuffle, reanchor, ripple) live in
+/// DialState; this view owns playlist fetching and Apple-Music playback.
 struct PlaylistsView: View {
 	@Environment(\.scenePhase) private var scenePhase
 	@Environment(\.openURL) private var openURL
@@ -20,13 +19,12 @@ struct PlaylistsView: View {
 	@State private var playlists: MusicItemCollection<Playlist> = []
 	@State private var dial = DialState()
 
-	/// Defaults to true so the loading state is visible on the very first
-	/// render, before `updatePlaylists` has had a chance to flip it on.
+	/// Defaults to true so the loading state shows on first render, before
+	/// `updatePlaylists` flips it.
 	@State private var isLoading: Bool = true
 
-	/// Playlists the user has flagged ineligible via the context menu.
-	/// Loaded at fetch time and applied in `applyPlaylists` so removed
-	/// playlists never re-enter the dial across refetches.
+	/// Playlists flagged ineligible via the context menu. Applied in
+	/// `applyPlaylists` so removed playlists never re-enter across refetches.
 	@State private var blockedPlaylistIDs: Set<String> = []
 
 	private var focusedPlaylist: Playlist? {
@@ -36,9 +34,9 @@ struct PlaylistsView: View {
 		return playlists[dial.focusedIndex]
 	}
 
-	/// `focusedPlaylist` only while the dial is at rest. Used by the title
-	/// block so the text empties out during shuffle instead of disappearing,
-	/// which would shift the dial up and back.
+	/// `focusedPlaylist` only while the dial is at rest, so the title block
+	/// empties out during shuffle instead of disappearing (which would
+	/// shift the dial up and back).
 	private var settledPlaylist: Playlist? {
 		dial.isSpinning ? nil : focusedPlaylist
 	}
@@ -68,11 +66,9 @@ struct PlaylistsView: View {
 					subtitle: settledPlaylist?.curatorName ?? "",
 					onTap: { if let playlist = settledPlaylist { open(playlist) } }
 				)
-				// Scoped to the title block subtree on purpose — applying
-				// this on the parent VStack also catches `DialContent`'s
-				// `animatableData: rotation`, so any case where the rotation
-				// changes in the same body re-evaluation as `focusedPlaylist?.id`
-				// would visibly animate the dial.
+				// Scoped to the title block on purpose: on the parent VStack
+				// it would also catch `DialContent`'s `animatableData:
+				// rotation` and visibly animate the dial.
 				.animation(.easeInOut(duration: 0.25), value: settledPlaylist?.id)
 
 				Spacer(minLength: 0)
@@ -89,20 +85,10 @@ struct PlaylistsView: View {
 					onShuffle: { await shuffle() }
 				)
 			}
-			.toolbar {
-				ToolbarItem(placement: .navigation) { SettingsMenu() }
-				#if os(iOS)
-					// macOS renders the wordmark inline above the dial (the
-					// title-bar `.principal` slot competes with the window
-					// chrome and looks out of place there).
-					ToolbarItem(placement: .principal) { ToolbarLogo() }
-				#endif
-			}
+			.primaryToolbar()
 			.sensoryFeedback(.impact(weight: .medium), trigger: dial.spinLandTick)
-			// Trigger on the focused song's *id*, not its index — a
-			// reanchor (e.g. partial → final deck swap during streaming)
-			// changes the index while keeping the same song focused, and
-			// the user shouldn't feel a haptic for that.
+			// Trigger on id, not index: a reanchor changes the index while
+			// keeping the same song focused — no haptic for that.
 			.sensoryFeedback(.selection, trigger: dial.focusedItemID)
 			.sensoryFeedback(.start, trigger: dial.playbackTick)
 			.onChange(of: MusicAuthorization.currentStatus) { _, newValue in
@@ -110,17 +96,15 @@ struct PlaylistsView: View {
 					Task { await updatePlaylists() }
 				}
 			}
-			// Intentionally no refetch on play: re-sorting by last-played
-			// mid-session pushes the just-played playlist to index 0, and
-			// the reanchor that follows mutates the wheel rotation unanimated
-			// — that was the "jerk at settle." The list refreshes on scene-
-			// active, pull-to-refresh, and sort changes — none of which
-			// happen while the user watches the wheel settle.
+			// No refetch on play: re-sorting by last-played pushes the
+			// just-played playlist to index 0, and the reanchor mutates
+			// rotation unanimated — that was the "jerk at settle." Refresh
+			// happens on scene-active / pull-to-refresh / sort change, never
+			// mid-settle.
 			.onChange(of: dial.focusedIndex) { _, newIdx in
-				// Track focused id so we can re-anchor on collection updates
-				// (e.g. when sort-by-last-played moves the just-played
-				// playlist to the top). Skip during spin — focused changes
-				// per frame and we set the id manually on land.
+				// Track focused id to re-anchor on collection updates. Skip
+				// during spin — focused changes per frame and we set the id
+				// manually on land.
 				guard !dial.isSpinning, newIdx >= 0, newIdx < playlists.count else { return }
 				dial.focusedItemID = playlists[newIdx].id
 			}
@@ -140,41 +124,35 @@ struct PlaylistsView: View {
 		isLoading = true
 		defer { isLoading = false }
 
-		// Pre-position the dial before the first batch arrives. Same
-		// rationale as SongsView.buildDeck: mutating rotation in
-		// applyPlaylists (when items first land) flushes in the same
-		// SwiftUI render pass as the playlists mutation and visibly spins
-		// the dial. We don't know the eventual count yet, so pick from a
-		// large range and let `applyPlaylists` modular-wrap it to a valid
-		// index when the batch arrives. Guard so resume/refresh don't
-		// randomize.
+		// Pre-position before the first batch: mutating rotation in
+		// applyPlaylists flushes in the same render pass as the playlists
+		// mutation and visibly spins the dial. Count is unknown yet, so
+		// pick from a large range and let applyPlaylists modular-wrap it.
+		// Guard so resume/refresh don't randomize.
 		if dial.focusedItemID == nil {
 			let offset = Int.random(in: 0 ..< 10000)
 			dial.rotation = .degrees(-Double(offset) * DialTunables.stepVisual)
 		}
 
-		// Hold the request behind the process-wide MusicKit probe. If
-		// the Songs deck builder is mid-fan-out and we issue our own
-		// request in parallel before `musicd` has warmed, the daemon
-		// can wedge — see `MusicKitWarmup`.
+		// Hold behind the MusicKit probe: issuing a request in parallel
+		// with the Songs deck fan-out before `musicd` warms can wedge the
+		// daemon.
 		await MusicKitWarmup.waitUntilReady()
 
 		blockedPlaylistIDs = await ExclusionStore.shared.blockedPlaylistIDs()
 
 		var request = MusicLibraryRequest<Playlist>()
 		#if os(iOS)
-			// `.lastPlayedDate` as a sort keypath crashes the macOS MusicKit
-			// resolver with `-[NSSortDescriptor keyPath]: unrecognized selector`
-			// — the property is declared in the cross-platform protocol but
-			// has no NSObject-bridged sort descriptor on macOS. Use the
-			// default library order (library add date) there.
+			// Sorting by `.lastPlayedDate` crashes the macOS MusicKit
+			// resolver (`unrecognized selector` — no bridged sort descriptor
+			// there). macOS falls back to default library order.
 			request.sort(by: \.lastPlayedDate, ascending: false)
 		#endif
 
 		guard let response = try? await request.response() else { return }
 
 		// Show the first batch immediately so the dial is interactive while
-		// any remaining batches keep streaming in.
+		// remaining batches stream in.
 		var accumulated = response.items
 		applyPlaylists(accumulated)
 
@@ -194,14 +172,9 @@ struct PlaylistsView: View {
 		let preservedID = dial.focusedItemID
 		let newIdx = preservedID.flatMap { id in new.firstIndex(where: { $0.id == id }) }
 
-		// Animate only when items actually reordered (background → foreground
-		// after playing something, deletes, etc.). Skip animation when:
-		//   - The new collection has the same prefix as the old — covers
-		//     either no change (counts equal) or pure append at the tail
-		//     (counts grew). Append happens on every nextBatch() during
-		//     initial streaming; animating each batch spring-thrashes the
-		//     wrap-around edge of the dial for nothing.
-		//   - The dial is empty (no prior visual state to lift from).
+		// Animate only on real reorders. Skip when the prefix is unchanged
+		// (no change, or pure tail append) — every nextBatch() appends, and
+		// animating each one spring-thrashes the dial's wrap edge.
 		let prefixUnchanged = new.count >= playlists.count
 			&& zip(playlists, new.prefix(playlists.count)).allSatisfy { $0.id == $1.id }
 
@@ -216,10 +189,9 @@ struct PlaylistsView: View {
 		} else if let newIdx {
 			dial.reanchor(to: newIdx, newID: new[newIdx].id, count: new.count)
 		} else if preservedID == nil {
-			// Cold launch. Rotation was pre-positioned in updatePlaylists
-			// before this fired — derive the landing index from it (modular
-			// wrap across the now-known count) so the dial renders in its
-			// final position without animating from 0.
+			// Cold launch: derive the landing index from the pre-positioned
+			// rotation (modular-wrapped to the now-known count) so the dial
+			// renders in place without animating from 0.
 			let continuousPos = -dial.rotation.degrees / DialTunables.stepVisual
 			let raw = Int(continuousPos.rounded())
 			let landingIdx = ((raw % new.count) + new.count) % new.count
@@ -234,9 +206,8 @@ struct PlaylistsView: View {
 
 	// MARK: - Removal
 
-	/// Per-cover context menu. Flags the playlist ineligible for future
-	/// dials (via `ExclusionStore`) and drops it from the live collection
-	/// so the change is immediate.
+	/// Per-cover context menu — flags the playlist ineligible (via
+	/// `ExclusionStore`) and drops it from the live collection.
 	private func playlistContextMenu(for playlist: Playlist) -> some View {
 		Button(role: .destructive) {
 			Task { await removePlaylist(playlist) }
@@ -296,10 +267,8 @@ struct PlaylistsView: View {
 		let chosen = playlists[target]
 		dial.recordLanding(at: target, id: chosen.id)
 
-		// Detached so the Shuffle button's busy state ends with the visual
-		// landing. `playlist.with([.entries])` + `MusicPlayback.play()` can
-		// take many seconds (network fetch + player startup) and we don't
-		// want the spinner to outlive the spin the user can already see.
+		// Detached so the Shuffle spinner ends with the visual landing —
+		// playback startup can take seconds and shouldn't outlive the spin.
 		if autoplay { Task { await play(chosen) } }
 	}
 
@@ -310,12 +279,10 @@ struct PlaylistsView: View {
 	}
 
 	private func open(_ playlist: Playlist) {
-		// Library-only playlists (user-created, never shared) have a nil
-		// `Playlist.url`. The iOS Music app's library deep-link scheme
-		// handles them by MusicKit id. The same URL form errors on macOS
-		// Music ("Sorry, something went wrong"), so the fallback is
-		// iOS-only — on macOS, catalog playlists still open via
-		// `playlist.url`, library-only ones no-op.
+		// Library-only playlists have a nil `Playlist.url`; the iOS Music
+		// library deep-link handles them by id. The same URL errors on
+		// macOS Music, so the fallback is iOS-only (macOS library-only
+		// playlists no-op).
 		var url: URL? = playlist.url
 		#if os(iOS)
 			if url == nil {

@@ -8,15 +8,13 @@
 import SwiftUI
 
 /// Bottom-aligned Play + Shuffle pair shared by Playlists and Songs modes.
-/// Play immediately plays whatever is focused; Shuffle's behavior is
-/// owned by the caller — Playlists rotates the dial, Songs rebuilds the
-/// deck — so this view is a dumb action surface.
-///
-/// Optional `leading` slot tucks an extra control (e.g. Songs mode's
-/// walk-controls trigger) inside the same glass container so the effect
-/// merges with Play + Shuffle.
+/// Shuffle's behavior is owned by the caller. Optional `leading` slot shares
+/// the same glass container so the effect merges with Play + Shuffle.
 struct PlaybackControls<Leading: View>: View {
 	@Environment(\.colorScheme) private var colorScheme
+	@AppStorage(SettingsKeys.autoplay) private var autoplay = true
+	@AppStorage(SettingsKeys.askedShuffleAutoplay) private var askedShuffleAutoplay = false
+	@State private var showingAutoplayPrompt = false
 	let disabled: Bool
 	let onPlay: () async -> Void
 	let onShuffle: () async -> Void
@@ -37,7 +35,7 @@ struct PlaybackControls<Leading: View>: View {
 				.controlSize(.extraLarge)
 				.disabled(disabled)
 
-				AsyncButton(action: onShuffle) {
+				AsyncButton(action: handleShuffle) {
 					Label("Shuffle", systemImage: "shuffle")
 						.frame(maxWidth: .infinity)
 						.foregroundStyle(colorScheme == .dark ? .black : .white)
@@ -48,15 +46,35 @@ struct PlaybackControls<Leading: View>: View {
 				.controlSize(.extraLarge)
 				.disabled(disabled)
 			}
-			.frame(height: 56)
+			.frame(height: 44)
 		}
 		.scenePadding(.horizontal)
-		#if os(iOS)
-			// macOS windows have their own bottom chrome margin already; the
-			// extra scenePadding here makes the bar float too far above the
-			// window's bottom edge.
-			.scenePadding(.bottom)
-		#endif
+		.scenePadding(.bottom)
+		.confirmationDialog(
+			"Play automatically when you shuffle?",
+			isPresented: $showingAutoplayPrompt,
+			titleVisibility: .visible
+		) {
+			Button("Yes, start playing") { resolveAutoplay(true) }
+			Button("No, just spin") { resolveAutoplay(false) }
+		} message: {
+			Text("Shuffle can start the result playing, or just spin to a suggestion and wait for you to press Play. Change this anytime in Settings.")
+		}
+	}
+
+	/// First shuffle asks once whether to autoplay; after that, uses the saved preference.
+	private func handleShuffle() async {
+		if askedShuffleAutoplay {
+			await onShuffle()
+		} else {
+			showingAutoplayPrompt = true
+		}
+	}
+
+	private func resolveAutoplay(_ value: Bool) {
+		autoplay = value
+		askedShuffleAutoplay = true
+		Task { await onShuffle() }
 	}
 }
 
