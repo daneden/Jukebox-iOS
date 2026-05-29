@@ -86,6 +86,7 @@ struct PlaylistsView: View {
 				if scenePhase == .active { await updatePlaylists() }
 			}
 			.refreshable { await updatePlaylists() }
+			.tabOnboardingTip(PlaylistsTip())
 			.safeAreaBar(edge: .bottom, alignment: .trailing) {
 				PlaybackControls(
 					disabled: dial.isSpinning || playlists.isEmpty,

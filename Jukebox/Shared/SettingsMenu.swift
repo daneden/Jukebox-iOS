@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import TipKit
 
 /// Top-leading toolbar menu. Lives in its own component so both tabs render
 /// the same menu without copy-paste; all settings are `@AppStorage`-backed
@@ -38,6 +39,13 @@ struct SettingsMenu: View {
 					showingCentroidBuilder = true
 				} label: {
 					Label("Build energy centroids", systemImage: "scope")
+				}
+				// In-session override (resets on relaunch) — re-shows the
+				// dismissed tab tips so the onboarding copy can be re-checked.
+				Button {
+					Tips.showAllTipsForTesting()
+				} label: {
+					Label("Reset onboarding tips", systemImage: "lightbulb")
 				}
 			#endif
 		} label: {

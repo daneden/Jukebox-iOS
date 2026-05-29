@@ -150,6 +150,7 @@ struct SongsView: View {
 				if scenePhase == .active, !hasBuiltDeck { await buildDeck() }
 			}
 			.refreshable { await buildDeck() }
+			.tabOnboardingTip(SongsTip())
 			.safeAreaBar(edge: .bottom, alignment: .trailing) {
 				PlaybackControls(
 					disabled: dial.isSpinning || deck.isEmpty || isReshuffling,

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import TipKit
 
 @main
 struct PlaybackApp: App {
@@ -20,6 +21,12 @@ struct PlaybackApp: App {
 		// a synchronous read of the latest cached state, so we want the
 		// monitors live as early as possible.
 		LibraryEmbeddingWarmer.startMonitoring()
+
+		// Must run before any TipView renders; init is the earliest point.
+		try? Tips.configure([
+			.displayFrequency(.immediate),
+			.datastoreLocation(.applicationDefault),
+		])
 	}
 
 	var body: some Scene {

@@ -41,6 +41,7 @@ struct DesignView: View {
 
 				Spacer(minLength: 0)
 			}
+			.tabOnboardingTip(DesignTip())
 			.safeAreaBar(edge: .bottom, alignment: .center) {
 				bottomBar
 			}
