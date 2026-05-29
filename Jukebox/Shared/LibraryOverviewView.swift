@@ -169,15 +169,13 @@ struct LibraryOverviewView: View {
 	}
 
 	private func energyEraSection(stats: LibraryStats) -> some View {
-		let peak = stats.decadeHistogram.max(by: { $0.count < $1.count })?.decade
-		return Section {
+		Section {
 			if stats.energyPoints.isEmpty {
 				Text("Energy appears here as songs are analyzed.")
 					.font(.footnote)
 					.foregroundStyle(.secondary)
 			} else {
-				EnergyScatter(points: stats.energyPoints, peakDecade: peak)
-					.padding(.top)
+				EnergyScatter(points: stats.energyPoints)
 			}
 		} header: {
 			Text("Energy by era")
@@ -307,7 +305,7 @@ private struct GenreChart: View {
 				Text(row.count, format: .number)
 					.font(.caption)
 					.monospacedDigit()
-					.foregroundStyle(.secondary)
+					.foregroundStyle(.tertiary)
 			}
 		}
 		// rows are sorted by count descending → highest genre at the top.
@@ -330,11 +328,9 @@ private struct GenreChart: View {
 /// as BPM coverage grows. The y-axis is labelled at the four band centres
 /// so the continuous value still reads as Glacial…Intense. Songs with no
 /// cached BPM land exactly on their band's centre line until tempo spreads
-/// them — see the section footer.
+/// them.
 private struct EnergyScatter: View {
 	let points: [LibraryStats.EnergyPoint]
-	/// Modal decade, marked on the timeline.
-	let peakDecade: Int?
 
 	/// Energy → band label, placed at each band's centre value so the
 	/// continuous y-axis still reads in band terms.
@@ -367,15 +363,6 @@ private struct EnergyScatter: View {
 				.foregroundStyle(EnergyBand.color(forEnergy: point.energy))
 				.symbolSize(8)
 				.opacity(0.45)
-			}
-			if let peakDecade {
-				RuleMark(x: .value("Peak", peakDecade + 5))
-					.foregroundStyle(.quaternary)
-					.annotation(position: .top, alignment: .center, overflowResolution: .init(x: .fit, y: .disabled)) {
-						Text("Peak: \(peakDecade.formatted(.number.grouping(.never)))s")
-							.font(.caption2)
-							.foregroundStyle(.secondary)
-					}
 			}
 		}
 		.chartXScale(domain: yearDomain)
