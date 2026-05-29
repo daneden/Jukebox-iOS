@@ -36,6 +36,11 @@ struct LibraryOverviewView: View {
 	@State private var loadError: String?
 	@State private var isLoading = true
 
+	/// How often the distributions recompute over the cached union while
+	/// the sheet is open, so they track the warmer's progress. Tunable —
+	/// the recompute is store-reads + tallies, not a MusicKit fetch.
+	private static let refreshInterval: Duration = .seconds(5)
+
 	var body: some View {
 		NavigationStack {
 			content
@@ -215,17 +220,18 @@ struct LibraryOverviewView: View {
 		librarySize = nil
 		librarySizeFailed = false
 
-		let deckSnapshot = LibraryStats.ProgressCounts(
-			embedded: EmbeddingProgress.shared.embeddedCount,
-			total: EmbeddingProgress.shared.totalCount
-		)
+		// The union is the slow part and doesn't change as the caches warm,
+		// so fetch it once and recompute the distributions over it below.
+		let union: [Song]
+		do {
+			union = try await LibraryStatsBuilder.librarySnapshot()
+		} catch {
+			loadError = error.localizedDescription
+			isLoading = false
+			return
+		}
 
-		// Pool stats and library size run in parallel — the size cell
-		// updates independently when its async finishes.
-		async let poolTask = Task {
-			try await LibraryStatsBuilder.buildPoolStats(deck: deckSnapshot)
-		}.value
-
+		// Library size — one-shot in parallel; not part of the refresh loop.
 		Task {
 			let count = await LibraryStatsBuilder.paginatedSongCount()
 			await MainActor.run {
@@ -237,13 +243,25 @@ struct LibraryOverviewView: View {
 			}
 		}
 
-		do {
-			let pool = try await poolTask
-			stats = pool
-		} catch {
-			loadError = error.localizedDescription
-		}
+		stats = await LibraryStatsBuilder.stats(deck: deckSnapshot(), over: union)
 		isLoading = false
+
+		// Live refresh: recompute over the cached union as the warmer fills
+		// the genre / embedding / BPM caches, so the bars and scatter grow
+		// while the sheet is open. The `.task` cancels this when it closes.
+		while !Task.isCancelled {
+			try? await Task.sleep(for: Self.refreshInterval)
+			if Task.isCancelled { break }
+			let fresh = await LibraryStatsBuilder.stats(deck: deckSnapshot(), over: union)
+			withAnimation(.smooth) { stats = fresh }
+		}
+	}
+
+	private func deckSnapshot() -> LibraryStats.ProgressCounts {
+		LibraryStats.ProgressCounts(
+			embedded: EmbeddingProgress.shared.embeddedCount,
+			total: EmbeddingProgress.shared.totalCount
+		)
 	}
 
 	private func decadeLabel(_ decade: Int) -> String {

@@ -82,11 +82,18 @@ enum LibraryStatsBuilder {
 	/// table stops being scannable on a phone.
 	static let topGenresLimit = 12
 
-	/// Build the union-backed stats. Caller is responsible for parallel
-	/// fetching the library size via `paginatedSongCount()` if it wants
-	/// the size cell to surface too.
-	static func buildPoolStats(deck: LibraryStats.ProgressCounts) async throws -> LibraryStats {
-		let union = try await LibraryEmbeddingWarmer.shared.librarySnapshot()
+	/// The 3-pool union the warmer fills — the slow, MusicKit-bound step.
+	/// Fetch it once; the view refreshes by re-running `stats(deck:over:)`
+	/// over the same songs as the caches warm (no MusicKit re-fetch).
+	static func librarySnapshot() async throws -> [Song] {
+		try await LibraryEmbeddingWarmer.shared.librarySnapshot()
+	}
+
+	/// Compute the snapshot from an already-fetched union + the *current*
+	/// cache state — store reads + in-memory tallies, cheap enough to run
+	/// on a refresh timer while the sheet is open. Caller fetches the
+	/// library size separately via `paginatedSongCount()`.
+	static func stats(deck: LibraryStats.ProgressCounts, over union: [Song]) async -> LibraryStats {
 		let ids = union.map(\.id)
 
 		async let embeddingsLookup = EmbeddingStore.shared.embeddings(for: ids)
