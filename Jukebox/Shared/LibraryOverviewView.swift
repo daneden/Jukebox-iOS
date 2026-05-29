@@ -76,9 +76,7 @@ struct LibraryOverviewView: View {
 					Text("Analysis is capped at the 10,000 songs most likely to surface in a deck (highest play count, oldest in your library, most recently added).")
 				}
 
-				Section("Energy") {
-					EnergyChart(rows: stats.energyBuckets)
-				}
+				energySection(rows: stats.energyBuckets)
 
 				energyEraSection(stats: stats)
 
@@ -145,6 +143,23 @@ struct LibraryOverviewView: View {
 					.monospacedDigit()
 					.foregroundStyle(.secondary)
 					.contentTransition(.numericText())
+			}
+		}
+	}
+
+	private func energySection(rows: [LibraryStats.EnergyCount]) -> some View {
+		// Chart only the classified bands — folding the (currently huge)
+		// Unclassified count into the bar scale crushes the others to
+		// slivers. Report it in the footer instead.
+		let classified = rows.filter { $0.band != nil }
+		let unclassified = rows.first { $0.band == nil }?.count ?? 0
+		return Section {
+			EnergyChart(rows: classified)
+		} header: {
+			Text("Energy")
+		} footer: {
+			if unclassified > 0 {
+				Text("\(unclassified.formatted()) songs not yet classified — they fill in as analysis runs.")
 			}
 		}
 	}
@@ -262,12 +277,18 @@ private struct EnergyChart: View {
 					.foregroundStyle(.secondary)
 			}
 		}
-		// rows are in band order (Glacial…Intense, then Unclassified);
-		// the first y-domain entry sits at the top, matching that order.
+		// rows are in band order (Glacial…Intense); the first y-domain
+		// entry sits at the top, matching that order.
 		.chartYScale(domain: rows.map(\.label))
 		.chartXAxis(.hidden)
+		.chartYAxis {
+			// Labels only, no gridlines — a clean left label column.
+			AxisMarks(position: .leading) {
+				AxisValueLabel()
+			}
+		}
 		.chartLegend(.hidden)
-		.frame(height: CGFloat(rows.count) * 34)
+		.frame(height: CGFloat(rows.count) * 32)
 	}
 }
 
@@ -293,6 +314,11 @@ private struct GenreChart: View {
 		// rows are sorted by count descending → highest genre at the top.
 		.chartYScale(domain: rows.map(\.label))
 		.chartXAxis(.hidden)
+		.chartYAxis {
+			AxisMarks(position: .leading) {
+				AxisValueLabel()
+			}
+		}
 		.chartLegend(.hidden)
 		.frame(height: CGFloat(rows.count) * 30)
 	}
@@ -319,6 +345,16 @@ private struct EnergyScatter: View {
 		(0.875, "Intense"),
 	]
 
+	/// Clamp the year axis to plausible bounds: without an explicit domain
+	/// Charts auto-ranged ~0–3000, and bad release-date metadata can drop a
+	/// stray point at year 0 — clamping fixes the scale and clips outliers.
+	private var yearDomain: ClosedRange<Int> {
+		let years = points.map(\.year)
+		let lo = max(1900, years.min() ?? 1900)
+		let hi = min(2030, years.max() ?? 2030)
+		return lo ... max(lo + 1, hi)
+	}
+
 	var body: some View {
 		Chart(points) { point in
 			PointMark(
@@ -329,6 +365,7 @@ private struct EnergyScatter: View {
 			.symbolSize(16)
 			.opacity(0.45)
 		}
+		.chartXScale(domain: yearDomain)
 		.chartYScale(domain: 0 ... 1)
 		.chartYAxis {
 			AxisMarks(values: Self.bandTicks.map(\.value)) { value in
