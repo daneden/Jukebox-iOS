@@ -12,9 +12,11 @@
 //   2. Library size (paginated; settles after the union returns).
 //   3. Energy — band distribution across the analysis pool, including an
 //      Unclassified bucket for songs the classifier can't place yet.
-//   4. Energy × era — a scatter (Swift Charts PointMark): release year ×
-//      continuous energy (0–1), one dot per classified song, colored by
-//      band, y-axis labelled at the band centres.
+//   4. Energy over time — a scatter (Swift Charts PointMark): continuous
+//      energy (0–1) against a release-year or date-added time axis (user
+//      toggles), one dot per classified song, colored by band, y-axis
+//      labelled at the band centres. Release reads era; date-added reads
+//      how taste shifts over a library's lifetime.
 //   5. Top-N genres by frequency.
 //
 //  Tufte: no legends, direct labels on every axis, colour earns its place
@@ -35,6 +37,7 @@ struct LibraryOverviewView: View {
 	@State private var librarySizeFailed = false
 	@State private var loadError: String?
 	@State private var isLoading = true
+	@State private var energyTimeBasis: EnergyTimeBasis = .release
 
 	/// How often the distributions recompute over the cached union while
 	/// the sheet is open, so they track the warmer's progress. Tunable —
@@ -175,10 +178,20 @@ struct LibraryOverviewView: View {
 					.font(.footnote)
 					.foregroundStyle(.secondary)
 			} else {
-				EnergyScatter(points: stats.energyPoints)
+				Picker("Time basis", selection: $energyTimeBasis) {
+					ForEach(EnergyTimeBasis.allCases) { basis in
+						Text(basis.label).tag(basis)
+					}
+				}
+				.pickerStyle(.segmented)
+				.labelsHidden()
+
+				EnergyScatter(points: stats.energyPoints, timeBasis: energyTimeBasis)
 			}
 		} header: {
-			Text("Energy by era")
+			Text("Energy over time")
+		} footer: {
+			Text(energyTimeBasis.footer)
 		}
 	}
 
@@ -320,17 +333,44 @@ private struct GenreChart: View {
 	}
 }
 
-// MARK: - Energy × era scatter
+// MARK: - Energy over time scatter
 
-/// One dot per classified song: release year (x) × continuous energy (y),
-/// colored by band. Finer than bucketing into bands — energy is a 0–1
-/// scalar (band centre nudged by tempo), so the dots resolve into a cloud
-/// as BPM coverage grows. The y-axis is labelled at the four band centres
-/// so the continuous value still reads as Glacial…Intense. Songs with no
-/// cached BPM land exactly on their band's centre line until tempo spreads
-/// them.
+/// Time axis for the energy scatter: when a song was released vs when it was
+/// added to the library. Release reads as era; added reads as how taste
+/// shifts over a library's lifetime.
+private enum EnergyTimeBasis: String, CaseIterable, Identifiable {
+	case release
+	case added
+
+	var id: String {
+		rawValue
+	}
+
+	var label: String {
+		switch self {
+		case .release: "Release"
+		case .added: "Added"
+		}
+	}
+
+	var footer: String {
+		switch self {
+		case .release: "By each song’s release year."
+		case .added: "By when you added each song — a read on how your taste has shifted."
+		}
+	}
+}
+
+/// One dot per classified song: continuous energy (y) against a time axis
+/// (x) the caller chooses — release year, or the year the song was added to
+/// the library. Finer than bucketing into bands — energy is a 0–1 scalar
+/// (band centre nudged by tempo), so the dots resolve into a cloud as BPM
+/// coverage grows. The y-axis is labelled at the four band centres so the
+/// continuous value still reads as Glacial…Intense. Songs with no cached BPM
+/// land exactly on their band's centre line until tempo spreads them.
 private struct EnergyScatter: View {
 	let points: [LibraryStats.EnergyPoint]
+	let timeBasis: EnergyTimeBasis
 
 	/// Energy → band label, placed at each band's centre value so the
 	/// continuous y-axis still reads in band terms.
@@ -341,21 +381,41 @@ private struct EnergyScatter: View {
 		(0.875, "Intense"),
 	]
 
-	/// Clamp the year axis to plausible bounds: without an explicit domain
-	/// Charts auto-ranged ~0–3000, and bad release-date metadata can drop a
-	/// stray point at year 0 — clamping fixes the scale and clips outliers.
+	/// Points plottable on the current axis. Every point has a release year;
+	/// only library-dated songs have an added year, so the added view drops
+	/// the rest rather than collapsing them onto a fake date.
+	private var plotted: [LibraryStats.EnergyPoint] {
+		timeBasis == .added ? points.filter { $0.addedYear != nil } : points
+	}
+
+	private func year(_ point: LibraryStats.EnergyPoint) -> Int {
+		(timeBasis == .added ? point.addedYear : point.year) ?? point.year
+	}
+
+	/// X-axis bounds per basis. Release clamps to plausible era bounds
+	/// (1900–2030) — without a domain Charts auto-ranges ~0–3000, and stray
+	/// year-0 metadata drags the scale; the clamp fixes both. Added range-
+	/// frames to the library's own lifetime (system-set dates are reliable),
+	/// so a years-old library fills the axis instead of hugging the right
+	/// edge of a century-wide one.
 	private var yearDomain: ClosedRange<Int> {
-		let years = points.map(\.year)
-		let lo = max(1900, years.min() ?? 1900)
-		let hi = min(2030, years.max() ?? 2030)
-		return lo ... max(lo + 1, hi)
+		let years = plotted.map(year)
+		guard let minY = years.min(), let maxY = years.max() else { return 2000 ... 2025 }
+		switch timeBasis {
+		case .release:
+			let lo = max(1900, minY)
+			let hi = min(2030, maxY)
+			return lo ... max(lo + 1, hi)
+		case .added:
+			return minY ... max(minY + 1, maxY)
+		}
 	}
 
 	var body: some View {
 		Chart {
-			ForEach(points) { point in
+			ForEach(plotted) { point in
 				PointMark(
-					x: .value("Year", point.year),
+					x: .value("Year", year(point)),
 					y: .value("Energy", point.energy)
 				)
 				// Blend the band tints across the energy axis so a song
@@ -366,6 +426,7 @@ private struct EnergyScatter: View {
 			}
 		}
 		.chartXScale(domain: yearDomain)
+		.animation(.smooth(duration: 0.4), value: timeBasis)
 		.chartYScale(domain: 0 ... 1)
 		.chartYAxis {
 			AxisMarks(values: Self.bandTicks.map(\.value)) { value in

@@ -53,14 +53,17 @@ struct LibraryStats {
 		}
 	}
 
-	/// A classified song placed in the energy×era scatter: release year ×
-	/// continuous energy (0–1), colored by band. Only songs we can place
-	/// (energy non-nil) appear; sampled to a cap so the chart stays cheap.
-	/// Songs with no cached BPM sit exactly on their band's centre line and
-	/// spread off it only as tempo is analyzed.
+	/// A classified song placed in the energy-over-time scatter: continuous
+	/// energy (0–1) against either its release year or the year it was added
+	/// to the library, colored by band. Only songs we can place (energy
+	/// non-nil, with a release date) appear; `addedYear` is nil when the
+	/// library add-date is missing, so the date-added view drops it. Sampled
+	/// to a cap so the chart stays cheap. Songs with no cached BPM sit exactly
+	/// on their band's centre line and spread off it only as tempo is analyzed.
 	struct EnergyPoint: Identifiable, Equatable {
 		let id: String
 		let year: Int
+		let addedYear: Int?
 		let energy: Double
 		let band: EnergyBand
 	}
@@ -135,9 +138,13 @@ enum LibraryStatsBuilder {
 				if let date = originals[song.id] ?? song.releaseDate,
 				   let energy = SongEnergy.value(band: band, bpm: bpms[song.id])
 				{
+					let addedYear = song.libraryAddedDate.map {
+						Calendar.current.component(.year, from: $0)
+					}
 					points.append(LibraryStats.EnergyPoint(
 						id: song.id.rawValue,
 						year: Calendar.current.component(.year, from: date),
+						addedYear: addedYear,
 						energy: energy,
 						band: band
 					))
