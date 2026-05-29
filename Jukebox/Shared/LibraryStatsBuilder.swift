@@ -53,10 +53,22 @@ struct LibraryStats {
 		}
 	}
 
+	/// One cell of the energy×era heatmap: songs in a given decade that
+	/// classified into a given band. `band == nil` is the Unclassified
+	/// row — kept so the heatmap is populated before analysis warms and
+	/// visibly fills as songs move out of it.
+	struct EnergyEraCell: Identifiable, Equatable {
+		let id: String
+		let decade: Int
+		let band: EnergyBand?
+		let count: Int
+	}
+
 	let deck: ProgressCounts
 	let analysisPool: ProgressCounts
 	let energyBuckets: [EnergyCount]
 	let decadeHistogram: [DecadeCount]
+	let energyByEra: [EnergyEraCell]
 	let topGenres: [BucketCount]
 	let totalGenreCount: Int
 }
@@ -87,30 +99,38 @@ enum LibraryStatsBuilder {
 		var energyCounts: [EnergyBand: Int] = [:]
 		var unclassifiedCount = 0
 		var decadeCounts: [Int: Int] = [:]
+		var energyEra: [Int: [EnergyBand?: Int]] = [:]
 		var genreCounts: [String: Int] = [:]
 
 		for song in union {
 			let songGenres = genres[song.id] ?? []
 
-			// Energy
-			if let bundle {
-				if let band = EnergyClassifier.band(
+			let band: EnergyBand? = bundle.flatMap {
+				EnergyClassifier.band(
 					embedding: embeddings[song.id],
 					genres: songGenres,
-					bundle: bundle,
+					bundle: $0,
 					flat: flat
-				) {
-					energyCounts[band, default: 0] += 1
-				} else {
-					unclassifiedCount += 1
-				}
+				)
+			}
+			let decade = song.releaseDecade(override: originals[song.id])
+
+			// Energy
+			if let band {
+				energyCounts[band, default: 0] += 1
 			} else {
 				unclassifiedCount += 1
 			}
 
 			// Decade
-			if let decade = song.releaseDecade(override: originals[song.id]) {
+			if let decade {
 				decadeCounts[decade, default: 0] += 1
+			}
+
+			// Energy × era (band nil = Unclassified row; needs a decade to
+			// place on the x-axis).
+			if let decade {
+				energyEra[decade, default: [:]][band, default: 0] += 1
 			}
 
 			// Genre (Apple's slash-combined tokens are kept atomic — see
@@ -146,6 +166,20 @@ enum LibraryStatsBuilder {
 		}
 		decades.sort { $0.decade < $1.decade }
 
+		// Energy×era cells (non-zero only; the heatmap's pinned axes supply
+		// the full grid, blanks where a decade/band pairing has no songs).
+		var energyEraCells: [LibraryStats.EnergyEraCell] = []
+		for (decade, bands) in energyEra {
+			for (band, count) in bands where count > 0 {
+				energyEraCells.append(LibraryStats.EnergyEraCell(
+					id: "\(decade)-\(band?.rawValue ?? -1)",
+					decade: decade,
+					band: band,
+					count: count
+				))
+			}
+		}
+
 		var sortedGenres: [LibraryStats.BucketCount] = []
 		for (name, count) in genreCounts {
 			sortedGenres.append(LibraryStats.BucketCount(id: name, label: name, count: count))
@@ -162,6 +196,7 @@ enum LibraryStatsBuilder {
 			analysisPool: .init(embedded: embeddedInPool, total: union.count),
 			energyBuckets: energyRows,
 			decadeHistogram: decades,
+			energyByEra: energyEraCells,
 			topGenres: topGenres,
 			totalGenreCount: genreCounts.count
 		)

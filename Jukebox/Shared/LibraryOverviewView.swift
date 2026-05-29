@@ -5,21 +5,21 @@
 //  Created by Daniel Eden on 27/05/2026.
 //
 //  Full-screen sheet opened from the toolbar analysis-progress popover.
-//  Surfaces six facets of "what Playback sees in your library" in one
-//  scrollable layout:
+//  Grouped `Form` sections covering "what Playback sees in your library":
 //
-//   1. Deck embedding progress (count + thin bar).
-//   2. Library-analysis embedding progress, capped at the warmer's 10k
-//      pool size.
-//   3. Total library size (paginated; settles after the union returns).
-//   4. Energy-band distribution across the analysis pool, including an
-//      Unclassified bucket for songs the centroids can't place.
-//   5. Decade histogram (Swift Charts; bar-per-decade, baseline only).
-//   6. Top-N genres by `genreNames` frequency.
+//   1. Analysis — deck + library embedding progress (capped at the
+//      warmer's 10k pool).
+//   2. Library size (paginated; settles after the union returns).
+//   3. Energy — band distribution across the analysis pool, including an
+//      Unclassified bucket for songs the classifier can't place yet.
+//   4. Energy × era — a heatmap (Swift Charts RectangleMark): decades
+//      across, energy bands + Unclassified up, each cell shaded by count.
+//   5. Top-N genres by frequency.
 //
-//  Tufte: no legends, no gridlines beyond the histogram baseline, direct
-//  labels at every row, single colour for non-categorical bars. Every
-//  visual element earns its ink.
+//  Tufte: no legends, direct labels on every axis/row, colour earns its
+//  place (band tints + count-as-opacity in the heatmap). The Unclassified
+//  row keeps the heatmap populated before analysis warms and lets it
+//  visibly fill as songs move into bands.
 //
 
 import Charts
@@ -57,17 +57,33 @@ struct LibraryOverviewView: View {
 		if isLoading, stats == nil {
 			loadingState
 		} else if let stats {
-			ScrollView {
-				VStack(alignment: .leading, spacing: 32) {
-					analysisSection(stats: stats)
-					librarySizeSection
-					energySection(rows: stats.energyBuckets)
-					decadesSection(rows: stats.decadeHistogram)
-					genresSection(rows: stats.topGenres, total: stats.totalGenreCount)
+			Form {
+				Section {
+					ProgressRow(label: "Deck", embedded: stats.deck.embedded, total: stats.deck.total)
+					ProgressRow(label: "Library", embedded: stats.analysisPool.embedded, total: stats.analysisPool.total)
+				} header: {
+					Text("Analysis")
+				} footer: {
+					Text("New songs are analyzed automatically over Wi-Fi — while you're in the app, and in the background while charging.")
 				}
-				.padding(.horizontal, 24)
-				.padding(.vertical, 20)
+
+				Section {
+					librarySizeRow
+				} header: {
+					Text("Library size")
+				} footer: {
+					Text("Analysis is capped at the 10,000 songs most likely to surface in a deck (highest play count, oldest in your library, most recently added).")
+				}
+
+				Section("Energy") {
+					energyBars(rows: stats.energyBuckets)
+				}
+
+				energyEraSection(stats: stats)
+
+				genresSection(rows: stats.topGenres, total: stats.totalGenreCount)
 			}
+			.formStyle(.grouped)
 		} else {
 			ContentUnavailableView(
 				"Couldn't load library",
@@ -89,107 +105,74 @@ struct LibraryOverviewView: View {
 
 	// MARK: - Sections
 
-	private func analysisSection(stats: LibraryStats) -> some View {
-		VStack(alignment: .leading, spacing: 16) {
-			sectionTitle("Analysis")
-
-			ProgressRow(
-				label: "Deck",
-				embedded: stats.deck.embedded,
-				total: stats.deck.total
-			)
-
-			ProgressRow(
-				label: "Library",
-				embedded: stats.analysisPool.embedded,
-				total: stats.analysisPool.total
-			)
-
-			Text("New songs are analyzed automatically over Wi-Fi — while you're in the app, and in the background while charging.")
-				.font(.footnote)
-				.foregroundStyle(.secondary)
-		}
-	}
-
-	private var librarySizeSection: some View {
-		VStack(alignment: .leading, spacing: 8) {
-			sectionTitle("Library size")
-
-			HStack(alignment: .firstTextBaseline, spacing: 8) {
-				if let librarySize {
-					Text(librarySize, format: .number)
-						.font(.system(.largeTitle, design: .rounded).weight(.semibold))
-						.monospacedDigit()
-						.contentTransition(.numericText())
-					Text("songs")
+	private var librarySizeRow: some View {
+		HStack(alignment: .firstTextBaseline, spacing: 8) {
+			if let librarySize {
+				Text(librarySize, format: .number)
+					.font(.system(.largeTitle, design: .rounded).weight(.semibold))
+					.monospacedDigit()
+					.contentTransition(.numericText())
+				Text("songs")
+					.font(.title3)
+					.foregroundStyle(.secondary)
+			} else if librarySizeFailed {
+				Text("Unavailable")
+					.font(.title3)
+					.foregroundStyle(.secondary)
+			} else {
+				HStack(spacing: 8) {
+					ProgressView()
+						.controlSize(.small)
+					Text("Counting…")
 						.font(.title3)
 						.foregroundStyle(.secondary)
-				} else if librarySizeFailed {
-					Text("Unavailable")
-						.font(.title3)
-						.foregroundStyle(.secondary)
-				} else {
-					HStack(spacing: 8) {
-						ProgressView()
-							.controlSize(.small)
-						Text("Counting…")
-							.font(.title3)
-							.foregroundStyle(.secondary)
-					}
 				}
 			}
-
-			Text("Analysis is capped at the 10,000 songs most likely to surface in a deck (highest play count, oldest in your library, most recently added).")
-				.font(.footnote)
-				.foregroundStyle(.secondary)
-				.fixedSize(horizontal: false, vertical: true)
 		}
 	}
 
-	private func energySection(rows: [LibraryStats.EnergyCount]) -> some View {
+	private func energyBars(rows: [LibraryStats.EnergyCount]) -> some View {
 		let maxCount = max(rows.map(\.count).max() ?? 1, 1)
-		return VStack(alignment: .leading, spacing: 12) {
-			sectionTitle("Energy")
-
-			VStack(spacing: 10) {
-				ForEach(rows) { row in
-					BarRow(
-						label: row.label,
-						count: row.count,
-						maxCount: maxCount,
-						tint: row.band?.tint ?? .secondary,
-						showSwatch: row.band != nil
-					)
-				}
+		return VStack(spacing: 10) {
+			ForEach(rows) { row in
+				BarRow(
+					label: row.label,
+					count: row.count,
+					maxCount: maxCount,
+					tint: row.band?.tint ?? .secondary,
+					showSwatch: row.band != nil
+				)
 			}
 		}
 	}
 
-	private func decadesSection(rows: [LibraryStats.DecadeCount]) -> some View {
-		VStack(alignment: .leading, spacing: 12) {
-			sectionTitle("Eras")
-
-			if rows.isEmpty {
+	private func energyEraSection(stats: LibraryStats) -> some View {
+		Section {
+			if stats.energyByEra.isEmpty {
 				Text("No release dates available yet.")
 					.font(.footnote)
 					.foregroundStyle(.secondary)
 			} else {
-				DecadeHistogram(rows: rows)
-				if let peak = rows.max(by: { $0.count < $1.count }) {
-					Text("Peak: \(decadeLabel(peak.decade)) (\(peak.count.formatted()) songs)")
-						.font(.footnote)
-						.foregroundStyle(.secondary)
-				}
+				EnergyEraHeatmap(cells: stats.energyByEra)
 			}
+		} header: {
+			Text("Energy × era")
+		} footer: {
+			energyEraFooter(stats: stats)
+		}
+	}
+
+	@ViewBuilder
+	private func energyEraFooter(stats: LibraryStats) -> some View {
+		if let peak = stats.decadeHistogram.max(by: { $0.count < $1.count }) {
+			Text("Peak: \(decadeLabel(peak.decade)) (\(peak.count.formatted()) songs). Cell shade is song count; energy bands fill in as analysis catches up.")
 		}
 	}
 
 	private func genresSection(rows: [LibraryStats.BucketCount], total: Int) -> some View {
 		let maxCount = max(rows.map(\.count).max() ?? 1, 1)
 		let remaining = max(0, total - rows.count)
-		return VStack(alignment: .leading, spacing: 12) {
-			sectionTitle("Genres")
-
+		return Section {
 			if rows.isEmpty {
 				Text("No genres available yet.")
 					.font(.footnote)
@@ -206,12 +189,12 @@ struct LibraryOverviewView: View {
 						)
 					}
 				}
-
-				if remaining > 0 {
-					Text("+ \(remaining.formatted()) more")
-						.font(.footnote)
-						.foregroundStyle(.secondary)
-				}
+			}
+		} header: {
+			Text("Genres")
+		} footer: {
+			if remaining > 0 {
+				Text("+ \(remaining.formatted()) more")
 			}
 		}
 	}
@@ -260,12 +243,6 @@ struct LibraryOverviewView: View {
 		// 1970 → "1970s". The lowercased `s` keeps the label scannable as
 		// a plural; "1970S" reads like a model number.
 		"\(decade)s"
-	}
-
-	private func sectionTitle(_ text: String) -> some View {
-		Text(text)
-			.font(.headline)
-			.foregroundStyle(.primary)
 	}
 }
 
@@ -369,50 +346,76 @@ private struct BarRow: View {
 	}
 }
 
-// MARK: - Decade histogram
+// MARK: - Energy × era heatmap
 
-private struct DecadeHistogram: View {
-	let rows: [LibraryStats.DecadeCount]
+/// Decades across the x-axis, energy bands (+ an Unclassified row) up the
+/// y-axis, each cell shaded by song count. Replaces the 1-D decade
+/// histogram: it shows the era distribution (columns), the energy
+/// distribution (rows), AND their joint shape in one matrix. Categorical
+/// axes both ways — plotting the decade as a raw Int collapsed the bars
+/// onto a continuous span and rendered them invisibly.
+private struct EnergyEraHeatmap: View {
+	let cells: [LibraryStats.EnergyEraCell]
 
-	/// "'10", "'20" … the categorical x value AND the axis label. Plotting
-	/// the raw Int decade put the bars on a continuous 1900–2020 axis where
-	/// each was ~1 unit wide and rendered invisibly; a discrete label per
-	/// decade gives Swift Charts a real band to size each bar against.
-	private func label(_ decade: Int) -> String {
+	// Rows low → high energy, Unclassified last. Pinned so Swift Charts
+	// doesn't reorder the categories itself.
+	private static let bandOrder: [EnergyBand] = [.glacial, .mellow, .energetic, .intense]
+	private static let unclassifiedLabel = "Unclassified"
+
+	private var maxCount: Int {
+		max(cells.map(\.count).max() ?? 1, 1)
+	}
+
+	private var decades: [Int] {
+		Array(Set(cells.map(\.decade))).sorted()
+	}
+
+	private func decadeLabel(_ decade: Int) -> String {
 		"'\(String(decade % 100).leftPadded(to: 2, with: "0"))"
 	}
 
+	private func rowLabel(_ band: EnergyBand?) -> String {
+		band?.displayName ?? Self.unclassifiedLabel
+	}
+
+	/// sqrt so small cells stay visible while the (currently dominant)
+	/// Unclassified mass doesn't wash everything else out; floored so a
+	/// populated cell is never fully transparent.
+	private func opacity(_ count: Int) -> Double {
+		0.15 + 0.85 * (Double(count) / Double(maxCount)).squareRoot()
+	}
+
 	var body: some View {
-		Chart {
-			ForEach(rows) { row in
-				BarMark(
-					x: .value("Decade", label(row.decade)),
-					y: .value("Count", row.count),
-					width: .ratio(0.8)
-				)
-				.foregroundStyle(Color.accentColor)
-				.cornerRadius(2)
-			}
+		Chart(cells) { cell in
+			RectangleMark(
+				x: .value("Era", decadeLabel(cell.decade)),
+				y: .value("Energy", rowLabel(cell.band))
+			)
+			.foregroundStyle((cell.band?.tint ?? .secondary).opacity(opacity(cell.count)))
+			.cornerRadius(3)
 		}
-		// Pin the category order to ascending decade (rows are pre-sorted);
-		// otherwise Swift Charts would order the string categories itself.
-		.chartXScale(domain: rows.map { label($0.decade) })
+		.chartXScale(domain: decades.map(decadeLabel))
+		.chartYScale(domain: Self.bandOrder.map(\.displayName) + [Self.unclassifiedLabel])
 		.chartXAxis {
 			AxisMarks { value in
 				AxisValueLabel {
 					if let label = value.as(String.self) {
-						Text(label)
-							.font(.caption2)
-							.foregroundStyle(.secondary)
+						Text(label).font(.caption2).foregroundStyle(.secondary)
 					}
 				}
 			}
 		}
-		.chartYAxis(.hidden)
-		.chartPlotStyle { plot in
-			plot.background(.clear)
+		.chartYAxis {
+			AxisMarks { value in
+				AxisValueLabel {
+					if let label = value.as(String.self) {
+						Text(label).font(.caption2).foregroundStyle(.secondary)
+					}
+				}
+			}
 		}
-		.frame(height: 140)
+		.chartLegend(.hidden)
+		.frame(height: 170)
 	}
 }
 
