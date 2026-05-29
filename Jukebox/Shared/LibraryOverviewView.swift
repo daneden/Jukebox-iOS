@@ -12,14 +12,15 @@
 //   2. Library size (paginated; settles after the union returns).
 //   3. Energy — band distribution across the analysis pool, including an
 //      Unclassified bucket for songs the classifier can't place yet.
-//   4. Energy × era — a heatmap (Swift Charts RectangleMark): decades
-//      across, energy bands + Unclassified up, each cell shaded by count.
+//   4. Energy × era — a scatter (Swift Charts PointMark): release year ×
+//      continuous energy (0–1), one dot per classified song, colored by
+//      band, y-axis labelled at the band centres.
 //   5. Top-N genres by frequency.
 //
-//  Tufte: no legends, direct labels on every axis/row, colour earns its
-//  place (band tints + count-as-opacity in the heatmap). The Unclassified
-//  row keeps the heatmap populated before analysis warms and lets it
-//  visibly fill as songs move into bands.
+//  Tufte: no legends, direct labels on every axis, colour earns its place
+//  (band tints). The scatter resolves from band lines into a cloud as BPM
+//  coverage grows; the footer says so. Unclassified songs aren't plotted
+//  (no energy value) — their count lives in the Energy section.
 //
 
 import Charts
@@ -148,12 +149,12 @@ struct LibraryOverviewView: View {
 
 	private func energyEraSection(stats: LibraryStats) -> some View {
 		Section {
-			if stats.energyByEra.isEmpty {
-				Text("No release dates available yet.")
+			if stats.energyPoints.isEmpty {
+				Text("No songs placed yet — energy appears here as your library is analyzed.")
 					.font(.footnote)
 					.foregroundStyle(.secondary)
 			} else {
-				EnergyEraHeatmap(cells: stats.energyByEra)
+				EnergyScatter(points: stats.energyPoints)
 			}
 		} header: {
 			Text("Energy × era")
@@ -162,11 +163,12 @@ struct LibraryOverviewView: View {
 		}
 	}
 
-	@ViewBuilder
 	private func energyEraFooter(stats: LibraryStats) -> some View {
-		if let peak = stats.decadeHistogram.max(by: { $0.count < $1.count }) {
-			Text("Peak: \(decadeLabel(peak.decade)) (\(peak.count.formatted()) songs). Cell shade is song count; energy bands fill in as analysis catches up.")
-		}
+		let peakText = stats.decadeHistogram.max(by: { $0.count < $1.count })
+			.map { "Peak: \(decadeLabel($0.decade)) (\($0.count.formatted()) songs). " } ?? ""
+		return Text(
+			"\(peakText)Each dot is a song by release year and energy. Songs start on their band's line and spread apart as their tempo is analyzed, so the cloud sharpens as your library fills in (\(stats.classifiedCount.formatted()) of \(stats.analysisPool.total.formatted()) placed)."
+		)
 	}
 
 	private func genresSection(rows: [LibraryStats.BucketCount], total: Int) -> some View {
@@ -346,85 +348,61 @@ private struct BarRow: View {
 	}
 }
 
-// MARK: - Energy × era heatmap
+// MARK: - Energy × era scatter
 
-/// Decades across the x-axis, energy bands (+ an Unclassified row) up the
-/// y-axis, each cell shaded by song count. Replaces the 1-D decade
-/// histogram: it shows the era distribution (columns), the energy
-/// distribution (rows), AND their joint shape in one matrix. Categorical
-/// axes both ways — plotting the decade as a raw Int collapsed the bars
-/// onto a continuous span and rendered them invisibly.
-private struct EnergyEraHeatmap: View {
-	let cells: [LibraryStats.EnergyEraCell]
+/// One dot per classified song: release year (x) × continuous energy (y),
+/// colored by band. Finer than bucketing into bands — energy is a 0–1
+/// scalar (band centre nudged by tempo), so the dots resolve into a cloud
+/// as BPM coverage grows. The y-axis is labelled at the four band centres
+/// so the continuous value still reads as Glacial…Intense. Songs with no
+/// cached BPM land exactly on their band's centre line until tempo spreads
+/// them — see the section footer.
+private struct EnergyScatter: View {
+	let points: [LibraryStats.EnergyPoint]
 
-	// Rows low → high energy, Unclassified last. Pinned so Swift Charts
-	// doesn't reorder the categories itself.
-	private static let bandOrder: [EnergyBand] = [.glacial, .mellow, .energetic, .intense]
-	private static let unclassifiedLabel = "Unclassified"
-
-	private var maxCount: Int {
-		max(cells.map(\.count).max() ?? 1, 1)
-	}
-
-	private var decades: [Int] {
-		Array(Set(cells.map(\.decade))).sorted()
-	}
-
-	private func decadeLabel(_ decade: Int) -> String {
-		"'\(String(decade % 100).leftPadded(to: 2, with: "0"))"
-	}
-
-	private func rowLabel(_ band: EnergyBand?) -> String {
-		band?.displayName ?? Self.unclassifiedLabel
-	}
-
-	/// sqrt so small cells stay visible while the (currently dominant)
-	/// Unclassified mass doesn't wash everything else out; floored so a
-	/// populated cell is never fully transparent.
-	private func opacity(_ count: Int) -> Double {
-		0.15 + 0.85 * (Double(count) / Double(maxCount)).squareRoot()
-	}
+	/// Energy → band label, placed at each band's centre value so the
+	/// continuous y-axis still reads in band terms.
+	private static let bandTicks: [(value: Double, label: String)] = [
+		(0.125, "Glacial"),
+		(0.375, "Mellow"),
+		(0.625, "Energetic"),
+		(0.875, "Intense"),
+	]
 
 	var body: some View {
-		Chart(cells) { cell in
-			RectangleMark(
-				x: .value("Era", decadeLabel(cell.decade)),
-				y: .value("Energy", rowLabel(cell.band))
+		Chart(points) { point in
+			PointMark(
+				x: .value("Year", point.year),
+				y: .value("Energy", point.energy)
 			)
-			.foregroundStyle((cell.band?.tint ?? .secondary).opacity(opacity(cell.count)))
-			.cornerRadius(3)
+			.foregroundStyle(point.band.tint)
+			.symbolSize(16)
+			.opacity(0.45)
 		}
-		.chartXScale(domain: decades.map(decadeLabel))
-		// Swift Charts puts the first y-domain entry at the top, so feed it
-		// top→bottom (Intense…Glacial, then Unclassified) to read bottom-up
-		// as Unclassified → Glacial → Mellow → Energetic → Intense.
-		.chartYScale(domain: Self.bandOrder.reversed().map(\.displayName) + [Self.unclassifiedLabel])
-		.chartXAxis {
-			AxisMarks { value in
+		.chartYScale(domain: 0 ... 1)
+		.chartYAxis {
+			AxisMarks(values: Self.bandTicks.map(\.value)) { value in
+				AxisGridLine()
 				AxisValueLabel {
-					if let label = value.as(String.self) {
-						Text(label).font(.caption2).foregroundStyle(.secondary)
+					if let v = value.as(Double.self),
+					   let tick = Self.bandTicks.first(where: { abs($0.value - v) < 0.0001 })
+					{
+						Text(tick.label).font(.caption2).foregroundStyle(.secondary)
 					}
 				}
 			}
 		}
-		.chartYAxis {
+		.chartXAxis {
 			AxisMarks { value in
+				AxisGridLine()
 				AxisValueLabel {
-					if let label = value.as(String.self) {
-						Text(label).font(.caption2).foregroundStyle(.secondary)
+					if let year = value.as(Int.self) {
+						Text(verbatim: String(year)).font(.caption2).foregroundStyle(.secondary)
 					}
 				}
 			}
 		}
 		.chartLegend(.hidden)
-		.frame(height: 170)
-	}
-}
-
-private extension String {
-	func leftPadded(to length: Int, with character: Character) -> String {
-		if count >= length { return self }
-		return String(repeating: character, count: length - count) + self
+		.frame(height: 200)
 	}
 }

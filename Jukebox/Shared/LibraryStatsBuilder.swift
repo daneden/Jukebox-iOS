@@ -53,22 +53,25 @@ struct LibraryStats {
 		}
 	}
 
-	/// One cell of the energy×era heatmap: songs in a given decade that
-	/// classified into a given band. `band == nil` is the Unclassified
-	/// row — kept so the heatmap is populated before analysis warms and
-	/// visibly fills as songs move out of it.
-	struct EnergyEraCell: Identifiable, Equatable {
+	/// A classified song placed in the energy×era scatter: release year ×
+	/// continuous energy (0–1), colored by band. Only songs we can place
+	/// (energy non-nil) appear; sampled to a cap so the chart stays cheap.
+	/// Songs with no cached BPM sit exactly on their band's centre line and
+	/// spread off it only as tempo is analyzed.
+	struct EnergyPoint: Identifiable, Equatable {
 		let id: String
-		let decade: Int
-		let band: EnergyBand?
-		let count: Int
+		let year: Int
+		let energy: Double
+		let band: EnergyBand
 	}
 
 	let deck: ProgressCounts
 	let analysisPool: ProgressCounts
 	let energyBuckets: [EnergyCount]
 	let decadeHistogram: [DecadeCount]
-	let energyByEra: [EnergyEraCell]
+	let energyPoints: [EnergyPoint]
+	/// Songs that could be placed on the scatter (before the sample cap).
+	let classifiedCount: Int
 	let topGenres: [BucketCount]
 	let totalGenreCount: Int
 }
@@ -89,9 +92,11 @@ enum LibraryStatsBuilder {
 		async let embeddingsLookup = EmbeddingStore.shared.embeddings(for: ids)
 		async let originalsLookup = OriginalReleaseStore.shared.originalDates(for: ids)
 		async let genresLookup = GenreStore.shared.genres(for: ids)
+		async let bpmsLookup = EmbeddingStore.shared.bpms(for: ids)
 		let embeddings = await embeddingsLookup
 		let originals = await originalsLookup
 		let genres = await genresLookup
+		let bpms = await bpmsLookup
 
 		let bundle = EnergyCentroidsLoader.bundled
 		let flat = bundle.map(EnergyClassifier.flatten(bundle:)) ?? []
@@ -99,7 +104,7 @@ enum LibraryStatsBuilder {
 		var energyCounts: [EnergyBand: Int] = [:]
 		var unclassifiedCount = 0
 		var decadeCounts: [Int: Int] = [:]
-		var energyEra: [Int: [EnergyBand?: Int]] = [:]
+		var points: [LibraryStats.EnergyPoint] = []
 		var genreCounts: [String: Int] = [:]
 
 		for song in union {
@@ -115,9 +120,21 @@ enum LibraryStatsBuilder {
 			}
 			let decade = song.releaseDecade(override: originals[song.id])
 
-			// Energy
+			// Energy: count the band, and place classified songs on the
+			// scatter (release year × continuous energy). Songs with no BPM
+			// sit at their band centre; BPM spreads them.
 			if let band {
 				energyCounts[band, default: 0] += 1
+				if let date = originals[song.id] ?? song.releaseDate,
+				   let energy = SongEnergy.value(band: band, bpm: bpms[song.id])
+				{
+					points.append(LibraryStats.EnergyPoint(
+						id: song.id.rawValue,
+						year: Calendar.current.component(.year, from: date),
+						energy: energy,
+						band: band
+					))
+				}
 			} else {
 				unclassifiedCount += 1
 			}
@@ -125,12 +142,6 @@ enum LibraryStatsBuilder {
 			// Decade
 			if let decade {
 				decadeCounts[decade, default: 0] += 1
-			}
-
-			// Energy × era (band nil = Unclassified row; needs a decade to
-			// place on the x-axis).
-			if let decade {
-				energyEra[decade, default: [:]][band, default: 0] += 1
 			}
 
 			// Genre (Apple's slash-combined tokens are kept atomic — see
@@ -166,18 +177,16 @@ enum LibraryStatsBuilder {
 		}
 		decades.sort { $0.decade < $1.decade }
 
-		// Energy×era cells (non-zero only; the heatmap's pinned axes supply
-		// the full grid, blanks where a decade/band pairing has no songs).
-		var energyEraCells: [LibraryStats.EnergyEraCell] = []
-		for (decade, bands) in energyEra {
-			for (band, count) in bands where count > 0 {
-				energyEraCells.append(LibraryStats.EnergyEraCell(
-					id: "\(decade)-\(band?.rawValue ?? -1)",
-					decade: decade,
-					band: band,
-					count: count
-				))
-			}
+		// Sample the scatter points to a cap so the chart stays cheap on a
+		// large, fully-warmed library. `classifiedCount` keeps the true
+		// placeable total for the footer even when fewer dots are drawn.
+		let sampleCap = 1500
+		let energyPoints: [LibraryStats.EnergyPoint]
+		if points.count > sampleCap {
+			let step = Double(points.count) / Double(sampleCap)
+			energyPoints = (0 ..< sampleCap).map { points[Int(Double($0) * step)] }
+		} else {
+			energyPoints = points
 		}
 
 		var sortedGenres: [LibraryStats.BucketCount] = []
@@ -196,7 +205,8 @@ enum LibraryStatsBuilder {
 			analysisPool: .init(embedded: embeddedInPool, total: union.count),
 			energyBuckets: energyRows,
 			decadeHistogram: decades,
-			energyByEra: energyEraCells,
+			energyPoints: energyPoints,
+			classifiedCount: points.count,
 			topGenres: topGenres,
 			totalGenreCount: genreCounts.count
 		)
