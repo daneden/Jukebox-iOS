@@ -36,7 +36,6 @@ struct LibraryOverviewView: View {
 	@State private var librarySize: Int?
 	@State private var librarySizeFailed = false
 	@State private var loadError: String?
-	@State private var isLoading = true
 	@State private var energyTimeBasis: EnergyTimeBasis = .release
 
 	/// How often the distributions recompute over the cached union while
@@ -63,18 +62,19 @@ struct LibraryOverviewView: View {
 
 	@ViewBuilder
 	private var content: some View {
-		if isLoading, stats == nil {
-			loadingState
-		} else if let stats {
+		if let loadError, stats == nil {
+			ContentUnavailableView(
+				"Couldn't load library",
+				systemImage: "exclamationmark.triangle",
+				description: Text(loadError)
+			)
+		} else {
+			// Progressive: render the whole scaffold immediately so a cold open
+			// shows structure + live deck progress + "Counting…"/"Analyzing…"
+			// placeholders right away, then fills each section in as its data
+			// lands — instead of a blank spinner gating the entire sheet.
 			Form {
-				Section {
-					analysisRow("Deck", embedded: stats.deck.embedded, total: stats.deck.total)
-					analysisRow("Library", embedded: stats.analysisPool.embedded, total: stats.analysisPool.total)
-				} header: {
-					Text("Analysis")
-				} footer: {
-					Text("Your music library is analysed when the app is open and your device is connected to WiFi, or in the background while charging.")
-				}
+				analysisSection
 
 				Section {
 					librarySizeRow
@@ -84,30 +84,59 @@ struct LibraryOverviewView: View {
 					Text("Up to 10,000 songs (most-played, oldest, and newest) are analysed from your library to form playlists.")
 				}
 
-				energySection(rows: stats.energyBuckets)
-
-				energyEraSection(stats: stats)
-
-				genresSection(rows: stats.topGenres, total: stats.totalGenreCount)
+				// Energy, the era scatter and genres all come from one classify
+				// pass — until it lands, each shows its header over an analysing
+				// row so the layout is stable when the charts swap in.
+				if let stats {
+					energySection(rows: stats.energyBuckets)
+					energyEraSection(stats: stats)
+					genresSection(rows: stats.topGenres, total: stats.totalGenreCount)
+				} else {
+					analyzingSection("Energy")
+					analyzingSection("Energy over time")
+					analyzingSection("Genres")
+				}
 			}
 			.formStyle(.grouped)
-		} else {
-			ContentUnavailableView(
-				"Couldn't load library",
-				systemImage: "exclamationmark.triangle",
-				description: Text(loadError ?? "Try again in a moment.")
-			)
 		}
 	}
 
-	private var loadingState: some View {
-		VStack(spacing: 12) {
-			ProgressView()
-			Text("Reading your library…")
-				.font(.footnote)
-				.foregroundStyle(.secondary)
+	/// Deck progress reads live from `EmbeddingProgress` (in memory, no union),
+	/// so it shows the instant the sheet opens. The library-pool row needs the
+	/// snapshot, so it shows an inline spinner until that lands.
+	private var analysisSection: some View {
+		Section {
+			analysisRow(
+				"Deck",
+				embedded: EmbeddingProgress.shared.embeddedCount,
+				total: EmbeddingProgress.shared.totalCount
+			)
+			if let stats {
+				analysisRow("Library", embedded: stats.analysisPool.embedded, total: stats.analysisPool.total)
+			} else {
+				analyzingRow("Library")
+			}
+		} header: {
+			Text("Analysis")
+		} footer: {
+			Text("Your music library is analysed when the app is open and your device is connected to WiFi, or in the background while charging.")
 		}
-		.frame(maxWidth: .infinity, maxHeight: .infinity)
+	}
+
+	/// Placeholder section shown for a union-derived section before the snapshot
+	/// lands — its real header over a small "analysing" row.
+	private func analyzingSection(_ title: String) -> some View {
+		Section {
+			HStack(spacing: 8) {
+				ProgressView()
+					.controlSize(.small)
+				Text("Analyzing your library…")
+					.font(.subheadline)
+					.foregroundStyle(.secondary)
+			}
+		} header: {
+			Text(title)
+		}
 	}
 
 	// MARK: - Sections
@@ -152,6 +181,18 @@ struct LibraryOverviewView: View {
 					.foregroundStyle(.secondary)
 					.contentTransition(.numericText())
 			}
+		}
+	}
+
+	/// Matches `analysisRow`'s label-left layout but with a spinner in place of
+	/// the count, for a metric still being computed.
+	private func analyzingRow(_ label: String) -> some View {
+		HStack {
+			Text(label)
+				.font(.subheadline.weight(.medium))
+			Spacer()
+			ProgressView()
+				.controlSize(.small)
 		}
 	}
 
@@ -218,21 +259,13 @@ struct LibraryOverviewView: View {
 	// MARK: - Loading
 
 	private func load() async {
-		isLoading = true
 		loadError = nil
-		stats = nil
-		librarySize = nil
-		librarySizeFailed = false
 
-		// The union is the slow part and doesn't change as the caches warm,
-		// so fetch it once and recompute the distributions over it below.
-		let union: [Song]
-		do {
-			union = try await LibraryStatsBuilder.librarySnapshot()
-		} catch {
-			loadError = error.localizedDescription
-			isLoading = false
-			return
+		// Instant paint: the last persisted snapshot, if any. Every open after
+		// the first shows real data immediately with zero MusicKit work — the
+		// expensive union fetch + classify happens in the revalidate below.
+		if let cached = await LibraryStatsStore.shared.load() {
+			stats = cached
 		}
 
 		// Library size — one-shot in parallel; not part of the refresh loop.
@@ -247,25 +280,40 @@ struct LibraryOverviewView: View {
 			}
 		}
 
-		stats = await LibraryStatsBuilder.stats(deck: deckSnapshot(), over: union)
-		isLoading = false
-
-		// Live refresh: recompute over the cached union as the warmer fills
-		// the genre / embedding / BPM caches, so the bars and scatter grow
-		// while the sheet is open. The `.task` cancels this when it closes.
+		// Revalidate now, then on a cadence while the sheet is open — but only
+		// when analysis has actually advanced (the coverage fingerprint moved),
+		// so an idle sheet doesn't re-fetch + re-classify the pool every tick.
+		// The `.task` cancels this when the sheet closes.
+		var lastSignature: [Int]?
+		var firstPass = true
 		while !Task.isCancelled {
+			let signature = await LibraryStatsBuilder.coverageSignature()
+			if firstPass || stats == nil || signature != lastSignature {
+				let outcome = await LibraryStatsBuilder.refresh()
+				if Task.isCancelled { break }
+				switch outcome {
+				case let .computed(fresh):
+					withAnimation(.smooth) { stats = fresh }
+					lastSignature = signature
+					loadError = nil
+				case .coalesced:
+					// The eager prime is computing — show its result if it has
+					// landed; otherwise the section placeholders stay up and the
+					// next tick (or the prime's completion) fills them in.
+					if let reloaded = await LibraryStatsStore.shared.load() {
+						withAnimation(.smooth) { stats = reloaded }
+					}
+				case .failed:
+					// Keep any cached snapshot on screen; only surface the empty
+					// state when there's genuinely nothing to show.
+					if stats == nil {
+						loadError = "Couldn’t reach your library. Stats will appear once analysis runs."
+					}
+				}
+				firstPass = false
+			}
 			try? await Task.sleep(for: Self.refreshInterval)
-			if Task.isCancelled { break }
-			let fresh = await LibraryStatsBuilder.stats(deck: deckSnapshot(), over: union)
-			withAnimation(.smooth) { stats = fresh }
 		}
-	}
-
-	private func deckSnapshot() -> LibraryStats.ProgressCounts {
-		LibraryStats.ProgressCounts(
-			embedded: EmbeddingProgress.shared.embeddedCount,
-			total: EmbeddingProgress.shared.totalCount
-		)
 	}
 }
 

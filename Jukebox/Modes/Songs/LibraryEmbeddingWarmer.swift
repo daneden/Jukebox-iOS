@@ -99,6 +99,19 @@ actor LibraryEmbeddingWarmer {
 
 	private var isRunning = false
 
+	/// Session cache of the three-pool union. The union *membership* is stable
+	/// as the caches warm — only the per-song cached metadata changes — so
+	/// repeat callers within a short window (the overview's eager prime, its
+	/// background revalidate, a following warm pass) can share one fetch
+	/// instead of each re-paginating up to 10k Songs from MusicKit. Stats
+	/// recomputes still re-read the stores every time for fresh coverage.
+	private var cachedUnion: (songs: [Song], at: Date)?
+
+	/// How long a cached union stays fresh. Bounded so library mutations
+	/// (newly added / freshly played songs shifting the pool sorts) surface
+	/// within a session without forcing a refetch on every single call.
+	static let unionCacheTTL: TimeInterval = 120
+
 	// Cached gating state, updated by background callbacks (NWPathMonitor
 	// path queue, UIDevice notifications on main). Kept in a lock so
 	// `conditionsFavorable` can be a synchronous nonisolated read in
@@ -318,6 +331,15 @@ actor LibraryEmbeddingWarmer {
 	/// Library Overview view can compute its analysis-pool stats over
 	/// the same set the warmer will actually embed.
 	func librarySnapshot() async throws -> [Song] {
+		if let cached = cachedUnion, Date().timeIntervalSince(cached.at) < Self.unionCacheTTL {
+			return cached.songs
+		}
+		let union = try await fetchUnion()
+		cachedUnion = (union, Date())
+		return union
+	}
+
+	private func fetchUnion() async throws -> [Song] {
 		async let nostalgia = fetchPool(sort: .playCount, ascending: false)
 		async let discovery = fetchPool(sort: .libraryAddedDate, ascending: true)
 		async let freshness = fetchPool(sort: .libraryAddedDate, ascending: false)

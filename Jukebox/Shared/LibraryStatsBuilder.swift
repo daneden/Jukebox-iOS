@@ -9,41 +9,45 @@
 //  (energy band, release decade, top genres) over the same analysis
 //  pool the LibraryEmbeddingWarmer is filling.
 //
-//  Two parallel queries:
-//   - `LibraryEmbeddingWarmer.shared.librarySnapshot()` — three-pool
-//     union of up to 10k songs, mirrors what the warmer will embed.
-//     Drives every distribution.
+//  Producer/consumer split — the overview never blocks on MusicKit:
+//   - `refresh()` (producer) fetches the warmer's memoized 3-pool union,
+//     classifies, and persists the result to `LibraryStatsStore`. Coalesced
+//     so the eager prime + the sheet's revalidate don't stack. Triggered
+//     eagerly when the toolbar indicator appears and on a coverage-gated tick
+//     while the sheet is open.
+//   - The view (consumer) paints the persisted snapshot instantly, then shows
+//     `refresh()`'s result as it lands. First-ever open pays one compute; the
+//     eager prime usually beats the user to it.
 //   - `paginatedSongCount()` — total library count via 1000-per-batch
-//     pagination. The view shows union-backed sections as soon as the
-//     union returns and updates the size cell when its count lands.
+//     pagination, run in parallel for the size cell only.
 //
-//  Snapshot only — recomputed each time the sheet opens. No persistent
-//  cache (the union takes ~1–2s on Wi-Fi for a populated library; this
-//  is rare enough that a 1-day cache wouldn't pay off).
+//  We persist the small computed *result* (a few hundred counts + ≤1500
+//  sampled points), not the heavy *inputs* (the 10k-song union, the vectors)
+//  — a different, cheaper trade than the previously-rejected union cache.
 //
 
 import Foundation
 import MusicKit
 
-struct LibraryStats {
-	struct ProgressCounts: Equatable {
+struct LibraryStats: Codable {
+	struct ProgressCounts: Equatable, Codable {
 		let embedded: Int
 		let total: Int
 	}
 
-	struct BucketCount: Identifiable, Equatable {
+	struct BucketCount: Identifiable, Equatable, Codable {
 		let id: String
 		let label: String
 		let count: Int
 	}
 
-	struct DecadeCount: Identifiable, Equatable {
+	struct DecadeCount: Identifiable, Equatable, Codable {
 		let id: Int
 		let decade: Int
 		let count: Int
 	}
 
-	struct EnergyCount: Identifiable, Equatable {
+	struct EnergyCount: Identifiable, Equatable, Codable {
 		let id: Int
 		let band: EnergyBand?
 		let count: Int
@@ -62,7 +66,7 @@ struct LibraryStats {
 	/// add-date is missing, so the date-added view drops it. Sampled to a cap
 	/// so the chart stays cheap. Songs with no cached BPM sit exactly on their
 	/// band's centre line and spread off it only as tempo is analyzed.
-	struct EnergyPoint: Identifiable, Equatable {
+	struct EnergyPoint: Identifiable, Equatable, Codable {
 		let id: String
 		let releaseDate: Date
 		let addedDate: Date?
@@ -87,13 +91,6 @@ enum LibraryStatsBuilder {
 	/// table stops being scannable on a phone.
 	static let topGenresLimit = 12
 
-	/// The 3-pool union the warmer fills — the slow, MusicKit-bound step.
-	/// Fetch it once; the view refreshes by re-running `stats(deck:over:)`
-	/// over the same songs as the caches warm (no MusicKit re-fetch).
-	static func librarySnapshot() async throws -> [Song] {
-		try await LibraryEmbeddingWarmer.shared.librarySnapshot()
-	}
-
 	/// Compute the snapshot from an already-fetched union + the *current*
 	/// cache state — store reads + in-memory tallies, cheap enough to run
 	/// on a refresh timer while the sheet is open. Caller fetches the
@@ -101,14 +98,16 @@ enum LibraryStatsBuilder {
 	static func stats(deck: LibraryStats.ProgressCounts, over union: [Song]) async -> LibraryStats {
 		let ids = union.map(\.id)
 
-		async let embeddingsLookup = EmbeddingStore.shared.embeddings(for: ids)
+		// One EmbeddingStore fetch yields both vectors and BPMs — they live on
+		// the same rows, and two separate calls would serialize on the store's
+		// pinned executor and scan the table twice. Genres + originals are
+		// separate actors, so they run concurrently with it via async let.
+		async let embeddingBundle = EmbeddingStore.shared.embeddingsAndBPMs(for: ids)
 		async let originalsLookup = OriginalReleaseStore.shared.originalDates(for: ids)
 		async let genresLookup = GenreStore.shared.genres(for: ids)
-		async let bpmsLookup = EmbeddingStore.shared.bpms(for: ids)
-		let embeddings = await embeddingsLookup
+		let (embeddings, bpms) = await embeddingBundle
 		let originals = await originalsLookup
 		let genres = await genresLookup
-		let bpms = await bpmsLookup
 
 		let bundle = EnergyCentroidsLoader.bundled
 		let flat = bundle.map(EnergyClassifier.flatten(bundle:)) ?? []
@@ -225,6 +224,62 @@ enum LibraryStatsBuilder {
 		)
 	}
 
+	enum RefreshOutcome {
+		/// A fresh snapshot was computed and persisted.
+		case computed(LibraryStats)
+		/// Another refresh is already in flight; read its result from the store.
+		case coalesced
+		/// The union fetch failed (e.g. offline) — nothing was computed.
+		case failed
+	}
+
+	/// Recompute the whole-library stats over the (memoized) union and persist
+	/// the snapshot. The overview reads the persisted result for an instant
+	/// first paint; this keeps it current. Coalesced — concurrent callers (the
+	/// eager prime on indicator-appear, the sheet's background revalidate, a
+	/// refresh tick) collapse to one in-flight pass; losers get `.coalesced`
+	/// and read the winner's write. Reuses the warmer's memoized union, so
+	/// back-to-back refreshes don't each re-fetch 10k Songs from MusicKit.
+	@discardableResult
+	static func refresh() async -> RefreshOutcome {
+		guard await RefreshGate.shared.begin() else { return .coalesced }
+
+		let outcome: RefreshOutcome
+		if let union = try? await LibraryEmbeddingWarmer.shared.librarySnapshot() {
+			let fresh = await stats(deck: deckCounts(), over: union)
+			await LibraryStatsStore.shared.save(fresh)
+			outcome = .computed(fresh)
+		} else {
+			outcome = .failed
+		}
+
+		await RefreshGate.shared.end()
+		return outcome
+	}
+
+	/// Cheap "has analysis advanced?" fingerprint for the overview's refresh
+	/// gate: deck progress plus COUNT(*) of embedded and genre-resolved rows.
+	/// All counts, no row materialization — when the tuple is unchanged between
+	/// ticks the sheet skips the full reclassify, so an idle open sheet doesn't
+	/// burn the energy gauge.
+	static func coverageSignature() async -> [Int] {
+		async let embedded = EmbeddingStore.shared.totalEmbeddedCount()
+		async let genres = GenreStore.shared.totalResolvedCount()
+		let deck = await deckCounts()
+		return [deck.embedded, deck.total, await embedded, await genres]
+	}
+
+	/// Current deck embedding progress, read on the MainActor where
+	/// `EmbeddingProgress` lives.
+	private static func deckCounts() async -> LibraryStats.ProgressCounts {
+		await MainActor.run {
+			LibraryStats.ProgressCounts(
+				embedded: EmbeddingProgress.shared.embeddedCount,
+				total: EmbeddingProgress.shared.totalCount
+			)
+		}
+	}
+
 	/// Total song count via paginated `MusicLibraryRequest<Song>`. We
 	/// page through 1000 at a time and only retain the running count —
 	/// holding 50k Song values just to discard them would defeat the
@@ -248,5 +303,25 @@ enum LibraryStatsBuilder {
 		} catch {
 			return nil
 		}
+	}
+}
+
+/// Coalesces concurrent `LibraryStatsBuilder.refresh()` calls so the eager
+/// prime, the sheet's background revalidate, and the refresh ticks don't stack
+/// multiple union-fetch + 10k-song reclassify passes at once.
+private actor RefreshGate {
+	static let shared = RefreshGate()
+	private var running = false
+
+	/// True if the caller acquired the gate and should run; false if a refresh
+	/// is already in flight (the loser bails and reads the winner's snapshot).
+	func begin() -> Bool {
+		if running { return false }
+		running = true
+		return true
+	}
+
+	func end() {
+		running = false
 	}
 }

@@ -91,6 +91,21 @@ actor GenreStore {
 		return Set(rows.map(\.songID))
 	}
 
+	/// COUNT(*) of current-version resolved rows — a cheap freshness signal
+	/// for the overview's refresh gate (no row materialization). Grows as the
+	/// warmer hydrates genres; pairs with `EmbeddingStore.totalEmbeddedCount()`
+	/// so an idle sheet doesn't re-classify the whole pool every tick.
+	func totalResolvedCount() -> Int {
+		do { try ensureLoaded() } catch { return 0 }
+		guard let context else { return 0 }
+
+		let version = Self.currentModelVersion
+		let descriptor = FetchDescriptor<SongGenres>(
+			predicate: #Predicate { $0.modelVersion == version }
+		)
+		return (try? context.fetchCount(descriptor)) ?? 0
+	}
+
 	/// Upsert. Pass an empty array when the song genuinely has no genres —
 	/// recording the resolution stops the warmer from re-hydrating it.
 	func store(_ names: [String], for songID: MusicItemID) {

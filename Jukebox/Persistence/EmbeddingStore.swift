@@ -259,6 +259,52 @@ actor EmbeddingStore {
 		return Set(rows.map(\.songID))
 	}
 
+	/// Bulk lookup of embeddings AND BPMs in a SINGLE fetch over the same
+	/// rows. The overview's stats pass needs both maps over the same id set;
+	/// calling `embeddings(for:)` then `bpms(for:)` runs two full scans of the
+	/// identical rows, serialized on this actor's pinned executor (async let
+	/// can't parallelize two methods on one pinned actor). One fetch, both maps.
+	func embeddingsAndBPMs(
+		for songIDs: [MusicItemID]
+	) -> (embeddings: [MusicItemID: [Float]], bpms: [MusicItemID: Double]) {
+		do { try ensureLoaded() } catch { return ([:], [:]) }
+		guard let context else { return ([:], [:]) }
+
+		let rawIDs = Set(songIDs.map(\.rawValue))
+		let version = Self.currentModelVersion
+		let descriptor = FetchDescriptor<SongEmbedding>(
+			predicate: #Predicate { rawIDs.contains($0.songID) && $0.modelVersion == version }
+		)
+		guard let rows = try? context.fetch(descriptor) else { return ([:], [:]) }
+
+		var embeddings: [MusicItemID: [Float]] = [:]
+		var bpms: [MusicItemID: Double] = [:]
+		embeddings.reserveCapacity(rows.count)
+		for row in rows {
+			let id = MusicItemID(row.songID)
+			embeddings[id] = Self.decode(row.vector)
+			if let bpm = row.bpm {
+				bpms[id] = bpm
+			}
+		}
+		return (embeddings, bpms)
+	}
+
+	/// COUNT(*) of current-version embedding rows — a cheap freshness signal
+	/// for the overview's refresh gate (no row materialization, no vector
+	/// decode). Grows as the warmer embeds the long tail; an unchanged count
+	/// between ticks means analysis hasn't advanced, so a recompute is skipped.
+	func totalEmbeddedCount() -> Int {
+		do { try ensureLoaded() } catch { return 0 }
+		guard let context else { return 0 }
+
+		let version = Self.currentModelVersion
+		let descriptor = FetchDescriptor<SongEmbedding>(
+			predicate: #Predicate { $0.modelVersion == version }
+		)
+		return (try? context.fetchCount(descriptor)) ?? 0
+	}
+
 	/// Mark a song as having permanently failed to embed. Subsequent
 	/// `recentFailures` queries within the retry window will include
 	/// this song, so the library warmer skips it. A successful embed

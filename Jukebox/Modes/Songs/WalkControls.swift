@@ -86,7 +86,7 @@ struct EnergyFilter: Equatable {
 /// `EnergyBand.forValue`/`centerValue`) as well as the unit the
 /// `EnergyClassifier` assigns. Tints/labels drive the energy chip and
 /// the overview buckets.
-enum EnergyBand: Int, CaseIterable, Identifiable {
+enum EnergyBand: Int, CaseIterable, Identifiable, Codable {
 	case any = 0
 	case glacial = 1
 	case mellow = 2
@@ -147,12 +147,12 @@ enum EnergyBand: Int, CaseIterable, Identifiable {
 		case .intense: ["metal", "hardcore", "punk", "industrial", "techno", "drum'n'bass", "jungle", "dubstep"]
 		}
 	}
-	
+
 	var textView: Text {
-		Text(self == .any ? self.displayName : self.displayName.uppercased())
-			.fontWidth(self.fontWidth)
+		Text(self == .any ? displayName : displayName.uppercased())
+			.fontWidth(fontWidth)
 			.fontDesign(.default)
-			.foregroundStyle(self.tint)
+			.foregroundStyle(tint)
 	}
 }
 

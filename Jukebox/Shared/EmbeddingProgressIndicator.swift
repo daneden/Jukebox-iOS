@@ -38,6 +38,13 @@ struct EmbeddingProgressIndicator: View {
 			}
 			.accessibilityLabel("Library analysis progress")
 			.accessibilityValue(accessibilityValue)
+			// Eager prime: compute + persist the library-overview snapshot once
+			// the indicator appears, so opening the sheet paints instantly
+			// instead of waiting on the union fetch. Coalesced + .utility so it
+			// doesn't compete with the dial.
+			.task(priority: .utility) {
+				await LibraryStatsBuilder.refresh()
+			}
 		}
 	}
 
