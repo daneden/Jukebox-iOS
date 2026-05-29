@@ -113,9 +113,9 @@ enum EnergyBand: Int, CaseIterable, Identifiable {
 	var tint: Color {
 		switch self {
 		case .any: .secondary
-		case .glacial: .purple
+		case .glacial: .teal
 		case .mellow: .blue
-		case .energetic: .pink
+		case .energetic: .purple
 		case .intense: .red
 		}
 	}

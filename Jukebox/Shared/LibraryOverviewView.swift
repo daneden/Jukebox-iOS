@@ -70,7 +70,7 @@ struct LibraryOverviewView: View {
 				} header: {
 					Text("Analysis")
 				} footer: {
-					Text("New songs are analyzed automatically over Wi-Fi — while you're in the app, and in the background while charging.")
+					Text("Analyzed over Wi-Fi — in the app, or in the background while charging.")
 				}
 
 				Section {
@@ -78,7 +78,7 @@ struct LibraryOverviewView: View {
 				} header: {
 					Text("Library size")
 				} footer: {
-					Text("Analysis is capped at the 10,000 songs most likely to surface in a deck (highest play count, oldest in your library, most recently added).")
+					Text("Covers the 10,000 likeliest deck songs — most-played, oldest, and newest.")
 				}
 
 				energySection(rows: stats.energyBuckets)
@@ -163,33 +163,27 @@ struct LibraryOverviewView: View {
 			Text("Energy")
 		} footer: {
 			if unclassified > 0 {
-				Text("Unclassified songs aren't sound-analyzed yet — walks fall back to genre and era for them until coverage grows over Wi-Fi.")
+				Text("Unclassified songs fall back to genre and era for walks.")
 			}
 		}
 	}
 
 	private func energyEraSection(stats: LibraryStats) -> some View {
-		Section {
+		let peak = stats.decadeHistogram.max(by: { $0.count < $1.count })?.decade
+		return Section {
 			if stats.energyPoints.isEmpty {
-				Text("No songs placed yet — energy appears here as your library is analyzed.")
+				Text("Energy appears here as songs are analyzed.")
 					.font(.footnote)
 					.foregroundStyle(.secondary)
 			} else {
-				EnergyScatter(points: stats.energyPoints)
+				EnergyScatter(points: stats.energyPoints, peakDecade: peak)
 			}
 		} header: {
 			Text("Energy × era")
 		} footer: {
-			energyEraFooter(stats: stats)
+			Text("One dot per song; tempo spreads each off its band line. \(stats.classifiedCount.formatted()) of \(stats.analysisPool.total.formatted()) placed.")
+				.contentTransition(.numericText())
 		}
-	}
-
-	private func energyEraFooter(stats: LibraryStats) -> some View {
-		let peakText = stats.decadeHistogram.max(by: { $0.count < $1.count })
-			.map { "Peak: \(decadeLabel($0.decade)) (\($0.count.formatted()) songs). " } ?? ""
-		return Text(
-			"\(peakText)Each dot is a song by release year and energy. Songs start on their band's line and spread apart as their tempo is analyzed, so the cloud sharpens as your library fills in (\(stats.classifiedCount.formatted()) of \(stats.analysisPool.total.formatted()) placed)."
-		)
 	}
 
 	private func genresSection(rows: [LibraryStats.BucketCount], total: Int) -> some View {
@@ -207,6 +201,7 @@ struct LibraryOverviewView: View {
 		} footer: {
 			if remaining > 0 {
 				Text("+ \(remaining.formatted()) more")
+					.contentTransition(.numericText())
 			}
 		}
 	}
@@ -263,12 +258,6 @@ struct LibraryOverviewView: View {
 			total: EmbeddingProgress.shared.totalCount
 		)
 	}
-
-	private func decadeLabel(_ decade: Int) -> String {
-		// 1970 → "1970s". The lowercased `s` keeps the label scannable as
-		// a plural; "1970S" reads like a model number.
-		"\(decade)s"
-	}
 }
 
 // MARK: - Bar charts
@@ -280,21 +269,16 @@ struct LibraryOverviewView: View {
 private struct EnergyChart: View {
 	let rows: [LibraryStats.EnergyCount]
 
-	/// Legend entry per band carries the count, e.g. "Mellow  340".
-	private func legendLabel(_ row: LibraryStats.EnergyCount) -> String {
-		"\(row.label)  \(row.count.formatted())"
-	}
-
 	var body: some View {
 		Chart(rows) { row in
 			BarMark(
 				x: .value("Songs", row.count),
 				y: .value("Library", "")
 			)
-			.foregroundStyle(by: .value("Band", legendLabel(row)))
+			.foregroundStyle(by: .value("Band", row.label))
 		}
 		.chartForegroundStyleScale(
-			domain: rows.map(legendLabel),
+			domain: rows.map(\.label),
 			range: rows.map { $0.band?.tint ?? .secondary }
 		)
 		.chartXAxis(.hidden)
@@ -347,6 +331,8 @@ private struct GenreChart: View {
 /// them — see the section footer.
 private struct EnergyScatter: View {
 	let points: [LibraryStats.EnergyPoint]
+	/// Modal decade, marked on the timeline.
+	let peakDecade: Int?
 
 	/// Energy → band label, placed at each band's centre value so the
 	/// continuous y-axis still reads in band terms.
@@ -368,14 +354,27 @@ private struct EnergyScatter: View {
 	}
 
 	var body: some View {
-		Chart(points) { point in
-			PointMark(
-				x: .value("Year", point.year),
-				y: .value("Energy", point.energy)
-			)
-			.foregroundStyle(point.band.tint)
-			.symbolSize(16)
-			.opacity(0.45)
+		Chart {
+			ForEach(points) { point in
+				PointMark(
+					x: .value("Year", point.year),
+					y: .value("Energy", point.energy)
+				)
+				// Blend the band tints across the energy axis so a song
+				// between two bands gets a mix — a smooth vertical gradient.
+				.foregroundStyle(EnergyBand.color(forEnergy: point.energy))
+				.symbolSize(16)
+				.opacity(0.45)
+			}
+			if let peakDecade {
+				RuleMark(x: .value("Peak", peakDecade + 5))
+					.foregroundStyle(.quaternary)
+					.annotation(position: .top, alignment: .center, overflowResolution: .init(x: .fit, y: .disabled)) {
+						Text("Peak: \(peakDecade.formatted(.number.grouping(.never)))s")
+							.font(.caption2)
+							.foregroundStyle(.secondary)
+					}
+			}
 		}
 		.chartXScale(domain: yearDomain)
 		.chartYScale(domain: 0 ... 1)
