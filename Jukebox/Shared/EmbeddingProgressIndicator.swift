@@ -99,9 +99,13 @@ private struct EmbeddingProgressPopover: View {
 						.font(.caption.weight(.semibold))
 						.foregroundStyle(.tertiary)
 				}
+				// On the label, not the button: with `.plain` the tap target
+				// is the label's painted content, so the Spacer gap between
+				// the text and chevron wasn't hittable. Declaring the full
+				// row rect as the content shape makes the whole row tap.
+				.contentShape(.rect)
 			}
 			.buttonStyle(.plain)
-			.contentShape(.rect)
 		}
 		.padding()
 		.frame(minWidth: 280, idealWidth: 320)

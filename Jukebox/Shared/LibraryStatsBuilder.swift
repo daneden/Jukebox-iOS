@@ -53,10 +53,25 @@ struct LibraryStats {
 		}
 	}
 
+	/// A classified song placed in the energy×era scatter: release year ×
+	/// continuous energy (0–1), colored by band. Only songs we can place
+	/// (energy non-nil) appear; sampled to a cap so the chart stays cheap.
+	/// Songs with no cached BPM sit exactly on their band's centre line and
+	/// spread off it only as tempo is analyzed.
+	struct EnergyPoint: Identifiable, Equatable {
+		let id: String
+		let year: Int
+		let energy: Double
+		let band: EnergyBand
+	}
+
 	let deck: ProgressCounts
 	let analysisPool: ProgressCounts
 	let energyBuckets: [EnergyCount]
 	let decadeHistogram: [DecadeCount]
+	let energyPoints: [EnergyPoint]
+	/// Songs that could be placed on the scatter (before the sample cap).
+	let classifiedCount: Int
 	let topGenres: [BucketCount]
 	let totalGenreCount: Int
 }
@@ -67,19 +82,28 @@ enum LibraryStatsBuilder {
 	/// table stops being scannable on a phone.
 	static let topGenresLimit = 12
 
-	/// Build the union-backed stats. Caller is responsible for parallel
-	/// fetching the library size via `paginatedSongCount()` if it wants
-	/// the size cell to surface too.
-	static func buildPoolStats(deck: LibraryStats.ProgressCounts) async throws -> LibraryStats {
-		let union = try await LibraryEmbeddingWarmer.shared.librarySnapshot()
+	/// The 3-pool union the warmer fills — the slow, MusicKit-bound step.
+	/// Fetch it once; the view refreshes by re-running `stats(deck:over:)`
+	/// over the same songs as the caches warm (no MusicKit re-fetch).
+	static func librarySnapshot() async throws -> [Song] {
+		try await LibraryEmbeddingWarmer.shared.librarySnapshot()
+	}
+
+	/// Compute the snapshot from an already-fetched union + the *current*
+	/// cache state — store reads + in-memory tallies, cheap enough to run
+	/// on a refresh timer while the sheet is open. Caller fetches the
+	/// library size separately via `paginatedSongCount()`.
+	static func stats(deck: LibraryStats.ProgressCounts, over union: [Song]) async -> LibraryStats {
 		let ids = union.map(\.id)
 
 		async let embeddingsLookup = EmbeddingStore.shared.embeddings(for: ids)
 		async let originalsLookup = OriginalReleaseStore.shared.originalDates(for: ids)
 		async let genresLookup = GenreStore.shared.genres(for: ids)
+		async let bpmsLookup = EmbeddingStore.shared.bpms(for: ids)
 		let embeddings = await embeddingsLookup
 		let originals = await originalsLookup
 		let genres = await genresLookup
+		let bpms = await bpmsLookup
 
 		let bundle = EnergyCentroidsLoader.bundled
 		let flat = bundle.map(EnergyClassifier.flatten(bundle:)) ?? []
@@ -87,29 +111,43 @@ enum LibraryStatsBuilder {
 		var energyCounts: [EnergyBand: Int] = [:]
 		var unclassifiedCount = 0
 		var decadeCounts: [Int: Int] = [:]
+		var points: [LibraryStats.EnergyPoint] = []
 		var genreCounts: [String: Int] = [:]
 
 		for song in union {
 			let songGenres = genres[song.id] ?? []
 
-			// Energy
-			if let bundle {
-				if let band = EnergyClassifier.band(
+			let band: EnergyBand? = bundle.flatMap {
+				EnergyClassifier.band(
 					embedding: embeddings[song.id],
 					genres: songGenres,
-					bundle: bundle,
+					bundle: $0,
 					flat: flat
-				) {
-					energyCounts[band, default: 0] += 1
-				} else {
-					unclassifiedCount += 1
+				)
+			}
+			let decade = song.releaseDecade(override: originals[song.id])
+
+			// Energy: count the band, and place classified songs on the
+			// scatter (release year × continuous energy). Songs with no BPM
+			// sit at their band centre; BPM spreads them.
+			if let band {
+				energyCounts[band, default: 0] += 1
+				if let date = originals[song.id] ?? song.releaseDate,
+				   let energy = SongEnergy.value(band: band, bpm: bpms[song.id])
+				{
+					points.append(LibraryStats.EnergyPoint(
+						id: song.id.rawValue,
+						year: Calendar.current.component(.year, from: date),
+						energy: energy,
+						band: band
+					))
 				}
 			} else {
 				unclassifiedCount += 1
 			}
 
 			// Decade
-			if let decade = song.releaseDecade(override: originals[song.id]) {
+			if let decade {
 				decadeCounts[decade, default: 0] += 1
 			}
 
@@ -146,6 +184,18 @@ enum LibraryStatsBuilder {
 		}
 		decades.sort { $0.decade < $1.decade }
 
+		// Sample the scatter points to a cap so the chart stays cheap on a
+		// large, fully-warmed library. `classifiedCount` keeps the true
+		// placeable total for the footer even when fewer dots are drawn.
+		let sampleCap = 1500
+		let energyPoints: [LibraryStats.EnergyPoint]
+		if points.count > sampleCap {
+			let step = Double(points.count) / Double(sampleCap)
+			energyPoints = (0 ..< sampleCap).map { points[Int(Double($0) * step)] }
+		} else {
+			energyPoints = points
+		}
+
 		var sortedGenres: [LibraryStats.BucketCount] = []
 		for (name, count) in genreCounts {
 			sortedGenres.append(LibraryStats.BucketCount(id: name, label: name, count: count))
@@ -162,6 +212,8 @@ enum LibraryStatsBuilder {
 			analysisPool: .init(embedded: embeddedInPool, total: union.count),
 			energyBuckets: energyRows,
 			decadeHistogram: decades,
+			energyPoints: energyPoints,
+			classifiedCount: points.count,
 			topGenres: topGenres,
 			totalGenreCount: genreCounts.count
 		)

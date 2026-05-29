@@ -22,6 +22,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 enum SongEnergy {
 	/// Share of the final energy contributed by BPM vs the band center.
@@ -86,5 +87,26 @@ extension EnergyBand {
 		case ..<0.75: .energetic
 		default: .intense
 		}
+	}
+
+	/// Color for a continuous energy value: the band tints blended across
+	/// their centres, so a song sitting between two bands gets a mix of the
+	/// two (e.g. 0.45 → mellow.mix(energetic)). Gives the scatter a smooth
+	/// teal→blue→violet→red gradient up the energy axis.
+	static func color(forEnergy energy: Double) -> Color {
+		let stops: [(center: Double, color: Color)] = [
+			(EnergyBand.glacial.centerValue, EnergyBand.glacial.tint),
+			(EnergyBand.mellow.centerValue, EnergyBand.mellow.tint),
+			(EnergyBand.energetic.centerValue, EnergyBand.energetic.tint),
+			(EnergyBand.intense.centerValue, EnergyBand.intense.tint),
+		]
+		guard let first = stops.first, energy > first.center else { return stops[0].color }
+		for i in 1 ..< stops.count where energy <= stops[i].center {
+			let lo = stops[i - 1]
+			let hi = stops[i]
+			let t = (energy - lo.center) / (hi.center - lo.center)
+			return lo.color.mix(with: hi.color, by: t)
+		}
+		return stops[stops.count - 1].color
 	}
 }

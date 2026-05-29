@@ -5,21 +5,22 @@
 //  Created by Daniel Eden on 27/05/2026.
 //
 //  Full-screen sheet opened from the toolbar analysis-progress popover.
-//  Surfaces six facets of "what Playback sees in your library" in one
-//  scrollable layout:
+//  Grouped `Form` sections covering "what Playback sees in your library":
 //
-//   1. Deck embedding progress (count + thin bar).
-//   2. Library-analysis embedding progress, capped at the warmer's 10k
-//      pool size.
-//   3. Total library size (paginated; settles after the union returns).
-//   4. Energy-band distribution across the analysis pool, including an
-//      Unclassified bucket for songs the centroids can't place.
-//   5. Decade histogram (Swift Charts; bar-per-decade, baseline only).
-//   6. Top-N genres by `genreNames` frequency.
+//   1. Analysis — deck + library embedding progress (capped at the
+//      warmer's 10k pool).
+//   2. Library size (paginated; settles after the union returns).
+//   3. Energy — band distribution across the analysis pool, including an
+//      Unclassified bucket for songs the classifier can't place yet.
+//   4. Energy × era — a scatter (Swift Charts PointMark): release year ×
+//      continuous energy (0–1), one dot per classified song, colored by
+//      band, y-axis labelled at the band centres.
+//   5. Top-N genres by frequency.
 //
-//  Tufte: no legends, no gridlines beyond the histogram baseline, direct
-//  labels at every row, single colour for non-categorical bars. Every
-//  visual element earns its ink.
+//  Tufte: no legends, direct labels on every axis, colour earns its place
+//  (band tints). The scatter resolves from band lines into a cloud as BPM
+//  coverage grows; the footer says so. Unclassified songs aren't plotted
+//  (no energy value) — their count lives in the Energy section.
 //
 
 import Charts
@@ -34,6 +35,11 @@ struct LibraryOverviewView: View {
 	@State private var librarySizeFailed = false
 	@State private var loadError: String?
 	@State private var isLoading = true
+
+	/// How often the distributions recompute over the cached union while
+	/// the sheet is open, so they track the warmer's progress. Tunable —
+	/// the recompute is store-reads + tallies, not a MusicKit fetch.
+	private static let refreshInterval: Duration = .seconds(5)
 
 	var body: some View {
 		NavigationStack {
@@ -57,17 +63,31 @@ struct LibraryOverviewView: View {
 		if isLoading, stats == nil {
 			loadingState
 		} else if let stats {
-			ScrollView {
-				VStack(alignment: .leading, spacing: 32) {
-					analysisSection(stats: stats)
-					librarySizeSection
-					energySection(rows: stats.energyBuckets)
-					decadesSection(rows: stats.decadeHistogram)
-					genresSection(rows: stats.topGenres, total: stats.totalGenreCount)
+			Form {
+				Section {
+					analysisRow("Deck", embedded: stats.deck.embedded, total: stats.deck.total)
+					analysisRow("Library", embedded: stats.analysisPool.embedded, total: stats.analysisPool.total)
+				} header: {
+					Text("Analysis")
+				} footer: {
+					Text("Your music library is analysed when the app is open and your device is connected to WiFi, or in the background while charging.")
 				}
-				.padding(.horizontal, 24)
-				.padding(.vertical, 20)
+
+				Section {
+					librarySizeRow
+				} header: {
+					Text("Library size")
+				} footer: {
+					Text("Up to 10,000 songs (most-played, oldest, and newest) are analysed from your library to form playlists.")
+				}
+
+				energySection(rows: stats.energyBuckets)
+
+				energyEraSection(stats: stats)
+
+				genresSection(rows: stats.topGenres, total: stats.totalGenreCount)
 			}
+			.formStyle(.grouped)
 		} else {
 			ContentUnavailableView(
 				"Couldn't load library",
@@ -89,129 +109,95 @@ struct LibraryOverviewView: View {
 
 	// MARK: - Sections
 
-	private func analysisSection(stats: LibraryStats) -> some View {
-		VStack(alignment: .leading, spacing: 16) {
-			sectionTitle("Analysis")
-
-			ProgressRow(
-				label: "Deck",
-				embedded: stats.deck.embedded,
-				total: stats.deck.total
-			)
-
-			ProgressRow(
-				label: "Library",
-				embedded: stats.analysisPool.embedded,
-				total: stats.analysisPool.total
-			)
-
-			Text("New songs are analyzed automatically on Wi-Fi while charging.")
-				.font(.footnote)
-				.foregroundStyle(.secondary)
+	private var librarySizeRow: some View {
+		HStack(alignment: .firstTextBaseline, spacing: 8) {
+			if let librarySize {
+				Text(librarySize, format: .number)
+					.font(.system(.largeTitle, design: .rounded).weight(.semibold))
+					.monospacedDigit()
+					.contentTransition(.numericText())
+				Text("songs")
+					.font(.title3)
+					.foregroundStyle(.secondary)
+			} else if librarySizeFailed {
+				Text("Unavailable")
+					.font(.title3)
+					.foregroundStyle(.secondary)
+			} else {
+				HStack(spacing: 8) {
+					ProgressView()
+						.controlSize(.small)
+					Text("Counting…")
+						.font(.title3)
+						.foregroundStyle(.secondary)
+				}
+			}
 		}
 	}
 
-	private var librarySizeSection: some View {
-		VStack(alignment: .leading, spacing: 8) {
-			sectionTitle("Library size")
-
-			HStack(alignment: .firstTextBaseline, spacing: 8) {
-				if let librarySize {
-					Text(librarySize, format: .number)
-						.font(.system(.largeTitle, design: .rounded).weight(.semibold))
-						.monospacedDigit()
-						.contentTransition(.numericText())
-					Text("songs")
-						.font(.title3)
-						.foregroundStyle(.secondary)
-				} else if librarySizeFailed {
-					Text("Unavailable")
-						.font(.title3)
-						.foregroundStyle(.secondary)
-				} else {
-					HStack(spacing: 8) {
-						ProgressView()
-							.controlSize(.small)
-						Text("Counting…")
-							.font(.title3)
-							.foregroundStyle(.secondary)
-					}
-				}
+	private func analysisRow(_ label: String, embedded: Int, total: Int) -> some View {
+		// Built-in linear progress meter — replaces the hand-rolled
+		// Capsule track.
+		ProgressView(value: Double(embedded), total: Double(max(total, 1))) {
+			HStack {
+				Text(label)
+					.font(.subheadline.weight(.medium))
+				Spacer()
+				Text("\(embedded.formatted()) of \(total.formatted())")
+					.font(.subheadline)
+					.monospacedDigit()
+					.foregroundStyle(.secondary)
+					.contentTransition(.numericText())
 			}
-
-			Text("Analysis is capped at the 10,000 songs most likely to surface in a deck (highest play count, oldest in your library, most recently added).")
-				.font(.footnote)
-				.foregroundStyle(.secondary)
-				.fixedSize(horizontal: false, vertical: true)
 		}
 	}
 
 	private func energySection(rows: [LibraryStats.EnergyCount]) -> some View {
-		let maxCount = max(rows.map(\.count).max() ?? 1, 1)
-		return VStack(alignment: .leading, spacing: 12) {
-			sectionTitle("Energy")
-
-			VStack(spacing: 10) {
-				ForEach(rows) { row in
-					BarRow(
-						label: row.label,
-						count: row.count,
-						maxCount: maxCount,
-						tint: row.band?.tint ?? .secondary,
-						showSwatch: row.band != nil
-					)
-				}
+		// Include Unclassified in the stack — even when it dominates, its
+		// share is the signal: how much of the library has rich sound data
+		// for walks, shrinking as analysis runs.
+		let unclassified = rows.first { $0.band == nil }?.count ?? 0
+		return Section {
+			EnergyChart(rows: rows)
+		} header: {
+			Text("Energy")
+		} footer: {
+			if unclassified > 0 {
+				Text("Unclassified songs fall back to genre and era for walks.")
 			}
 		}
 	}
 
-	private func decadesSection(rows: [LibraryStats.DecadeCount]) -> some View {
-		VStack(alignment: .leading, spacing: 12) {
-			sectionTitle("Eras")
-
-			if rows.isEmpty {
-				Text("No release dates available yet.")
+	private func energyEraSection(stats: LibraryStats) -> some View {
+		Section {
+			if stats.energyPoints.isEmpty {
+				Text("Energy appears here as songs are analyzed.")
 					.font(.footnote)
 					.foregroundStyle(.secondary)
 			} else {
-				DecadeHistogram(rows: rows)
-				if let peak = rows.max(by: { $0.count < $1.count }) {
-					Text("Peak: \(decadeLabel(peak.decade)) (\(peak.count.formatted()) songs)")
-						.font(.footnote)
-						.foregroundStyle(.secondary)
-				}
+				EnergyScatter(points: stats.energyPoints)
 			}
+		} header: {
+			Text("Energy by era")
 		}
 	}
 
 	private func genresSection(rows: [LibraryStats.BucketCount], total: Int) -> some View {
-		let maxCount = max(rows.map(\.count).max() ?? 1, 1)
 		let remaining = max(0, total - rows.count)
-		return VStack(alignment: .leading, spacing: 12) {
-			sectionTitle("Genres")
-
+		return Section {
 			if rows.isEmpty {
 				Text("No genres available yet.")
 					.font(.footnote)
 					.foregroundStyle(.secondary)
 			} else {
-				VStack(spacing: 10) {
-					ForEach(rows) { row in
-						BarRow(
-							label: row.label,
-							count: row.count,
-							maxCount: maxCount,
-							tint: .secondary,
-							showSwatch: false
-						)
-					}
-				}
-
-				if remaining > 0 {
-					Text("+ \(remaining.formatted()) more")
-						.font(.footnote)
-						.foregroundStyle(.secondary)
-				}
+				GenreChart(rows: rows)
+			}
+		} header: {
+			Text("Genres")
+		} footer: {
+			if remaining > 0 {
+				Text("+ \(remaining.formatted()) more")
+					.contentTransition(.numericText())
 			}
 		}
 	}
@@ -225,17 +211,18 @@ struct LibraryOverviewView: View {
 		librarySize = nil
 		librarySizeFailed = false
 
-		let deckSnapshot = LibraryStats.ProgressCounts(
-			embedded: EmbeddingProgress.shared.embeddedCount,
-			total: EmbeddingProgress.shared.totalCount
-		)
+		// The union is the slow part and doesn't change as the caches warm,
+		// so fetch it once and recompute the distributions over it below.
+		let union: [Song]
+		do {
+			union = try await LibraryStatsBuilder.librarySnapshot()
+		} catch {
+			loadError = error.localizedDescription
+			isLoading = false
+			return
+		}
 
-		// Pool stats and library size run in parallel — the size cell
-		// updates independently when its async finishes.
-		async let poolTask = Task {
-			try await LibraryStatsBuilder.buildPoolStats(deck: deckSnapshot)
-		}.value
-
+		// Library size — one-shot in parallel; not part of the refresh loop.
 		Task {
 			let count = await LibraryStatsBuilder.paginatedSongCount()
 			await MainActor.run {
@@ -247,167 +234,162 @@ struct LibraryOverviewView: View {
 			}
 		}
 
-		do {
-			let pool = try await poolTask
-			stats = pool
-		} catch {
-			loadError = error.localizedDescription
-		}
+		stats = await LibraryStatsBuilder.stats(deck: deckSnapshot(), over: union)
 		isLoading = false
+
+		// Live refresh: recompute over the cached union as the warmer fills
+		// the genre / embedding / BPM caches, so the bars and scatter grow
+		// while the sheet is open. The `.task` cancels this when it closes.
+		while !Task.isCancelled {
+			try? await Task.sleep(for: Self.refreshInterval)
+			if Task.isCancelled { break }
+			let fresh = await LibraryStatsBuilder.stats(deck: deckSnapshot(), over: union)
+			withAnimation(.smooth) { stats = fresh }
+		}
 	}
 
-	private func decadeLabel(_ decade: Int) -> String {
-		// 1970 → "1970s". The lowercased `s` keeps the label scannable as
-		// a plural; "1970S" reads like a model number.
-		"\(decade)s"
-	}
-
-	private func sectionTitle(_ text: String) -> some View {
-		Text(text)
-			.font(.headline)
-			.foregroundStyle(.primary)
+	private func deckSnapshot() -> LibraryStats.ProgressCounts {
+		LibraryStats.ProgressCounts(
+			embedded: EmbeddingProgress.shared.embeddedCount,
+			total: EmbeddingProgress.shared.totalCount
+		)
 	}
 }
 
-// MARK: - Row primitives
+// MARK: - Bar charts
 
-private struct ProgressRow: View {
-	let label: String
-	let embedded: Int
-	let total: Int
-
-	private var fraction: Double {
-		guard total > 0 else { return 0 }
-		return Double(embedded) / Double(total)
-	}
+/// Single stacked bar showing the library's energy *mix* — one band-tinted
+/// segment per band (Glacial→Intense), plus a grey Unclassified segment
+/// whose share signals how much of the library still lacks rich sound data.
+/// Counts ride in the legend so they're not lost in the thin segments.
+private struct EnergyChart: View {
+	let rows: [LibraryStats.EnergyCount]
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: 6) {
-			HStack(alignment: .firstTextBaseline) {
-				Text(label)
-					.font(.subheadline.weight(.medium))
-				Spacer()
-				Text("\(embedded.formatted()) of \(total.formatted())")
-					.font(.subheadline)
+		Chart(rows) { row in
+			BarMark(
+				x: .value("Songs", row.count),
+				y: .value("Library", "")
+			)
+			.foregroundStyle(by: .value("Band", row.label))
+			.clipShape(row == rows.last
+				? UnevenRoundedRectangle(cornerRadii: .init(bottomTrailing: 8, topTrailing: 8))
+				: row == rows.first
+				? UnevenRoundedRectangle(cornerRadii: .init(topLeading: 8, bottomLeading: 8))
+				: UnevenRoundedRectangle(cornerRadii: .init()))
+		}
+		.chartForegroundStyleScale(
+			domain: rows.map(\.label),
+			range: rows.map { $0.band?.tint ?? .secondary }
+		)
+		.chartXAxis(.hidden)
+		.chartYAxis(.hidden)
+		.chartPlotStyle { $0.frame(height: 28) }
+		.chartLegend(position: .bottom, alignment: .leading)
+	}
+}
+
+/// Horizontal bar per top genre, single neutral fill, count trailing.
+private struct GenreChart: View {
+	let rows: [LibraryStats.BucketCount]
+
+	var body: some View {
+		Chart(rows) { row in
+			BarMark(
+				x: .value("Songs", row.count),
+				y: .value("Genre", row.label)
+			)
+			.foregroundStyle(Color.secondary)
+			.cornerRadius(4)
+			.annotation(position: .trailing, alignment: .leading) {
+				Text(row.count, format: .number)
+					.font(.caption)
 					.monospacedDigit()
-					.foregroundStyle(.secondary)
-					.contentTransition(.numericText())
+					.foregroundStyle(.tertiary)
 			}
-			ProgressTrack(fraction: fraction)
 		}
+		// rows are sorted by count descending → highest genre at the top.
+		.chartYScale(domain: rows.map(\.label))
+		.chartYAxis {
+			AxisMarks(position: .leading) {
+				AxisValueLabel()
+			}
+		}
+		.chartLegend(.hidden)
+		.frame(height: CGFloat(rows.count) * 30)
 	}
 }
 
-private struct ProgressTrack: View {
-	let fraction: Double
+// MARK: - Energy × era scatter
 
-	var body: some View {
-		GeometryReader { geo in
-			ZStack(alignment: .leading) {
-				Capsule()
-					.fill(.tertiary)
-					.frame(height: 4)
-				Capsule()
-					.fill(Color.accentColor)
-					.frame(width: max(0, geo.size.width * fraction), height: 4)
-					.animation(.smooth(duration: 0.4), value: fraction)
-			}
-		}
-		.frame(height: 4)
+/// One dot per classified song: release year (x) × continuous energy (y),
+/// colored by band. Finer than bucketing into bands — energy is a 0–1
+/// scalar (band centre nudged by tempo), so the dots resolve into a cloud
+/// as BPM coverage grows. The y-axis is labelled at the four band centres
+/// so the continuous value still reads as Glacial…Intense. Songs with no
+/// cached BPM land exactly on their band's centre line until tempo spreads
+/// them.
+private struct EnergyScatter: View {
+	let points: [LibraryStats.EnergyPoint]
+
+	/// Energy → band label, placed at each band's centre value so the
+	/// continuous y-axis still reads in band terms.
+	private static let bandTicks: [(value: Double, label: String)] = [
+		(0.125, "Glacial"),
+		(0.375, "Mellow"),
+		(0.625, "Energetic"),
+		(0.875, "Intense"),
+	]
+
+	/// Clamp the year axis to plausible bounds: without an explicit domain
+	/// Charts auto-ranged ~0–3000, and bad release-date metadata can drop a
+	/// stray point at year 0 — clamping fixes the scale and clips outliers.
+	private var yearDomain: ClosedRange<Int> {
+		let years = points.map(\.year)
+		let lo = max(1900, years.min() ?? 1900)
+		let hi = min(2030, years.max() ?? 2030)
+		return lo ... max(lo + 1, hi)
 	}
-}
-
-private struct BarRow: View {
-	let label: String
-	let count: Int
-	let maxCount: Int
-	let tint: Color
-	let showSwatch: Bool
-
-	private var fraction: Double {
-		guard maxCount > 0 else { return 0 }
-		return Double(count) / Double(maxCount)
-	}
-
-	var body: some View {
-		HStack(spacing: 12) {
-			HStack(spacing: 8) {
-				if showSwatch {
-					RoundedRectangle(cornerRadius: 2)
-						.fill(tint)
-						.frame(width: 6, height: 14)
-				} else {
-					// Keep the leading edge aligned across rows whether
-					// or not a swatch is present, so labels line up.
-					Color.clear.frame(width: 6, height: 14)
-				}
-				Text(label)
-					.font(.subheadline)
-					.lineLimit(1)
-					.truncationMode(.tail)
-			}
-			.frame(width: 132, alignment: .leading)
-
-			GeometryReader { geo in
-				ZStack(alignment: .leading) {
-					Capsule()
-						.fill(.tertiary)
-						.frame(height: 6)
-					Capsule()
-						.fill(tint)
-						.frame(width: max(0, geo.size.width * fraction), height: 6)
-				}
-			}
-			.frame(height: 6)
-
-			Text(count, format: .number)
-				.font(.subheadline)
-				.monospacedDigit()
-				.foregroundStyle(.secondary)
-				.frame(minWidth: 56, alignment: .trailing)
-		}
-	}
-}
-
-// MARK: - Decade histogram
-
-private struct DecadeHistogram: View {
-	let rows: [LibraryStats.DecadeCount]
 
 	var body: some View {
 		Chart {
-			ForEach(rows) { row in
-				BarMark(
-					x: .value("Decade", row.decade),
-					y: .value("Count", row.count),
-					width: .ratio(0.7)
+			ForEach(points) { point in
+				PointMark(
+					x: .value("Year", point.year),
+					y: .value("Energy", point.energy)
 				)
-				.foregroundStyle(Color.accentColor)
-				.cornerRadius(2)
+				// Blend the band tints across the energy axis so a song
+				// between two bands gets a mix — a smooth vertical gradient.
+				.foregroundStyle(EnergyBand.color(forEnergy: point.energy))
+				.symbolSize(8)
+				.opacity(0.45)
 			}
 		}
-		.chartXAxis {
-			AxisMarks(values: rows.map(\.decade)) { value in
-				if let decade = value.as(Int.self) {
-					AxisValueLabel {
-						Text("'\(String(decade % 100).leftPadded(to: 2, with: "0"))")
-							.font(.caption2)
-							.foregroundStyle(.secondary)
+		.chartXScale(domain: yearDomain)
+		.chartYScale(domain: 0 ... 1)
+		.chartYAxis {
+			AxisMarks(values: Self.bandTicks.map(\.value)) { value in
+				AxisGridLine()
+				AxisValueLabel {
+					if let v = value.as(Double.self),
+					   let tick = Self.bandTicks.first(where: { abs($0.value - v) < 0.0001 })
+					{
+						Text(tick.label).font(.caption2).foregroundStyle(.secondary)
 					}
 				}
 			}
 		}
-		.chartYAxis(.hidden)
-		.chartPlotStyle { plot in
-			plot.background(.clear)
+		.chartXAxis {
+			AxisMarks { value in
+				AxisGridLine()
+				AxisValueLabel {
+					if let year = value.as(Int.self) {
+						Text(verbatim: String(year)).font(.caption2).foregroundStyle(.secondary)
+					}
+				}
+			}
 		}
-		.frame(height: 140)
-	}
-}
-
-private extension String {
-	func leftPadded(to length: Int, with character: Character) -> String {
-		if count >= length { return self }
-		return String(repeating: character, count: length - count) + self
+		.chartLegend(.hidden)
+		.frame(height: 200)
 	}
 }
