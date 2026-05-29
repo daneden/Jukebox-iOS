@@ -239,7 +239,27 @@ private struct DialContent<Item: MusicItem & DialItem, Menu: View>: View, Animat
 				) {
 					onTap(entry.index)
 				}
+				// Custom static preview. The live cover wobbles (a TimelineView
+				// driving rotation3DEffect) and carries 3D/scale/blur/shadow
+				// transforms, so the default context-menu snapshot lifts a
+				// skewed, mid-oscillation tile. A plain CoverArtView shows the
+				// artwork flat and still. The preview variant is iOS-only —
+				// AppKit context menus have no preview, so macOS uses the
+				// menu-only form.
+				#if os(iOS)
+				.contextMenu {
+					contextMenu(entry.item)
+				} preview: {
+					CoverArtView(
+						artwork: entry.item.artwork,
+						width: coverSize,
+						requestedWidth: requestSize,
+						placeholderSymbol: placeholderSymbol
+					)
+				}
+				#else
 				.contextMenu { contextMenu(entry.item) }
+				#endif
 				// Covers entering or leaving the visible window (because
 				// the library reordered while we were backgrounded, the
 				// deck was reshuffled, or focus jumped) blur-replace
