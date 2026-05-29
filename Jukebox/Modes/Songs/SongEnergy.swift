@@ -25,10 +25,11 @@ import Foundation
 
 enum SongEnergy {
 	/// Share of the final energy contributed by BPM vs the band center.
-	/// 0.4 lets tempo move a song most of one band's width — enough to
-	/// cross a boundary, not enough to override the band wholesale.
-	/// Tunable.
-	static let bpmWeight: Double = 0.4
+	/// 0.3 keeps the (more reliable) band leading and lets tempo nudge a
+	/// song toward — or just across — a boundary rather than override the
+	/// band wholesale; deliberately modest because detected BPM carries
+	/// octave-detection noise (see BPMDetector). Tunable.
+	static let bpmWeight: Double = 0.3
 
 	/// BPM range mapped onto [0, 1]. Below `bpmFloor` reads as minimum
 	/// energy, above `bpmCeil` as maximum.
