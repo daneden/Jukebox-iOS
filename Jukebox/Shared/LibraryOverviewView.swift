@@ -70,7 +70,7 @@ struct LibraryOverviewView: View {
 				} header: {
 					Text("Analysis")
 				} footer: {
-					Text("Analyzed over Wi-Fi — in the app, or in the background while charging.")
+					Text("Your music library is analysed when the app is open and your device is connected to WiFi, or in the background while charging.")
 				}
 
 				Section {
@@ -78,7 +78,7 @@ struct LibraryOverviewView: View {
 				} header: {
 					Text("Library size")
 				} footer: {
-					Text("Covers the 10,000 likeliest deck songs — most-played, oldest, and newest.")
+					Text("Up to 10,000 songs (most-played, oldest, and newest) are analysed from your library to form playlists.")
 				}
 
 				energySection(rows: stats.energyBuckets)
@@ -177,12 +177,10 @@ struct LibraryOverviewView: View {
 					.foregroundStyle(.secondary)
 			} else {
 				EnergyScatter(points: stats.energyPoints, peakDecade: peak)
+					.padding(.top)
 			}
 		} header: {
-			Text("Energy × era")
-		} footer: {
-			Text("One dot per song; tempo spreads each off its band line. \(stats.classifiedCount.formatted()) of \(stats.analysisPool.total.formatted()) placed.")
-				.contentTransition(.numericText())
+			Text("Energy by era")
 		}
 	}
 
@@ -276,6 +274,11 @@ private struct EnergyChart: View {
 				y: .value("Library", "")
 			)
 			.foregroundStyle(by: .value("Band", row.label))
+			.clipShape(row == rows.last
+				? UnevenRoundedRectangle(cornerRadii: .init(bottomTrailing: 8, topTrailing: 8))
+				: row == rows.first
+				? UnevenRoundedRectangle(cornerRadii: .init(topLeading: 8, bottomLeading: 8))
+				: UnevenRoundedRectangle(cornerRadii: .init()))
 		}
 		.chartForegroundStyleScale(
 			domain: rows.map(\.label),
@@ -309,7 +312,6 @@ private struct GenreChart: View {
 		}
 		// rows are sorted by count descending → highest genre at the top.
 		.chartYScale(domain: rows.map(\.label))
-		.chartXAxis(.hidden)
 		.chartYAxis {
 			AxisMarks(position: .leading) {
 				AxisValueLabel()
@@ -363,7 +365,7 @@ private struct EnergyScatter: View {
 				// Blend the band tints across the energy axis so a song
 				// between two bands gets a mix — a smooth vertical gradient.
 				.foregroundStyle(EnergyBand.color(forEnergy: point.energy))
-				.symbolSize(16)
+				.symbolSize(8)
 				.opacity(0.45)
 			}
 			if let peakDecade {
