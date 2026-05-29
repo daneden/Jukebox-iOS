@@ -8,13 +8,8 @@
 import MusicKit
 import SwiftUI
 
-/// Overlay shown when the authorized library is still loading or empty.
-/// Both tabs share the same shape; the loading state uses a shared
-/// cycling phrase pool (CyclingLoadingText) so the copy stays consistent
-/// across surfaces. Empty/error copy is still passed per-mode.
-///
-/// First-run authorization is handled by `OnboardingView`, presented as a
-/// sheet from `ContentView` — this overlay only renders for `.authorized`.
+/// Overlay shown when the authorized library is loading or empty. Renders only
+/// for `.authorized` — first-run authorization is `OnboardingView`'s job.
 struct LibraryStateOverlay: View {
 	let isEmpty: Bool
 	let isLoading: Bool

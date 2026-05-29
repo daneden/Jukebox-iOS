@@ -4,17 +4,12 @@
 //
 //  Created by Daniel Eden on 20/05/2026.
 //
-//  Whimsical, mood-leaning name suggestions for a saved history
-//  playlist. The vibe phrase is the headline; the seed artist is
-//  appended as "ft. <artist>" so two runs that happen to draw the
-//  same phrase still feel distinct.
+//  Mood-leaning name suggestions for a saved history playlist.
 
 import Foundation
 
 enum PlaylistNamer {
-	/// Returns "<phrase> ft. <artist>" when a seed artist is supplied,
-	/// otherwise just the phrase. Phrase is drawn at random from a pool
-	/// of atmospheric labels plus a time-of-day-tinted entry.
+	/// "<phrase> ft. <artist>" when a seed artist is supplied, else the phrase.
 	static func suggestedName(seedArtist: String? = nil, at date: Date = Date()) -> String {
 		var pool: [String] = [
 			"Afterglow",
@@ -57,9 +52,8 @@ enum PlaylistNamer {
 		return phrase
 	}
 
-	/// Strips trailing "feat. X" / "with Y" clauses so "Foo feat. Bar"
-	/// doesn't compose to "Phrase ft. Foo feat. Bar." Returns nil when
-	/// the result would be empty.
+	/// Strips trailing "feat./with" clauses so the result doesn't compose
+	/// to "Phrase ft. Foo feat. Bar." Nil when empty.
 	private static func trimmedArtist(_ raw: String) -> String? {
 		let lowered = raw.lowercased()
 		for marker in [" feat.", " feat ", " ft.", " ft ", " featuring ", " with "] {

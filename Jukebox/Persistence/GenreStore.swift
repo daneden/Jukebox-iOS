@@ -5,14 +5,10 @@
 //  Created by Daniel Eden on 29/05/2026.
 //
 //  Actor wrapper around the SwiftData container holding `SongGenres`
-//  rows — cached genre names per library song, populated by
-//  `LibraryEmbeddingWarmer` hydrating the `.genres` relationship that
-//  bare library requests leave empty. Read by the energy classifier,
-//  the deck builders' band slices, and the walk's genre-similarity
-//  blend. Behaviour mirrors `OriginalReleaseStore`.
-//
-//  Local-only (no CloudKit). Reinstall loses the cache; the warmer
-//  rebuilds it under the usual WiFi gate.
+//  rows — cached genre names per library song, since bare library
+//  requests leave the `.genres` relationship empty. Hydrated by
+//  `LibraryEmbeddingWarmer`. Local-only (no CloudKit); reinstall loses
+//  the cache.
 
 import Dispatch
 import Foundation
@@ -20,16 +16,14 @@ import MusicKit
 import SwiftData
 
 actor GenreStore {
-	/// Bump when the hydration strategy changes (e.g. starts rolling
-	/// sub-genres up to `Genre.parent`). Old rows are treated as misses.
+	/// Bump when the hydration strategy changes. Old rows are treated as misses.
 	static let currentModelVersion = 1
 
 	static let shared = GenreStore()
 
-	/// Pinned `userInitiated` executor for the same reason as the other
-	/// per-song stores: user-initiated readers (deck build, overview) and
-	/// the utility warmer both touch the actor, and without pinning the
-	/// runtime flags priority inversions.
+	/// Pinned `userInitiated` executor, like the other per-song stores:
+	/// userInitiated readers and the utility warmer both touch the actor,
+	/// and without pinning the runtime flags priority inversions.
 	private nonisolated let queue = DispatchSerialQueue(
 		label: "me.daneden.Jukebox.GenreStore",
 		qos: .userInitiated
@@ -52,9 +46,8 @@ actor GenreStore {
 		context = ModelContext(c)
 	}
 
-	/// Bulk lookup — single fetch for all matching rows. Returns only
-	/// songs with a non-empty cached genre list; callers treat a missing
-	/// key as "no genre signal" (same as a not-yet-hydrated song).
+	/// Bulk lookup, single fetch. Returns only songs with a non-empty cached
+	/// genre list; callers treat a missing key as "no genre signal".
 	func genres(for songIDs: [MusicItemID]) -> [MusicItemID: [String]] {
 		do { try ensureLoaded() } catch { return [:] }
 		guard let context else { return [:] }
@@ -74,10 +67,8 @@ actor GenreStore {
 		return result
 	}
 
-	/// "Have we already hydrated these?" lookup for the warmer — includes
-	/// rows with an empty `genreNames` because we still recorded the
-	/// resolution. Skipping them avoids re-hydrating songs we already
-	/// determined to have no genre.
+	/// "Already hydrated?" lookup for the warmer. Includes empty-`genreNames`
+	/// rows — recording the resolution avoids re-hydrating genuinely-genreless songs.
 	func resolvedIDs(for songIDs: [MusicItemID]) -> Set<String> {
 		do { try ensureLoaded() } catch { return [] }
 		guard let context else { return [] }
@@ -91,9 +82,8 @@ actor GenreStore {
 		return Set(rows.map(\.songID))
 	}
 
-	/// COUNT(*) of current-version resolved rows — a cheap freshness signal
-	/// for the overview's refresh gate (no row materialization). Grows as the
-	/// warmer hydrates genres; pairs with `EmbeddingStore.totalEmbeddedCount()`
+	/// COUNT(*) of current-version rows — a cheap freshness signal for the
+	/// overview's refresh gate. Pairs with `EmbeddingStore.totalEmbeddedCount()`
 	/// so an idle sheet doesn't re-classify the whole pool every tick.
 	func totalResolvedCount() -> Int {
 		do { try ensureLoaded() } catch { return 0 }

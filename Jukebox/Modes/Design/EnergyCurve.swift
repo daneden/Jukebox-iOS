@@ -3,14 +3,8 @@
 //  Jukebox
 //
 //  Five-control-point energy curve. X is time (left → right), Y is
-//  energy (bottom = glacial, top = intense). Control points' X
-//  positions are fixed at evenly spaced fractions {0, 0.25, 0.5, 0.75,
-//  1.0} so the curve is a quartic (degree-4) Bézier in Y — sampleable
-//  at any t in [0, 1] with the standard Bernstein basis.
-//
-//  Persisted as five Double values in @AppStorage rather than a JSON
-//  blob so the keys stay debuggable and a future field addition can
-//  migrate without a custom decoder.
+//  energy (bottom = glacial, top = intense), with X fixed at evenly
+//  spaced fractions so it's sampleable at any t in [0, 1].
 //
 
 import Foundation
@@ -23,18 +17,11 @@ struct EnergyCurve: Equatable, Codable {
 
 	static let pointCount = 5
 
-	/// Catmull-Rom interpolation through the five Y values. Unlike a
-	/// quartic Bézier (where only P0 and P4 lie on the curve), this
-	/// passes through *every* anchor — what the user dragged is what
-	/// they get. Tension τ = 0.5 (standard Catmull-Rom); endpoints are
-	/// handled by reflecting the missing neighbour (P_-1 = 2·P0 - P1)
-	/// so the curve enters/leaves along the natural extension of the
-	/// first/last segment.
-	///
-	/// The cubic-Bézier conversion below is mathematically identical to
-	/// evaluating the Catmull-Rom basis directly — we use it because
-	/// SwiftUI's Path also speaks cubic Béziers, so the on-screen
-	/// stroke and the sampled energy values stay in lockstep.
+	/// Catmull-Rom interpolation through the five Y values — passes through
+	/// every anchor, so what the user dragged is what they get. Endpoints
+	/// reflect the missing neighbour (P_-1 = 2·P0 - P1). Computed via the
+	/// cubic-Bézier conversion (identical math) so the on-screen Path
+	/// stroke and the sampled energy stay in lockstep.
 	func sample(at t: Double) -> Double {
 		guard points.count == Self.pointCount else { return 0.5 }
 		let segments = Self.pointCount - 1
@@ -60,8 +47,8 @@ struct EnergyCurve: Equatable, Codable {
 		return min(1, max(0, y))
 	}
 
-	/// Default shape: a gentle ramp from low to high energy so first-time
-	/// users immediately see a curve that does something meaningful.
+	/// Gentle ramp from low to high so first-time users see a curve that
+	/// does something meaningful.
 	static let `default` = EnergyCurve(points: [0.1, 0.3, 0.5, 0.75, 0.9])
 
 	static func random() -> EnergyCurve {
@@ -70,8 +57,6 @@ struct EnergyCurve: Equatable, Codable {
 }
 
 extension EnergyBand {
-	/// Concrete bands ordered low → high. Energy → band labeling now lives
-	/// in `EnergyBand.forValue` (see SongEnergy.swift); this stays for
-	/// band-ordered iteration.
+	/// Concrete bands ordered low → high, for band-ordered iteration.
 	static let concreteOrdered: [EnergyBand] = [.glacial, .mellow, .energetic, .intense]
 }

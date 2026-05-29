@@ -4,13 +4,10 @@
 //
 //  Created by Daniel Eden on 20/05/2026.
 //
-//  Actor wrapper around the SwiftData container holding `HistoryPlaylist`
-//  rows. Records each Songs-mode play as a snapshotted runway so the
-//  user can revisit a session's similarity walk later even though the
-//  live deck reshuffles every cold launch.
+//  Actor over the SwiftData container of `HistoryPlaylist` rows; records
+//  each Songs-mode play as a snapshotted runway.
 //
-//  Local-only (no CloudKit). Re-installing the app loses history —
-//  acceptable for a single-device personal tool.
+//  Local-only (no CloudKit); reinstall loses history.
 
 import Foundation
 import MusicKit
@@ -20,20 +17,16 @@ actor HistoryStore {
 	static let shared = HistoryStore()
 
 	/// Soft cap on stored entries; older rows are pruned on every insert.
-	/// Generous because each row is ~20 short strings — pennies on disk.
 	static let maxEntries = 200
 
-	/// Window for treating a new play as a continuation of the most
-	/// recent entry. Tuned long enough to catch a real listening
-	/// session of flitting between seeds in the same deck, short enough
-	/// to not glue a current play to one from this morning.
+	/// Window for treating a new play as a continuation of the most recent
+	/// entry — long enough to catch flitting between seeds in one deck,
+	/// short enough not to glue onto a play from this morning.
 	static let mergeWindow: TimeInterval = 15 * 60
 
-	/// Minimum overlap (intersection over min set size) for two runways
-	/// to count as "the same session." Picking adjacent seeds in the
-	/// same deck overlaps ~95%; a wholly different deck (post-shuffle)
-	/// drops near zero. 50% cleanly separates "different starting point,
-	/// same deck" from "different deck altogether."
+	/// Minimum overlap (intersection over min set size) for two runways to
+	/// count as the same session. Adjacent seeds in the same deck overlap
+	/// ~95%; a post-shuffle deck drops near zero — 50% separates them.
 	static let mergeOverlapThreshold = 0.5
 
 	private var container: ModelContainer?
@@ -43,31 +36,22 @@ actor HistoryStore {
 		if container != nil { return }
 		let schema = Schema([HistoryPlaylist.self, HistorySong.self])
 		// Named so this store gets its own sqlite file — see
-		// `EmbeddingStore.ensureLoaded` for the full rationale.
+		// `EmbeddingStore.ensureLoaded`.
 		let config = ModelConfiguration("history", schema: schema, cloudKitDatabase: .none)
 		let c = try ModelContainer(for: schema, configurations: [config])
 		container = c
 		context = ModelContext(c)
 	}
 
-	/// Record a play. `name` is the human-facing label for the run
-	/// (typically `PlaylistNamer.suggestedName(seedArtist:)`); `seed` is
-	/// what the user landed on; `runway` is the ordered slice of the
-	/// deck that was actually queued for playback.
+	/// Record a play. If the most recent entry overlaps this runway by
+	/// ≥`mergeOverlapThreshold` and was played inside `mergeWindow`, it's
+	/// merged into that row instead (seed + song list refreshed, name
+	/// phrase kept, `ft. <artist>` suffix updated).
 	///
-	/// If the most recent entry shares ≥`mergeOverlapThreshold` of its
-	/// songs with this runway and was played inside `mergeWindow`, the
-	/// new play is treated as a continuation of that session — same
-	/// row, refreshed seed metadata and song list, name's phrase
-	/// preserved but `ft. <artist>` suffix updated to match the new
-	/// seed. Subsumes the prior same-seed-within-30s special case
-	/// (which is just the 100%-overlap point of the same idea).
-	///
-	/// Caveat: a merge replaces `songs`, so a song the user previously
-	/// removed via swipe-block reappears if it's in the new runway.
-	/// The block itself lives in `TransitionFeedbackStore` and is
-	/// unaffected — future deck builds still honor it — only the
-	/// retrospective visual cleanup is lost.
+	/// Caveat: a merge replaces `songs`, so a song removed via swipe-block
+	/// reappears if it's in the new runway. The block itself lives in
+	/// `TransitionFeedbackStore` and still holds — only the visual cleanup
+	/// is lost.
 	func record(name: String, seed: SongSnapshot, runway: [SongSnapshot]) {
 		guard !runway.isEmpty else { return }
 		do { try ensureLoaded() } catch { return }
@@ -89,10 +73,8 @@ actor HistoryStore {
 			latest.seedArtist = seed.artistName
 			latest.name = Self.updateArtistInName(latest.name, newArtist: seed.artistName)
 
-			// Replace song rows. SwiftData cascade-deletes through the
-			// inverse relationship, but we still need to clear the array
-			// explicitly to drop the old references before inserting the
-			// new ones.
+			// Cascade-delete still needs the array cleared explicitly to
+			// drop old references before inserting new ones.
 			for old in latest.songs {
 				context.delete(old)
 			}
@@ -133,8 +115,7 @@ actor HistoryStore {
 			entry.songs.append(row)
 		}
 
-		// Prune past the soft cap. One fetch is cheaper than a count + a
-		// second fetch, and we're touching tiny numbers (≤201) here.
+		// Prune past the soft cap.
 		if let all = try? context.fetch(FetchDescriptor<HistoryPlaylist>(
 			sortBy: [SortDescriptor(\.playedAt, order: .reverse)]
 		)), all.count > Self.maxEntries {
@@ -170,10 +151,8 @@ actor HistoryStore {
 		}
 	}
 
-	/// Update the whimsical display name on a stored entry. Empty values
-	/// are allowed — the row's `displayName` accessor falls back to
-	/// `seedTitle` for those, so an emptied name doesn't render as a
-	/// blank list item.
+	/// Rename a stored entry. Empty values are allowed — `displayName`
+	/// falls back to `seedTitle`.
 	func rename(id: UUID, to newName: String) {
 		do { try ensureLoaded() } catch { return }
 		guard let context else { return }
@@ -186,10 +165,8 @@ actor HistoryStore {
 		}
 	}
 
-	/// Persist run-level feedback. Setting `.none` clears a prior
-	/// rating; the bulk-blocked transitions from a prior "Bad Run"
-	/// rating intentionally persist regardless — those are independent
-	/// data, not derived from the feedback state.
+	/// Persist run-level feedback. Setting `.none` clears the rating but
+	/// not the "Bad Run" bulk-blocks — those are independent data.
 	func setFeedback(_ feedback: HistoryFeedback, for id: UUID) {
 		do { try ensureLoaded() } catch { return }
 		guard let context else { return }
@@ -202,23 +179,17 @@ actor HistoryStore {
 		}
 	}
 
-	/// Per-song most-recent play date inside the window — both the
-	/// explicit seed and every queued runway song. Used by `GemScorer`
-	/// for a soft recency downrank: MusicKit's `Song.lastPlayedDate`
-	/// lags or never updates for `SystemMusicPlayer` plays, so on its
-	/// own it lets recently-played songs slip back in as seeds. Our log
-	/// is written synchronously in `play(from:)` so it has no lag.
+	/// Per-song most-recent play date inside the window (seed + every
+	/// runway song). `GemScorer` uses it for a soft recency downrank:
+	/// MusicKit's `Song.lastPlayedDate` lags `SystemMusicPlayer` plays,
+	/// but our log is written synchronously in `play(from:)`.
 	///
 	/// Design mode also leans on this to avoid resurfacing songs from a
-	/// just-generated playlist when the user iterates on the curve.
-	/// `record(name:seed:runway:)` writes a row at generation time
-	/// (before playback), so a within-session window catches discarded
-	/// designs without needing extra bookkeeping.
+	/// just-generated playlist; rows are written at generation time, so a
+	/// within-session window catches discarded designs.
 	///
-	/// We return a dict rather than a set so callers can compute a
-	/// proportional penalty (heavy for plays today, recovering to no
-	/// penalty at the cutoff). Hard exclusion was too aggressive for
-	/// small libraries.
+	/// Returns a dict, not a set, so callers can apply a proportional
+	/// penalty — hard exclusion was too aggressive for small libraries.
 	func recentPlays(within interval: TimeInterval) -> [String: Date] {
 		do { try ensureLoaded() } catch { return [:] }
 		guard let context else { return [:] }
@@ -244,9 +215,8 @@ actor HistoryStore {
 		dict[id] = date
 	}
 
-	/// Intersection-over-min-set overlap between a new runway and the
-	/// stored entry's song list. 0.0 when nothing shared, 1.0 when one
-	/// is a subset of the other.
+	/// Intersection-over-min-set overlap: 0.0 when nothing shared, 1.0
+	/// when one is a subset of the other.
 	private static func overlapRatio(runway: [SongSnapshot], against entry: HistoryPlaylist) -> Double {
 		let newIDs = Set(runway.map(\.id))
 		let oldIDs = Set(entry.songs.map(\.songID))
@@ -256,22 +226,17 @@ actor HistoryStore {
 		return Double(intersection) / Double(smaller)
 	}
 
-	/// Swap the artist after the " ft. " marker without re-rolling the
-	/// rest of the name, so a session that started as "Slow burn ft.
-	/// Aphex Twin" becomes "Slow burn ft. Caroline Polachek" rather
-	/// than churning to a wholly new phrase. If the existing name
-	/// doesn't carry a ft. marker (older rows pre-feature), leave it.
+	/// Swap the artist after the " ft. " marker, keeping the rest of the
+	/// name. Leaves names without a ft. marker (older rows) untouched.
 	private static func updateArtistInName(_ name: String, newArtist: String) -> String {
 		guard let range = name.range(of: " ft. ") else { return name }
 		let phrase = String(name[..<range.lowerBound])
 		return "\(phrase) ft. \(newArtist)"
 	}
 
-	/// Remove a song from a history playlist. Used by the swipe-flag
-	/// action in the detail view — the pair block lives separately in
-	/// `TransitionFeedbackStore`, so removing the row here only changes
-	/// what the user sees in this run's playlist; future walks still
-	/// honor the block.
+	/// Remove a song from a history playlist (swipe-flag action). The pair
+	/// block lives in `TransitionFeedbackStore`, so this only changes the
+	/// displayed playlist; future walks still honor the block.
 	func removeSong(songID: String, from entryID: UUID) {
 		do { try ensureLoaded() } catch { return }
 		guard let context else { return }
@@ -285,9 +250,8 @@ actor HistoryStore {
 	}
 }
 
-/// Sendable, Identifiable snapshot used to hand a `Song` (or any
-/// `MusicItem`) over to `HistoryStore` without dragging MusicKit's
-/// non-Sendable types across actor boundaries.
+/// Sendable snapshot of a `Song`, to avoid dragging MusicKit's
+/// non-Sendable types across `HistoryStore`'s actor boundary.
 struct SongSnapshot: Hashable {
 	let id: String
 	let title: String
@@ -309,10 +273,8 @@ struct SongSnapshot: Hashable {
 	}
 }
 
-/// Plain-value view of a stored `HistoryPlaylist`. We hand these out from
-/// the actor so views don't have to touch SwiftData model objects
-/// (which aren't Sendable and would otherwise pin the view to the
-/// store's isolation domain).
+/// Plain-value view of a stored `HistoryPlaylist`, handed out from the
+/// actor so views needn't touch non-Sendable SwiftData model objects.
 struct HistoryEntrySnapshot: Identifiable, Hashable {
 	let id: UUID
 	let playedAt: Date
@@ -322,9 +284,8 @@ struct HistoryEntrySnapshot: Identifiable, Hashable {
 	let seedArtist: String
 	let songs: [SongSnapshot]
 
-	/// Display-safe label. Empty `name` happens for rows persisted
-	/// before the column existed — fall back to the seed song title so
-	/// older history rows don't render as blank list items.
+	/// Falls back to the seed title for empty `name` (older rows), so they
+	/// don't render as blank list items.
 	var displayName: String {
 		name.isEmpty ? seedTitle : name
 	}

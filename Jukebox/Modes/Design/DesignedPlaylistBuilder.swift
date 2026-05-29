@@ -3,45 +3,34 @@
 //  Jukebox
 //
 //  Turns a five-point energy curve + a target song count into an ordered
-//  list of songs. The curve is sampled at N evenly spaced t values; each
-//  sample's [0, 1] Y is mapped to an EnergyBand; one song from that
-//  band's candidate pool is picked per slot.
+//  list of songs.
 //
-//  Why a fresh fetch instead of reusing the Songs-mode deck: that deck
-//  is pre-walked for similarity transitions, which is the opposite of
-//  what Design mode wants — here the transitions are dictated by the
-//  user's curve. We need the broader unfiltered pool so every band has
-//  enough candidates to fill its slots.
+//  Fresh fetch rather than reusing the Songs-mode deck: that deck is
+//  pre-walked for similarity transitions, the opposite of what Design
+//  mode wants — here transitions are dictated by the curve, so we need
+//  the broader unfiltered pool.
 //
 
 import Foundation
 import MusicKit
 
 enum DesignedPlaylistBuilder {
-	/// Per-pool fetch limit. Two pools (nostalgia + discovery) get
-	/// dedupe-unioned for a ~3-4k candidate set — enough material that
-	/// every energy band has dozens of candidates after classification.
+	/// Per-pool fetch limit. Two pools dedupe-union to a ~3-4k candidate
+	/// set so every band has dozens of candidates after classification.
 	static let poolLimit = 2000
 
-	/// Per-band fetch limit for the genre-keyword slices. The two base
-	/// pools (top-played + recently-added) bias toward the user's
-	/// listening habits, so a strictly mellow listener never sees their
-	/// long-tail intense tracks surface. Each band gets a separate
-	/// `filter(text:)` slice sorted by play count, sized to capture the
-	/// user's full affinity for that band without ballooning memory.
+	/// Per-band fetch limit for the genre-keyword slices. The base pools
+	/// bias toward the user's habits, so a strictly mellow listener never
+	/// surfaces their long-tail intense tracks; each band gets its own
+	/// `filter(text:)` slice to guarantee candidates.
 	static let bandSliceLimit = 500
 
-	/// Window for the within-session "just generated" downrank. Tuned to
-	/// cover an active iteration sitting — generate, listen to a bit,
-	/// tweak the curve, regenerate — without penalising last week's runs.
+	/// Window for the within-session "just generated" downrank. Covers an
+	/// active iteration sitting without penalising last week's runs.
 	static let sessionWindow: TimeInterval = 4 * 3600
 
-	/// The single most-distinctive genre keyword per band — the one we
-	/// use for the supplementary `filter(text:)` slice. Each band's
-	/// `genreKeywords` array carries broader-coverage terms (e.g.
-	/// "pop"/"rock") that would either over-fetch or pull material into
-	/// the wrong band; this picks the narrowest term that still has
-	/// realistic library coverage.
+	/// Narrowest distinctive genre keyword per band for the supplementary
+	/// `filter(text:)` slice — broader terms over-fetch or cross bands.
 	private static let primarySliceKeyword: [EnergyBand: String] = [
 		.glacial: "ambient",
 		.mellow: "soul",
@@ -63,13 +52,11 @@ enum DesignedPlaylistBuilder {
 		}
 	}
 
-	/// Distance penalty (in energy units) added to a recently-surfaced
-	/// song when matching the curve, so fresh picks win on near-ties but
-	/// recent ones still fill sparsely-covered stretches.
+	/// Distance penalty (in energy units) for a recently-surfaced song, so
+	/// fresh picks win on near-ties but recent ones still fill sparse
+	/// stretches of the curve.
 	static let recentEnergyPenalty = 0.05
 
-	/// A pool song with its computed energy + recency, ready for
-	/// nearest-curve matching.
 	private struct EnergyCandidate {
 		let song: Song
 		let energy: Double
@@ -77,15 +64,10 @@ enum DesignedPlaylistBuilder {
 	}
 
 	static func build(curve: EnergyCurve, count: Int) async throws -> [Song] {
-		// Two base pools + one slice per concrete band, all in parallel.
-		// The base pools (top-played + recently-added) carry the bias of
-		// the user's listening habits — a strictly mellow listener never
-		// surfaces their long-tail intense tracks through those alone.
-		// The per-band `filter(text:)` slices guarantee every band has
-		// genuine library candidates regardless of that bias; their
-		// downstream classification still flows through the same
-		// centroid/keyword path, so misfiles don't slip into the wrong
-		// bucket.
+		// Two base pools + one slice per band, in parallel. The per-band
+		// slices guarantee candidates despite the base pools' bias toward
+		// the user's habits; everything still flows through the same
+		// classifier, so misfiles don't reach the wrong bucket.
 		let pool = try await withThrowingTaskGroup(of: [Song].self) { group in
 			group.addTask {
 				try await fetchPool(sort: .playCount, ascending: false)
@@ -95,10 +77,7 @@ enum DesignedPlaylistBuilder {
 			}
 			for band in EnergyBand.concreteOrdered {
 				group.addTask {
-					// Band slices are best-effort: a keyword with zero
-					// library matches just contributes nothing. Letting
-					// one slice failure abort the whole build would be
-					// too brittle for a five-fetch fan-out.
+					// Best-effort: one slice failing shouldn't abort the build.
 					(try? await fetchGenreSlice(band: band, limit: bandSliceLimit)) ?? []
 				}
 			}
@@ -110,19 +89,14 @@ enum DesignedPlaylistBuilder {
 		}
 		guard !pool.isEmpty else { throw BuildError.emptyPool }
 
-		// Embeddings drive the centroid classifier. Cache lookups only —
-		// we deliberately don't kick off fresh embedding work here. Songs
-		// without a cached embedding fall through to the keyword classifier.
-		// Continuous energy per pool song: the band (centroid argmax for
-		// embedded songs, GenreSimilarity anchors otherwise) floated by
-		// cached BPM — see SongEnergy. Cache lookups only; no fresh embed
-		// work. Songs we can't place (no embedding and no cached genre)
-		// are dropped.
+		// Cache lookups only — no fresh embedding work here. Songs without
+		// a cached embedding fall through to the keyword classifier; ones
+		// with neither embedding nor cached genre are dropped.
 		let embeddings = await EmbeddingStore.shared.embeddings(for: pool.map(\.id))
 		let genres = await GenreStore.shared.genres(for: pool.map(\.id))
 		let bpms = await EmbeddingStore.shared.bpms(for: pool.map(\.id))
-		// Bias away from songs surfaced in a recent Design run so iterating
-		// on the curve doesn't keep resurfacing the playlist just discarded.
+		// Bias away from songs from a recent Design run so iterating on the
+		// curve doesn't resurface the playlist just discarded.
 		let recentIDs = Set(await HistoryStore.shared.recentPlays(within: sessionWindow).keys)
 
 		let bundle = EnergyCentroidsLoader.bundled
@@ -149,11 +123,8 @@ enum DesignedPlaylistBuilder {
 		guard !candidates.isEmpty else { throw BuildError.noBandHasCandidates }
 
 		// Walk the curve: each evenly-spaced sample picks the unused
-		// candidate nearest the target energy, so the achieved playlist
-		// tracks the drawn curve continuously instead of stepping through
-		// four bands. Recent songs pay a small distance penalty — fresh
-		// picks win on near-ties but recent ones still fill slots where a
-		// stretch of the curve is sparsely covered.
+		// candidate nearest the target energy, so the playlist tracks the
+		// curve continuously instead of stepping through four bands.
 		var selected: [Song] = []
 		var usedIDs = Set<MusicItemID>()
 		selected.reserveCapacity(count)
@@ -201,13 +172,10 @@ enum DesignedPlaylistBuilder {
 		return Array(response.items)
 	}
 
-	/// Top-played library songs whose metadata matches the band's primary
-	/// keyword. `MusicLibraryRequest.filter(text:)` is a full-field
-	/// search (title/artist/album/genre), so a "metal" filter pulls in
-	/// the occasional false positive — but the downstream centroid
-	/// classifier is what actually decides what ends up in each band's
-	/// bucket, and this is only here to *broaden* the candidate set
-	/// past what playCount+libraryAddedDate alone surface.
+	/// Top-played library songs matching the band's primary keyword.
+	/// `filter(text:)` is a full-field search, so it pulls occasional
+	/// false positives — fine, since the centroid classifier decides the
+	/// final bucket and this only broadens the candidate set.
 	private static func fetchGenreSlice(band: EnergyBand, limit: Int) async throws -> [Song] {
 		guard let keyword = primarySliceKeyword[band] else { return [] }
 		var request = MusicLibraryRequest<Song>()

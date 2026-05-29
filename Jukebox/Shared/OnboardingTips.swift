@@ -3,11 +3,9 @@
 //  Jukebox
 //
 //  One-time "what is this tab for" tips pinned to the top of each main tab.
-//  Distinct from the first-run `OnboardingView` sheet (which only handles
-//  Apple Music authorization) — these describe each tab's core purpose and
-//  rely on TipKit's datastore for show-once / stay-dismissed persistence
-//  (configured in `PlaybackApp.init`). Icons mirror the tab bar symbols in
-//  `ContentView` for continuity.
+//  Distinct from the first-run `OnboardingView` sheet (which handles Apple Music
+//  authorization). Show-once persistence via TipKit's datastore (configured in
+//  `PlaybackApp.init`).
 //
 
 import SwiftUI
@@ -56,16 +54,12 @@ struct DesignTip: Tip {
 }
 
 extension View {
-	/// The two stacked top safe-area insets every tab shares: the dismissible
-	/// onboarding tip just above the content, and — on macOS, which has no
-	/// principal-toolbar slot — the Playback wordmark pinned above the tip.
-	/// (iOS hosts the wordmark in the navigation bar via `.toolbar`.) Both sit
-	/// outside the content `VStack`, so neither enters the dial's animation
-	/// scope; `TipView` collapses to nothing once the tip is dismissed (its
-	/// state persists via TipKit's datastore).
+	/// The stacked top safe-area insets every tab shares: the dismissible tip, and
+	/// on macOS (no principal-toolbar slot) the Playback wordmark above it. Both sit
+	/// outside the content `VStack` so neither enters the dial's animation scope.
 	///
-	/// Applied tip-first so the macOS wordmark inset is the outer (topmost)
-	/// one: wordmark → tip → content.
+	/// Applied tip-first so the macOS wordmark inset is the outer (topmost) one:
+	/// wordmark → tip → content.
 	func tabHeader(tip: some Tip) -> some View {
 		safeAreaInset(edge: .top, spacing: 0) {
 			TipView(tip)

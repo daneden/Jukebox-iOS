@@ -4,29 +4,22 @@
 //
 //  Created by Daniel Eden on 22/05/2026.
 //
-//  Single-pass BPM detection from a 30s audio preview. Designed to
-//  run alongside `AudioFeaturePrint` in `AudioEmbeddingService` —
-//  the song-similarity embedding captures *timbre*; this captures
-//  *rhythm*, which the walk uses as a complementary similarity
-//  signal so 80 BPM ballads don't sit next to 160 BPM dance tracks
-//  with similar timbres.
+//  Single-pass BPM detection from a 30s preview, complementing the
+//  AudioFeaturePrint *timbre* embedding with *rhythm* so 80 BPM
+//  ballads don't sit next to 160 BPM dance tracks of similar timbre.
 //
-//  Algorithm (deliberately simple — popular-music coverage matters
-//  more than perfect accuracy on free-time / ambient tracks):
-//   1. Mix to mono, accumulate a per-frame RMS energy envelope at
-//      ~10ms hops.
+//  Algorithm (deliberately simple — popular-music coverage over
+//  accuracy on free-time/ambient):
+//   1. Mono RMS energy envelope at ~10ms hops.
 //   2. Half-wave-rectified differential → onset signal.
 //   3. Overlap-normalized autocorrelation of the onset signal.
-//   4. Score each 60–180 BPM candidate by a harmonic comb (its salience
-//      plus its slower metrical harmonics) and pick the argmax — this
-//      resolves the half/double/third-time octave ambiguity that a raw
-//      autocorrelation peak gets wrong. Prominence over the comb-score
-//      median is the confidence.
+//   4. Score each 60–180 BPM candidate by a harmonic comb and take
+//      the argmax — resolves the half/double/third-time octave
+//      ambiguity a raw ACF peak gets wrong. Confidence = prominence
+//      over the comb-score median.
 //
-//  Returns nil when confidence is below a threshold (ambient,
-//  classical, free-jazz) so we don't pollute the cache with values
-//  we don't trust. The walk falls back to its existing similarity
-//  blend for songs with no cached BPM.
+//  Returns nil below a confidence threshold (ambient, classical,
+//  free-jazz) rather than cache an untrusted value.
 //
 
 import Accelerate
@@ -34,31 +27,24 @@ import AVFoundation
 import Foundation
 
 enum BPMDetector {
-	/// Candidate BPM range. The autocorrelation of an onset train is a
-	/// comb — it peaks at the true period *and* its multiples/sub-
-	/// multiples — so we don't trust the raw global peak; the harmonic
-	/// comb below resolves which tooth is the tap-along tempo. 60–180
-	/// keeps a runaway-fast candidate from being picked (a widened ceiling
-	/// let a genuinely-slow track read ~207 in validation); the comb still
-	/// reads harmonics beyond 180 from the extended ACF.
+	/// Candidate BPM range. 60–180 keeps a runaway-fast candidate from
+	/// winning (a widened ceiling let a genuinely-slow track read ~207
+	/// in validation); the comb still reads harmonics beyond 180.
 	static let minBPM: Double = 60
 	static let maxBPM: Double = 180
 
-	/// Harmonic-comb weights: a true beat at lag ℓ also produces ACF peaks
-	/// at 2ℓ, 3ℓ, 4ℓ (its slower metrical levels). Summing them back onto
-	/// ℓ with decaying weight makes the faster, tap-along tempo win over
-	/// its half/third-time aliases (Percival–Tzanetakis "enhance harmonics").
+	/// Harmonic-comb weights: a true beat at lag ℓ also peaks at 2ℓ, 3ℓ,
+	/// 4ℓ. Summing them back onto ℓ with decaying weight makes the faster
+	/// tap-along tempo win over its half/third-time aliases
+	/// (Percival–Tzanetakis "enhance harmonics").
 	private static let combWeights: [Float] = [1.0, 0.5, 0.5, 0.5]
 
-	/// Hop size for the energy envelope. ~10ms at 44.1kHz resolves
-	/// closely-spaced kick-drum hits without smoothing them into a
-	/// single onset.
+	/// Energy-envelope hop. ~10ms at 44.1kHz resolves closely-spaced
+	/// kick-drum hits without smoothing them into a single onset.
 	static let envelopeHopSize = 441
 
-	/// Confidence floor below which we report nil. Tuned by ear; the
-	/// walk treats missing BPM as "no signal" rather than penalising
-	/// the song, so erring on the side of nil is cheaper than
-	/// committing to a wrong value.
+	/// Confidence floor below which we report nil. The walk treats
+	/// missing BPM as "no signal", so nil is cheaper than a wrong value.
 	static let minConfidence: Float = 0.3
 
 	struct Detection {
@@ -124,21 +110,17 @@ enum BPMDetector {
 		vDSP_meanv(onset, 1, &mean, vDSP_Length(onset.count))
 		let centered = onset.map { $0 - mean }
 
-		// BPM → lag (in envelope samples). minBPM gives the longest
-		// period (largest lag); maxBPM gives the shortest. The comb reads
-		// salience at integer multiples of each candidate lag, so the raw
-		// ACF must extend to combWeights.count · maxLag.
+		// BPM → lag (envelope samples). The comb reads multiples of each
+		// candidate lag, so the ACF must extend to combWeights.count · maxLag.
 		let minLag = Int((60.0 / maxBPM) * envelopeRate)
 		let maxLag = Int((60.0 / minBPM) * envelopeRate)
 		let acfMaxLag = min(centered.count - 1, combWeights.count * maxLag)
 		guard minLag > 0, maxLag < centered.count, acfMaxLag >= maxLag else { return nil }
 
-		// Overlap-normalized (unbiased) autocorrelation. Dividing each lag's
-		// dot product by its overlap count n = (count − lag) removes the raw
-		// dot product's structural tilt toward shorter (faster) lags.
-		// `centered` is non-empty here (the envelope-length guard upstream),
-		// so `baseAddress` is non-nil — force-unwrap rather than bail, which
-		// would leave the scores empty and produce garbage prominence.
+		// Overlap-normalized autocorrelation: dividing each lag's dot
+		// product by its overlap count n removes the structural tilt
+		// toward shorter (faster) lags. `centered` is non-empty (guard
+		// upstream), so the force-unwrap is safe.
 		var r = [Float](repeating: 0, count: acfMaxLag + 1)
 		centered.withUnsafeBufferPointer { ptr in
 			let base = ptr.baseAddress!
@@ -150,13 +132,11 @@ enum BPMDetector {
 			}
 		}
 
-		// Harmonic comb across the candidate range: each candidate's score
-		// is the (non-negative) salience at its lag plus its slower
-		// metrical harmonics, so the faster tap-along tempo wins over its
-		// half/third-time aliases. No tempo prior — for an energy proxy we
-		// want calm music to read calm, not get pulled toward 120; and a
-		// salience octave-bracket was rejected in validation (it reverted
-		// the comb's correct fast picks).
+		// Harmonic comb: salience at each lag plus its slower harmonics,
+		// so the faster tap-along tempo wins over half/third-time aliases.
+		// No tempo prior — for an energy proxy, calm music should read
+		// calm, not get pulled toward 120 (an octave-bracket was tried and
+		// reverted the comb's correct fast picks).
 		var bestLag = minLag
 		var bestScore: Float = -.infinity
 		var scores = [Float](repeating: 0, count: maxLag - minLag + 1)
@@ -173,11 +153,9 @@ enum BPMDetector {
 			}
 		}
 
-		// Confidence: peak prominence over the median of the comb-score
-		// array (post-comb, so it reflects the consolidated octave). A
-		// clear-beat track peaks well above the median; ambient tracks
-		// have no clear winner. /5.0 is hand-tuned — peak/median ~5 reads
-		// as "obvious beat"; revisit once the re-detected cache has coverage.
+		// Confidence: peak prominence over the comb-score median. Clear-beat
+		// tracks peak well above it; ambient tracks have no clear winner.
+		// /5.0 is hand-tuned — peak/median ~5 reads as "obvious beat".
 		let sorted = scores.sorted()
 		let median = sorted[sorted.count / 2]
 		let prominence = (bestScore - median) / max(abs(median), 1e-6)

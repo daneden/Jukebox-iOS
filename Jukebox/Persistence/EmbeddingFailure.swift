@@ -4,17 +4,14 @@
 //
 //  Created by Daniel Eden on 22/05/2026.
 //
-//  Negative cache for songs `AudioEmbeddingService` couldn't resolve to
-//  an audio embedding. The library warmer iterates ~10k songs per pass;
-//  without this record it would retry the same `noCatalogMatch` /
-//  `noPreview` songs every pass forever, burning the WiFi/battery budget
-//  on work that will never succeed.
+//  Negative cache for songs `AudioEmbeddingService` couldn't embed.
+//  The warmer iterates ~10k songs per pass; without this it would retry
+//  the same hopeless songs forever, burning the WiFi/battery budget.
 //
-//  Only *permanent* failures are recorded — `noCatalogMatch`,
-//  `noPreview`, `emptyOutput`. Transient ones (download timeouts,
-//  network drops) are left alone so the next pass retries them. We
-//  honour the failure for `LibraryEmbeddingWarmer.failureRetryAfter`
-//  (currently 60 days) then re-try in case Apple's catalog improved.
+//  Only *permanent* failures are recorded (`noCatalogMatch`, `noPreview`,
+//  `emptyOutput`); transient ones (timeouts, drops) are left to retry.
+//  Honoured for `LibraryEmbeddingWarmer.failureRetryAfter`, then retried
+//  in case Apple's catalog improved.
 //
 
 import Foundation

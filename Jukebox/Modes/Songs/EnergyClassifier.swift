@@ -6,48 +6,36 @@
 //
 //  Centroid-based refinement for the "Energy" walk-control band. Genre
 //  keywords alone classify too coarsely — Apple's "Pop" can mean both
-//  glacial ambient-adjacent art-pop and bouncy K-pop.
+//  glacial art-pop and bouncy K-pop.
 //
-//  Two anchor sources, tried in order:
-//   1. Bundled centroids derived from hand-picked anchor albums
-//      (flowstate.daneden.me). These are baked on-device by the debug
-//      builder and committed as `EnergyCentroids.json`. Curated, so
-//      much more reliable than genre tags — used when present.
-//   2. Library anchors via genre keywords. Original behaviour: pull
-//      songs whose `genreNames` match the band's seed keywords,
-//      mean-pool their cached `AudioFeaturePrint` embeddings.
+//  Two anchor sources, tried in order: bundled centroids from
+//  hand-picked anchor albums (`EnergyCentroids.json`), then library
+//  anchors via genre keywords (mean-pool the cached embeddings of songs
+//  whose `genreNames` match the band's seed keywords).
 //
-//  Either way the threshold is self-calibrating: the median anchor-
-//  to-centroid cosine. `AudioFeaturePrint` empirically bunches pairwise
-//  cosine into a narrow 0.80–0.94 band (see SongDeckWalk.similarity),
-//  so an absolute threshold doesn't generalise — a tight band (low
-//  intra-anchor variance, e.g. classical) gets a high threshold; a
-//  broad one (mellow, which spans pop / soul / jazz / soft rock) gets
-//  a low one. Songs without a cached embedding fall back to `bandByGenre`
-//  — their cached genres scored against each band's anchors via
-//  `GenreSimilarity` lineage — so a fresh install with zero embeddings
-//  still gets reasonable filtering.
+//  Either way the threshold is self-calibrating: the median anchor-to-
+//  centroid cosine. `AudioFeaturePrint` bunches pairwise cosine into a
+//  narrow 0.80–0.94 band, so an absolute threshold doesn't generalise —
+//  a tight band (e.g. classical) gets a high threshold, a broad one
+//  (mellow) a low one. Songs with no cached embedding fall back to
+//  `bandByGenre`, so a fresh install still filters reasonably.
 //
-//  Genres come from `GenreStore` (the `.genres` relationship, hydrated by
-//  the warmer), never `Song.genreNames`: that attribute is always empty
-//  on library songs.
+//  Genres come from `GenreStore`, never `Song.genreNames`: that
+//  attribute is always empty on library songs.
 //
 
 import Foundation
 import MusicKit
 
 enum EnergyClassifier {
-	/// Minimum anchor count required to trust a library-derived
-	/// centroid. Below this the centroid is noise — bail and let the
-	/// caller fall back to the keyword filter. Picked low so small
-	/// libraries still see some embedding-aware filtering. Unused
-	/// when bundled centroids are present.
+	/// Minimum anchor count to trust a library-derived centroid; below
+	/// this it's noise. Kept low so small libraries still get some
+	/// embedding-aware filtering. Unused when bundled centroids exist.
 	static let minAnchors = 5
 
-	/// Returns the subset of `songs` that belong in `band`, or nil
-	/// when the band is `.any` or we have neither bundled centroids
-	/// nor enough library anchors to build a reliable centroid in
-	/// real time. nil signals the caller to soft-fall-back to the
+	/// Returns the subset of `songs` that belong in `band`, or nil when
+	/// the band is `.any` or there's neither bundled centroids nor enough
+	/// library anchors. Nil signals the caller to fall back to the
 	/// keyword filter.
 	static func filter(
 		_ songs: [Song],
@@ -57,19 +45,12 @@ enum EnergyClassifier {
 	) -> [Song]? {
 		if band == .any { return nil }
 
-		// Preferred path: hand-picked anchor centroids baked into the
-		// bundle (see EnergyCentroids.swift). Each band carries several
-		// sub-style centroids. We use argmax-with-genre-boost across all
-		// sub-styles in *all* bands — a song is assigned to whichever
-		// band contains its best-matching sub-style.
-		//
+		// Argmax-with-genre-boost across all sub-styles in *all* bands:
+		// a song is assigned the band of its best-matching sub-style.
 		// Argmax (not OR-over-threshold) because cross-band centroid
-		// distances are small in this embedding space — mellow.downtempo
-		// and energetic.funk sit at cos 0.98 to each other. A song's
-		// absolute cosine clears multiple bands' thresholds; only its
-		// *relative* ranking distinguishes them. Genre boost breaks ties
-		// where Apple's genre tag matches a sub-style slug (sub-styles
-		// are Apple-aligned: "metal", "hip_hop", "industrial", etc.).
+		// distances are small here — mellow.downtempo and energetic.funk
+		// sit at cos 0.98 — so a song's absolute cosine clears multiple
+		// bands' thresholds and only relative ranking distinguishes them.
 		if let bundle = EnergyCentroidsLoader.bundled, !bundle.bands.isEmpty {
 			return filterUsingBundledCentroids(
 				songs,
@@ -108,34 +89,23 @@ enum EnergyClassifier {
 			if let emb = embeddings[song.id] {
 				return AudioEmbeddingService.cosineSimilarity(emb, centroid) >= threshold
 			}
-			// No cached embedding — fall back to the keyword signal
-			// for this individual song. Keeps fresh-install behaviour
-			// equivalent to keyword-only filtering on songs that
-			// haven't been embedded yet, while embedded songs benefit
-			// from the centroid refinement.
+			// No cached embedding — fall back to the keyword signal.
 			return anchorSet.contains(song.id)
 		}
 	}
 
-	/// Boost added to a sub-style's score when the song's Apple
-	/// `genreNames` contains the sub-style's slug as a substring. Big
-	/// enough to break the ~0.01–0.03 cosine ties that competing
-	/// sub-styles across bands typically sit at, small enough not to
-	/// dominate when the embedding has clear signal. Tunable — revisit
-	/// if assignments start feeling genre-driven rather than sound-driven.
+	/// Boost added to a sub-style's score when the song's genre contains
+	/// its slug as a substring. Big enough to break the ~0.01–0.03 cosine
+	/// ties between competing cross-band sub-styles, small enough not to
+	/// dominate when the embedding has clear signal.
 	static let genreBoost: Float = 0.05
 
 	/// Keep a song if it classifies into `targetBand`.
 	///
-	/// Embedded songs: the song's band is the band of its highest-scoring
-	/// sub-style (score = cosine + α·1[genre matches slug]). We also
-	/// require the winning sub-style's own threshold to clear — songs
-	/// the embedding can't place anywhere reliably get dropped rather
-	/// than shoehorned into the nearest band.
-	///
-	/// Non-embedded songs: placed by `bandByGenre` (cached genres scored
-	/// against each band's anchors via `GenreSimilarity`), then kept iff
-	/// that band is the target.
+	/// Embedded songs: band of the highest-scoring sub-style, requiring
+	/// that sub-style's own threshold to clear — songs the embedding
+	/// can't place reliably get dropped, not shoehorned into the nearest.
+	/// Non-embedded songs: placed by `bandByGenre`.
 	private static func filterUsingBundledCentroids(
 		_ songs: [Song],
 		band targetBand: EnergyBand,
@@ -158,9 +128,7 @@ enum EnergyClassifier {
 	}
 
 	/// Flattened sub-style entry — one row per (band, sub-style). Built
-	/// once per classification pass via `flatten(bundle:)` and reused
-	/// across every song so bulk callers (filter + stats) don't pay the
-	/// flatten cost on each song.
+	/// once per pass and reused so bulk callers don't re-flatten per song.
 	typealias FlatEntry = (bandKey: String, payload: EnergyCentroidPayload, token: String)
 
 	static func flatten(bundle: EnergyCentroidBundle) -> [FlatEntry] {
@@ -171,17 +139,13 @@ enum EnergyClassifier {
 		}
 	}
 
-	/// Single-song band assignment. Returns the band whose centroid best
-	/// matches an embedded song, or — for a song with no cached embedding
-	/// — the band its genres place it in via `bandByGenre`. Nil if no
-	/// reliable assignment is possible. Used by the Library Overview view
-	/// to bucket every analysis-pool song.
+	/// Single-song band assignment: the best-matching centroid's band for
+	/// an embedded song, else `bandByGenre`. Nil if no reliable
+	/// assignment is possible.
 	///
-	/// `genres` are the song's cached genre names (`GenreStore`); the bare
-	/// `Song.genreNames` attribute is always empty on library songs.
-	///
-	/// Bulk callers (one call per library song) should flatten once via
-	/// `flatten(bundle:)` and pass the result to the `flat:` overload.
+	/// `genres` are cached genre names (`GenreStore`); `Song.genreNames`
+	/// is always empty on library songs. Bulk callers should flatten once
+	/// and use the `flat:` overload.
 	static func band(
 		embedding: [Float]?,
 		genres: [String],
@@ -210,10 +174,9 @@ enum EnergyClassifier {
 		return bandByGenre(genres)
 	}
 
-	/// Argmax-with-genre-boost across all flattened sub-styles. Returns
-	/// the winning band's bundle key, gated by the winning sub-style's
-	/// own raw-cosine threshold (the boost helps pick the band; it
-	/// shouldn't lower the bar for "did this song match anything").
+	/// Argmax-with-genre-boost across all flattened sub-styles. Gated by
+	/// the winning sub-style's own *raw-cosine* threshold — the boost
+	/// helps pick the band but mustn't lower the "matched anything" bar.
 	/// Nil when no sub-style clears its threshold.
 	private static func winningBundleKey(
 		embedding: [Float],
@@ -240,20 +203,14 @@ enum EnergyClassifier {
 		return key
 	}
 
-	/// Per-band anchor genres for the no-embedding fallback. A song with
-	/// no cached embedding is placed in whichever band its genres best
-	/// match by `GenreSimilarity` lineage distance — exact tag hits score
-	/// 1.0, sub-genre / adjacent tags earn graded partial credit (so "Rap"
-	/// reaches energetic via "hip-hop", "Dub" reaches intense via
-	/// "techno"), and tags in no chain score 0 and stay unclassified.
-	///
-	/// Expressed in `GenreSimilarity`'s lineage vocabulary (Apple's genre
-	/// table). Overlap between bands is fine — argmax picks the strongest
-	/// match and band order breaks ties toward the lower-energy band. This
-	/// replaced a slug-substring match that silently failed on Apple's
-	/// punctuation ("Hip-Hop", "Singer/Songwriter") and had no entry for
-	/// the most common tags ("Pop", "Rock", "Alternative"). Tunable; the
-	/// embedding path overrides it whenever a song is embedded.
+	/// Per-band anchor genres for the no-embedding fallback. A song is
+	/// placed in whichever band its genres best match by `GenreSimilarity`
+	/// lineage distance (graded partial credit; tags in no chain stay
+	/// unclassified). Overlap is fine — argmax picks the strongest match,
+	/// band order breaks ties toward lower energy. Expressed in
+	/// `GenreSimilarity`'s lineage vocabulary, not slug substrings, which
+	/// silently failed on Apple's punctuation ("Hip-Hop") and missed the
+	/// most common tags ("Pop", "Rock", "Alternative").
 	static let genreAnchors: [EnergyBand: [String]] = [
 		.glacial: ["ambient", "classical", "new age", "singer/songwriter"],
 		.mellow: ["soul", "r&b/soul", "jazz", "downtempo", "electronic", "soft rock", "folk", "indie pop", "adult contemporary"],
@@ -262,10 +219,9 @@ enum EnergyClassifier {
 	]
 
 	/// Place a song in a band by genre alone — the no-embedding fallback.
-	/// Scores the song's genres against each band's `genreAnchors` by best
-	/// pairwise `GenreSimilarity` and returns the argmax band, or nil when
-	/// nothing matches any anchor (unknown / genreless songs stay
-	/// unclassified rather than getting shoehorned).
+	/// Argmax of best pairwise `GenreSimilarity` against each band's
+	/// `genreAnchors`; nil when nothing matches (genreless songs stay
+	/// unclassified rather than shoehorned).
 	static func bandByGenre(_ genres: [String]) -> EnergyBand? {
 		guard !genres.isEmpty else { return nil }
 		var best: EnergyBand?
@@ -287,9 +243,8 @@ enum EnergyClassifier {
 	}
 
 	/// Sub-style slug → substring-matchable token for Apple genre tags.
-	/// Slugs use underscores ("hard_rock", "hip_hop"), Apple uses spaces
-	/// or slashes ("Hard Rock", "Hip-Hop/Rap") — we convert underscores
-	/// to spaces so substring `.contains` works in either direction.
+	/// Slugs use underscores ("hard_rock"), Apple uses spaces/slashes
+	/// ("Hard Rock") — convert underscores so `.contains` matches.
 	private static func genreToken(forSlug slug: String) -> String {
 		slug.replacingOccurrences(of: "_", with: " ")
 	}

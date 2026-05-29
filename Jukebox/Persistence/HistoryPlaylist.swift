@@ -4,19 +4,13 @@
 //
 //  Created by Daniel Eden on 20/05/2026.
 //
-//  Each tap on Play in Songs mode produces an implicit playlist — a
-//  similarity-walked runway of ~20 songs starting from whatever was
-//  focused. That runway is worth keeping around: it's the "playlist"
-//  the user actually heard, and there's no other way to reconstruct it
-//  later because the deck reshuffles every session.
+//  Snapshots the ~20-song runway a Songs-mode Play produced; the deck
+//  reshuffles every session, so it can't be reconstructed otherwise.
 
 import Foundation
 import SwiftData
 
-/// Run-level user feedback. `liked` / `disliked` are mutually exclusive;
-/// `none` is the default. Stored on `HistoryPlaylist` and consumed by
-/// the UI for the visual indicator and by the Bad Run action which
-/// bulk-blocks adjacent transitions.
+/// Run-level user feedback. The Bad Run action bulk-blocks adjacent transitions.
 enum HistoryFeedback: String, Codable {
 	case none
 	case liked
@@ -27,13 +21,10 @@ enum HistoryFeedback: String, Codable {
 final class HistoryPlaylist {
 	@Attribute(.unique) var id: UUID
 	var playedAt: Date
-	/// Whimsical name generated at record time. Default-initialised so
-	/// rows persisted before the column existed migrate cleanly under
-	/// SwiftData's lightweight migration; the UI falls back to
-	/// `seedTitle` when `name` is empty.
+	/// Default-initialised for SwiftData lightweight migration; UI falls
+	/// back to `seedTitle` when empty.
 	var name: String = ""
-	/// Persisted as the enum's raw string. Default value lets older rows
-	/// migrate cleanly under SwiftData lightweight migration.
+	/// Default value lets older rows migrate cleanly under SwiftData.
 	var feedbackRaw: String = HistoryFeedback.none.rawValue
 	var seedSongID: String
 	var seedTitle: String
@@ -70,8 +61,7 @@ final class HistorySong {
 	var title: String
 	var artistName: String
 	var albumTitle: String?
-	/// Position within the parent playlist; the runway is ordered, so
-	/// fetching songs by `position` recovers the exact playback order.
+	/// Fetching songs by `position` recovers the exact playback order.
 	var position: Int
 	var playlist: HistoryPlaylist?
 

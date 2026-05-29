@@ -8,19 +8,11 @@
 import MusicKit
 import SwiftUI
 
-/// Two equal-citizen modes:
-/// - **Playlists** — the original dial-of-playlists for rediscovering an
-///   album you forgot you saved.
-/// - **Songs** — the dial-of-songs for rediscovering individual tracks
-///   that have gone quiet in a big library.
-///
-/// Selection persists across launches so the user lands back where they were.
+/// Tabs for the Playlists and Songs dials. Selection persists across launches.
 struct ContentView: View {
 	@AppStorage("selectedTab") private var selectedTab: AppTab = .songs
 
-	/// Drives the first-run onboarding sheet. Seeded from the current
-	/// authorization status so an already-authorized user never sees the
-	/// sheet; flipped to `false` once the user answers the system prompt.
+	/// Seeded from auth status so an already-authorized user never sees the sheet.
 	@State private var showOnboarding: Bool = MusicAuthorization.currentStatus == .notDetermined
 
 	var body: some View {
@@ -47,8 +39,7 @@ struct ContentView: View {
 			OnboardingView {
 				let status = await MusicAuthorization.request()
 				#if os(macOS)
-					// Group the Music.app automation prompt with the library auth
-					// so the user isn't ambushed by a second prompt on first play.
+					// Group with library auth so first play isn't ambushed by a second prompt.
 					_ = await AppleMusicScriptBridge.requestAutomationPermission()
 				#endif
 				if status != .notDetermined { showOnboarding = false }
@@ -57,8 +48,7 @@ struct ContentView: View {
 		#if os(macOS)
 		.task {
 			// Covers the already-authorized path where onboarding never shows.
-			// `AEDeterminePermissionToAutomateTarget` is a no-op once cached,
-			// so this is harmless if it also ran through the onboarding hook.
+			// The underlying AE permission check is a no-op once cached.
 			guard MusicAuthorization.currentStatus == .authorized else { return }
 			_ = await AppleMusicScriptBridge.requestAutomationPermission()
 		}

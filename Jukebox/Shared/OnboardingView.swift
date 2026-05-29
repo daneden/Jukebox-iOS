@@ -8,14 +8,12 @@
 import MusicKit
 import SwiftUI
 
-/// First-run sheet shown when the user hasn't yet decided on Apple Music
-/// access. Presented from ContentView whenever `MusicAuthorization.currentStatus`
-/// is `.notDetermined`; auto-dismisses once the user answers the system
-/// prompt (status moves to `.authorized` or `.denied`).
+/// First-run sheet shown while `MusicAuthorization.currentStatus` is
+/// `.notDetermined`; auto-dismisses once the user answers the system prompt.
 struct OnboardingView: View {
 	@Environment(\.colorScheme) private var colorScheme
-	/// Invoked when the user taps Get Started. The caller is responsible for
-	/// calling `MusicAuthorization.request()` and reacting to the result.
+	/// Invoked when the user taps Get Started; the caller calls
+	/// `MusicAuthorization.request()` and reacts to the result.
 	let onGetStarted: () async -> Void
 
 	@State private var isRequesting = false
@@ -71,8 +69,7 @@ struct OnboardingView: View {
 }
 
 #Preview("Onboarding sheet") {
-	// Present inside a sheet so the preview matches the production
-	// presentation context (rounded corners, detents, safe areas).
+	// In a sheet so the preview matches production (corners, detents, safe areas).
 	#if os(iOS)
 		let backdrop = Color(.systemBackground)
 	#else

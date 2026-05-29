@@ -4,17 +4,13 @@
 //
 //  Created by Daniel Eden on 22/05/2026.
 //
-//  Debug-only generator that resolves each anchor album in
-//  EnergyAnchors.json against the Apple Music catalog, embeds a
-//  capped number of tracks via AudioFeaturePrint, mean-pools them
-//  per band, and writes the resulting per-band centroid + threshold
-//  to a JSON file in Documents. Surfaces a share sheet so the user
-//  can pull the file out and drop it into Resources as
-//  EnergyCentroids.json before committing.
+//  Debug-only generator: resolves each EnergyAnchors.json album against
+//  the catalog, embeds a capped number of tracks, mean-pools per band,
+//  and writes the per-band centroid + threshold to a JSON file shared
+//  out for dropping into Resources as EnergyCentroids.json.
 //
-//  Heavy: ~22 anchor albums × up to 8 tracks each = ~176 30-second
-//  preview downloads + ML passes on first run (cached afterwards).
-//  Run on wifi; expect several minutes.
+//  Heavy: ~176 preview downloads + ML passes on first run (cached
+//  after). Run on wifi; expect several minutes.
 //
 
 #if DEBUG
@@ -27,9 +23,8 @@
 		@State private var phase: Phase = .idle
 		@State private var outputURL: URL?
 
-		/// Cap on tracks pulled from each anchor album. The first N tracks
-		/// usually span the album's range well enough — pooling more just
-		/// adds embedding cost without meaningful centroid movement.
+		/// Cap on tracks per anchor album. The first N span the album's
+		/// range well enough; more adds cost without moving the centroid.
 		private static let tracksPerAlbum = 8
 
 		var body: some View {
@@ -133,7 +128,6 @@
 		// MARK: - Run
 
 		private func run() async {
-			// 1. Authorize MusicKit.
 			let status = MusicAuthorization.currentStatus
 			if status == .notDetermined {
 				let newStatus = await MusicAuthorization.request()
@@ -146,17 +140,15 @@
 				return
 			}
 
-			// 2. Load anchors from the bundled manifest.
 			let anchors = EnergyCentroidsLoader.loadAnchors()
 			guard !anchors.isEmpty else {
 				phase = .failed("Couldn't load EnergyAnchors.json from the bundle.")
 				return
 			}
 
-			// 3. Resolve each anchor album → catalog Album → up-to-N tracks.
-			//    Group results by (band, subStyle) so the centroid step can
-			//    pool per sub-style — see EnergyCentroids.swift for why
-			//    single-centroid pooling failed for heterogeneous bands.
+			// Group by (band, subStyle) so the centroid step pools per
+			// sub-style — see EnergyCentroids.swift for why single-centroid
+			// pooling failed for heterogeneous bands.
 			phase = .running(.init(done: 0, total: anchors.count, currentLabel: "Resolving albums…", warnings: []))
 
 			var tracksByKey: [GroupKey: [Song]] = [:]
@@ -184,10 +176,7 @@
 				}
 			}
 
-			// 4. Embed every track. Total work = sum of tracks across all
-			//    groups; per-track cache hits cost ~milliseconds, misses
-			//    cost ~seconds. Skip-on-failure so one broken preview
-			//    doesn't sink the whole build.
+			// Skip-on-failure so one broken preview doesn't sink the build.
 			let totalTracks = tracksByKey.values.reduce(0) { $0 + $1.count }
 			guard totalTracks > 0 else {
 				phase = .failed("Resolved zero tracks across all anchor albums. Check warnings above.")
@@ -214,8 +203,6 @@
 				}
 			}
 
-			// 5. Per-(band, subStyle) centroid + median threshold, then
-			//    bucket into per-band lists of sub-style payloads.
 			var bandsOut: [String: [EnergyCentroidPayload]] = [:]
 			var summaries: [Report.BandSummary] = []
 			for (key, vectors) in embeddingsByKey {
@@ -246,7 +233,6 @@
 				bandsOut[band]?.sort { $0.subStyle < $1.subStyle }
 			}
 
-			// 6. Write the bundle JSON to Documents.
 			let bundle = EnergyCentroidBundle(bands: bandsOut)
 			let url: URL
 			do {
@@ -261,8 +247,7 @@
 		}
 
 		private func resolveTracks(for anchor: EnergyAnchor, limit: Int) async throws -> [Song] {
-			// Search the catalog for the album. `Album.title` matching is
-			// loose — Apple does substring + fuzz on its end — so we
+			// Apple's album-title matching is loose (substring + fuzz), so
 			// constrain by artist after the fact.
 			let term = "\(anchor.album) \(anchor.artist)"
 			let request = MusicCatalogSearchRequest(term: term, types: [Album.self])
@@ -290,9 +275,8 @@
 			return []
 		}
 
-		/// Light normaliser: lowercase + strip punctuation so "Music for
-		/// Saxofone & Bass Guitar" matches "Music for Saxofone and Bass
-		/// Guitar" and "DJ-Kicks (Moodymann)" matches "DJ Kicks Moodymann".
+		/// Lowercase + strip punctuation so "& "/"and" and bracketed
+		/// suffixes don't block an otherwise-matching album title.
 		private func normalised(_ s: String) -> String {
 			s.lowercased()
 				.replacingOccurrences(of: "&", with: "and")

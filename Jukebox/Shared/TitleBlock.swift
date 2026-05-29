@@ -7,10 +7,8 @@
 
 import SwiftUI
 
-/// The two-line title shown beneath the dial in Songs and Playlists modes.
-/// Always renders with reserved space so the dial doesn't shift up when the
-/// title empties out mid-spin; `lineLimit(_:reservesSpace:)` keeps the slot
-/// sized to 2 + 1 lines even when both strings are empty.
+/// The two-line title shown beneath the dial. Reserves space so the dial
+/// doesn't shift up when the title empties out mid-spin.
 struct TitleBlock: View {
 	let title: String
 	let subtitle: String

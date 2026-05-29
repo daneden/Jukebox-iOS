@@ -36,9 +36,8 @@ struct MakeAPlaylist: AppIntent, PredictableIntent {
 			return .result(dialog: IntentDialog("Couldn't find any gems to play"))
 		}
 
-		// Match SongsView's landing behaviour: a random index within
-		// ±landingSpread of the top-ranked gem, so consecutive runs feel
-		// different without straying outside the seed's neighborhood.
+		// Match SongsView: land within ±spread of the top gem so consecutive
+		// runs differ without straying from the seed's neighborhood.
 		let spread = min(6, max(0, deck.count - 1))
 		let offset = spread == 0 ? 0 : Int.random(in: -spread ... spread)
 		let startIdx = ((offset % deck.count) + deck.count) % deck.count

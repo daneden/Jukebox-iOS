@@ -5,14 +5,9 @@
 //  Created by Daniel Eden on 28/05/2026.
 //
 //  Actor wrapper around the SwiftData container holding `ExcludedItem`
-//  rows — the songs, albums, artists, and playlists the user has flagged
-//  ineligible from the dial's context menu.
-//
-//  Songs mode reads `exclusions()` at deck-build time and drops matching
-//  candidates before scoring; Playlists mode reads `blockedPlaylistIDs()`
-//  and filters the fetched collection. Kept separate from
-//  `TransitionFeedbackStore` on purpose: a schema change to one store
-//  shouldn't drag the other along (see that file for the full rationale).
+//  rows. Songs mode reads `exclusions()` at deck-build time; Playlists
+//  mode reads `blockedPlaylistIDs()`. Kept separate from
+//  `TransitionFeedbackStore` so a schema change to one can't drag the other.
 
 import Foundation
 import MusicKit
@@ -53,9 +48,7 @@ actor ExclusionStore {
 		insert(key: ExcludedItem.playlistKey(id), kind: .playlist, label: label)
 	}
 
-	/// Inverse of the block helpers. Not surfaced in the UI yet, but kept
-	/// here so a future management screen can lift an exclusion without
-	/// reaching into SwiftData.
+	/// Inverse of the block helpers, for a future management screen.
 	func unblock(key: String) {
 		do { try ensureLoaded() } catch { return }
 		guard let context else { return }
@@ -81,10 +74,8 @@ actor ExclusionStore {
 
 	// MARK: - Snapshots
 
-	/// Song-mode exclusion snapshot: song ids, artist names, and album
-	/// keys split out so `Exclusions.excludes(song:)` can check each grain
-	/// in O(1). Playlist rows are ignored here — they're Playlists-mode's
-	/// concern via `blockedPlaylistIDs()`.
+	/// Song-mode exclusion snapshot: song ids, artist names, and album keys
+	/// split out for O(1) grain checks. Playlist rows are ignored here.
 	func exclusions() -> Exclusions {
 		let rows = allRows()
 		var songIDs = Set<String>()
@@ -93,7 +84,6 @@ actor ExclusionStore {
 		for row in rows {
 			switch row.kind {
 			case .song:
-				// Strip the "song\u{1F}" namespace prefix back to the raw id.
 				songIDs.insert(stripPrefix(row.key))
 			case .artist:
 				artistNames.insert(stripPrefix(row.key))
@@ -106,8 +96,7 @@ actor ExclusionStore {
 		return Exclusions(songIDs: songIDs, artistNames: artistNames, albumKeys: albumKeys)
 	}
 
-	/// Raw playlist ids the user has excluded. Playlists mode filters its
-	/// fetched collection against this set.
+	/// Raw playlist ids the user has excluded.
 	func blockedPlaylistIDs() -> Set<String> {
 		Set(allRows().filter { $0.kind == .playlist }.map { stripPrefix($0.key) })
 	}
@@ -118,9 +107,9 @@ actor ExclusionStore {
 		return (try? context.fetch(FetchDescriptor<ExcludedItem>())) ?? []
 	}
 
-	/// Drop the leading `kind\u{1F}` namespace from a key, recovering the
-	/// raw id/name. Album keys carry two separators (kind + artist) so
-	/// they're matched whole and never stripped.
+	/// Drop the leading `kind\u{1F}` namespace, recovering the raw id/name.
+	/// Album keys carry two separators (kind + artist) so they're matched
+	/// whole and never stripped.
 	private func stripPrefix(_ key: String) -> String {
 		guard let sep = key.firstIndex(of: "\u{1F}") else { return key }
 		return String(key[key.index(after: sep)...])

@@ -2,41 +2,29 @@
 //  EnergyCurveEditor.swift
 //  Jukebox
 //
-//  Interactive editor for the five-point energy curve. The stroked
-//  Catmull-Rom spline passes through every anchor, with a vertical
-//  gradient running from intense (top) to glacial (bottom) — matching
-//  the EnergyBand tints used elsewhere — so the shape's height maps
-//  visually to its musical meaning.
-//
-//  The five control points are 44pt Liquid Glass circles that drag
-//  only along Y. X is fixed at evenly spaced positions so the spline
-//  stays a well-formed function of X regardless of how the user pulls
-//  the anchors around.
+//  Interactive editor for the five-point energy curve. Five 44pt Liquid
+//  Glass control points drag only along Y (X is fixed at evenly spaced
+//  positions), with a vertical gradient from intense (top) to glacial
+//  (bottom) so the shape's height maps to its musical meaning.
 //
 
 import SwiftUI
 
 struct EnergyCurveEditor: View {
 	@Binding var curve: EnergyCurve
-	/// Drives the backdrop's dot count — one dot per song slot. The
-	/// editor itself is count-agnostic; the dots are just a visual
-	/// echo of the slider so the user has a sense of "how many songs
-	/// am I asking for" without leaving the canvas.
+	/// Drives the backdrop's dot count — one dot per song slot, a visual
+	/// echo of the length slider.
 	var songCount: Int = 20
 
-	/// Distance from the grid edge to the thumb-centre track. The grid
-	/// itself fills the editor's frame; this inset only governs where
-	/// the thumb centres can travel, so the 44pt thumbs always sit
-	/// visually inside the grid rather than hanging off the edges.
+	/// Inset of the thumb-centre track from the editor frame, so the 44pt
+	/// thumbs sit visually inside the grid rather than off the edges.
 	private static let thumbInset: CGFloat = 32
-	/// 44pt circle — meets Apple's minimum touch target. Smaller and
-	/// the user reported them as fiddly to grab.
+	/// 44pt — Apple's minimum touch target. Smaller was reported as fiddly.
 	private static let thumbSize: CGFloat = 44
 	private static let coordinateSpaceName = "EnergyCurveEditor"
 
-	/// One @GestureState per control point so the press effect lifts only
-	/// the thumb the user is touching. Using a single value would scale
-	/// every thumb on every drag.
+	/// One @GestureState per point so the press effect lifts only the
+	/// touched thumb, not all of them.
 	@GestureState private var activePoint: Int?
 
 	var body: some View {
@@ -58,9 +46,7 @@ struct EnergyCurveEditor: View {
 
 	// MARK: - Layout
 
-	/// Region the thumb centres can travel — inset from the editor frame
-	/// so the 44pt thumbs sit visually inside the grid (which itself
-	/// fills the full frame).
+	/// Region the thumb centres can travel.
 	private func canvasRect(in size: CGSize) -> CGRect {
 		CGRect(
 			x: Self.thumbInset,
@@ -79,12 +65,8 @@ struct EnergyCurveEditor: View {
 
 	// MARK: - Backdrop
 
-	/// Rounded-rectangle container filling the editor's frame, with a
-	/// square dot grid sized to the song count: a 30-song playlist
-	/// gets a 30×30 grid (900 dots). The dots are drawn via a single
-	/// `Canvas` so a 50×50 grid (2500 dots) stays cheap; cell size is
-	/// derived from the canvas's actual dimensions at draw time, so
-	/// the grid redistributes as the editor resizes.
+	/// Rounded-rect container with a songCount×songCount dot grid, drawn
+	/// in a single `Canvas` so even a 50×50 grid stays cheap.
 	private var backdrop: some View {
 		let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
 		let count = max(1, songCount)
@@ -169,16 +151,9 @@ struct EnergyCurveEditor: View {
 	private func controlPoint(at index: Int, in size: CGSize) -> some View {
 		let pos = pointPosition(index, in: size)
 		let active = activePoint == index
-		// 44pt Liquid Glass circle. `.regular.interactive()` gives the
-		// material backdrop + system-driven shimmer on touch; the small
-		// inner dot is a non-functional centre cue so the thumb reads
-		// as a discrete handle rather than an abstract glass blob.
-		//
-		// `.fill(.clear)` paints nothing, so on macOS only the inner
-		// 6pt dot was hit-testable — gestures starting on the glass
-		// rim missed the thumb entirely. `.contentShape(Circle())`
-		// declares the full 44pt circle as the gesture target
-		// regardless of fill or material participation.
+		// `.fill(.clear)` paints nothing, so on macOS only the inner dot is
+		// hit-testable — gestures on the glass rim miss the thumb.
+		// `.contentShape(Circle())` declares the full 44pt gesture target.
 		return Circle()
 			.fill(.clear)
 			.frame(width: Self.thumbSize, height: Self.thumbSize)
@@ -220,12 +195,10 @@ struct EnergyCurveEditor: View {
 	}
 }
 
-/// Stroke the Catmull-Rom spline as four cubic-Bézier segments — one
-/// per pair of consecutive anchors. The Bézier control points are
-/// derived from the same Catmull-Rom-to-cubic formula `EnergyCurve.sample`
-/// uses, so the on-screen stroke matches the values fed into the
-/// playlist builder exactly. Animatable over the five Y values so a
-/// randomise transition tweens through intermediate curve shapes.
+/// Strokes the Catmull-Rom spline as cubic-Bézier segments using the same
+/// conversion as `EnergyCurve.sample`, so the stroke matches the values
+/// fed to the builder. Animatable over the five Y values so randomise
+/// tweens through intermediate shapes.
 struct CurveShape: Shape {
 	var curve: EnergyCurve
 	let rect: CGRect
@@ -263,16 +236,13 @@ struct CurveShape: Shape {
 		for seg in 0 ..< segments {
 			let p1 = curve.points[seg]
 			let p2 = curve.points[seg + 1]
-			// Reflect missing neighbours at the endpoints so the first
-			// and last segments inherit a sensible tangent direction.
+			// Reflect missing neighbours so endpoint segments get a sensible tangent.
 			let pPrev = seg == 0 ? (2 * p1 - p2) : curve.points[seg - 1]
 			let pNext = seg == segments - 1 ? (2 * p2 - p1) : curve.points[seg + 2]
 
 			let b1y = p1 + (p2 - pPrev) / 6
 			let b2y = p2 - (pNext - p1) / 6
-			// X handles sit at 1/3 and 2/3 across the segment — derived
-			// from the same Catmull-Rom formula assuming uniform X
-			// spacing (which we enforce).
+			// X handles at 1/3 and 2/3 across the segment (uniform X spacing).
 			let b1x = rect.minX + segmentWidth * (CGFloat(seg) + 1.0 / 3.0)
 			let b2x = rect.minX + segmentWidth * (CGFloat(seg) + 2.0 / 3.0)
 			let b1ScreenY = rect.minY + rect.height * (1 - CGFloat(b1y))
@@ -288,9 +258,8 @@ struct CurveShape: Shape {
 	}
 }
 
-/// Five-component animatable bundle. SwiftUI nests AnimatablePair to
-/// vectorise N values; this wrapper hides the nesting behind named
-/// properties so the Shape stays readable.
+/// Five-component animatable bundle — named properties over nested
+/// AnimatablePairs so the Shape stays readable.
 struct AnimatablePointFive: VectorArithmetic {
 	var p0: Double
 	var p1: Double

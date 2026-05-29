@@ -4,15 +4,12 @@
 //
 //  Created by Daniel Eden on 24/05/2026.
 //
-//  Generated cover art for a history playlist. Minimal layout — title
-//  on a mesh gradient sampled from the first few songs' album thumbnails,
-//  Playback wordmark in the bottom-trailing corner. Same view drives
-//  both the in-app preview and the 1024×1024 PNG produced by
-//  `ImageRenderer` for sharing.
+//  Generated cover art for a history playlist — title over a mesh gradient
+//  sampled from album thumbnails. Same view drives both the in-app preview
+//  and the 1024×1024 share PNG.
 //
-//  MusicKit's `createPlaylist` API doesn't accept cover art (catalogued
-//  in `project-musickit-no-artwork`), so this is a manual share/save
-//  flow — the user gets the file and applies it themselves.
+//  MusicKit's `createPlaylist` doesn't accept cover art
+//  (`project-musickit-no-artwork`), so applying it is a manual share/save flow.
 
 import CoreImage
 import CoreImage.CIFilterBuiltins
@@ -24,24 +21,18 @@ import UniformTypeIdentifiers
 
 // MARK: - View
 
-/// Square playlist cover. All internal sizing is proportional to `size`
-/// so the same view renders identically at 280pt (preview) and 1024pt
-/// (share/export).
+/// Square playlist cover. Internal sizing is proportional to `size` so it
+/// renders identically at 280pt (preview) and 1024pt (export).
 struct PlaylistCoverArt: View {
 	let title: String
-	/// Up to four base colors; cycled across the 3×3 mesh after a
-	/// seed-driven shuffle. Pass nil to use the neutral fallback.
+	/// Up to four base colors cycled across the mesh; nil = neutral fallback.
 	let palette: [Color]?
-	/// Deterministic seed for the mesh layout — the same value always
-	/// produces the same gradient, so every playlist gets its own shape
-	/// while a single playlist stays visually stable across renders.
+	/// Deterministic mesh-layout seed — same value, same gradient.
 	var seed: UInt64 = 0
 	var size: CGFloat = 280
-	/// Clip to a rounded rectangle for in-app presentation (default).
-	/// The exported PNG passes `false` so the bitmap has sharp corners
-	/// — Apple Music's playlist-artwork picker and the user's file
-	/// manager apply their own corner treatment, and a pre-rounded
-	/// bitmap shows transparent corners against any backdrop.
+	/// The exported PNG passes `false` for sharp corners — downstream
+	/// pickers apply their own rounding, and a pre-rounded bitmap shows
+	/// transparent corners against any backdrop.
 	var rounded: Bool = true
 
 	private var basePalette: [Color] {
@@ -51,27 +42,16 @@ struct PlaylistCoverArt: View {
 		return (0 ..< 4).map { palette[$0 % palette.count] }
 	}
 
-	/// Effective seed — `0` is treated as "unseeded" and falls back to a
-	/// fixed value so the preview canvas in Xcode doesn't reroll on
-	/// every redraw.
+	/// `0` is treated as unseeded and pinned to a fixed value, so the Xcode
+	/// preview canvas doesn't reroll on every redraw.
 	private var effectiveSeed: UInt64 {
 		seed == 0 ? 0xC0FFEE : seed
 	}
 
-	/// 9 mesh points laid out 3×3. Corners are pinned to the rect
-	/// corners; edge midpoints stay on their edge (top/bottom at Y=0/1,
-	/// left/right at X=0/1) so the mesh covers the canvas edge-to-edge.
-	///
-	/// The free coordinates are clamped to [0.25, 0.75] rather than the
-	/// full unit range. The corner positions are inviolate, so when an
-	/// edge midpoint or the center wandered close to one, the adjacent
-	/// quad collapsed into a near-degenerate sliver and the interpolation
-	/// compressed an entire color transition into that thin band —
-	/// reading as a sharp, broken-looking edge. Keeping every free point
-	/// at least 25% away from the rect borders gives every quad enough
-	/// width/height to interpolate smoothly while still allowing
-	/// asymmetric placement (and edge midpoints crossing each other in
-	/// the middle band) for distinctive per-playlist character.
+	/// 3×3 mesh: corners pinned, edge midpoints kept on their edge so the
+	/// mesh covers the canvas. Free coords stay in the middle band — letting
+	/// a point near a pinned corner collapses its quad into a sliver, which
+	/// compresses a color transition into a sharp, broken-looking edge.
 	private var meshPoints: [SIMD2<Float>] {
 		var rng = SeededGenerator(seed: effectiveSeed)
 		let topMid = SIMD2<Float>(unit(&rng), 0.0)
@@ -86,20 +66,15 @@ struct PlaylistCoverArt: View {
 		]
 	}
 
-	/// Seeded uniform sample in the safe middle band [0.20, 0.80].
-	/// Narrower than the full unit range — see `meshPoints` for why
-	/// approaching the corners produces visibly broken gradients —
-	/// but loose enough that points can get close to crossing, which
-	/// is where the sharper pinch lines come from.
+	/// Seeded uniform sample in the safe middle band [0.20, 0.80] — see
+	/// `meshPoints` for why the corners are avoided.
 	private func unit(_ rng: inout SeededGenerator) -> Float {
 		let raw = Float(rng.next() >> 11) / Float(UInt64(1) << 53)
 		return 0.20 + raw * 0.60
 	}
 
-	/// Replace the final space in `string` with a non-breaking space so
-	/// the last two words wrap as a single unit. Prevents the single-
-	/// word last line ("widow") that otherwise shows up on titles like
-	/// "Slow burn ft. Aphex Twin" when they don't quite fit on one line.
+	/// Non-breaking the final space binds the last two words, avoiding a
+	/// single-word last line (a "widow").
 	private static func bondedLastWord(of string: String) -> String {
 		guard let lastSpace = string.lastIndex(of: " ") else { return string }
 		var result = string
@@ -107,10 +82,8 @@ struct PlaylistCoverArt: View {
 		return result
 	}
 
-	/// 9 colors over the 3×3 mesh. The palette is seed-shuffled and then
-	/// cycled in a pattern that avoids putting the same palette entry in
-	/// adjacent cells, so the blend has texture rather than reading as
-	/// a single wash.
+	/// Seed-shuffled palette cycled over the mesh in a pattern that avoids
+	/// the same entry in adjacent cells, so the blend has texture.
 	private var meshColors: [Color] {
 		var rng = SeededGenerator(seed: effectiveSeed &+ 0x9E37)
 		let shuffled = basePalette.shuffled(using: &rng)
@@ -129,8 +102,7 @@ struct PlaylistCoverArt: View {
 				colors: meshColors
 			)
 
-			// Subtle inner shading so the title stays readable even when
-			// the sampled palette comes back light.
+			// Inner shading keeps the title readable on light palettes.
 			LinearGradient(
 				colors: [.black.opacity(0.15), .black.opacity(0)],
 				startPoint: .top,
@@ -168,11 +140,9 @@ struct PlaylistCoverArt: View {
 
 // MARK: - Seeded RNG
 
-/// SplitMix64 — tiny, fast, and good enough for picking gradient
-/// positions. We need *deterministic* per-playlist randomness so the
-/// preview, the rendered PNG, and any later re-render all land on the
-/// same layout; Swift's default `SystemRandomNumberGenerator` would
-/// reshuffle on every redraw.
+/// SplitMix64. Deterministic per-playlist randomness so the preview,
+/// the PNG, and any re-render land on the same layout —
+/// `SystemRandomNumberGenerator` would reshuffle on every redraw.
 struct SeededGenerator: RandomNumberGenerator {
 	private var state: UInt64
 
@@ -192,8 +162,7 @@ struct SeededGenerator: RandomNumberGenerator {
 // MARK: - Palette extraction
 
 enum PlaylistCoverPalette {
-	/// Used when none of the seed songs have resolvable artwork. Tuned
-	/// to feel of-a-piece with the app rather than generic.
+	/// Used when no seed song has resolvable artwork.
 	static let fallback: [Color] = [
 		Color(red: 0.18, green: 0.10, blue: 0.36),
 		Color(red: 0.45, green: 0.18, blue: 0.52),
@@ -201,14 +170,11 @@ enum PlaylistCoverPalette {
 		Color(red: 0.32, green: 0.45, blue: 0.65),
 	]
 
-	/// Sample one dominant color per song for up to `maxColors` songs.
-	/// Sequential downloads (4 small thumbnails total) — this runs once
-	/// when the detail view opens, never on the dial hot path, so we're
-	/// out of [[feedback-real-device-perf]] territory.
-	///
-	/// `Artwork.backgroundColor` is unreliable for library items (see
-	/// [[project-artwork-backgroundcolor-library-gap]]), so we sample
-	/// pixels from a tiny thumbnail instead.
+	/// One dominant color per song, up to `maxColors`. Sequential
+	/// thumbnail downloads, but runs once on detail-view open, off the dial
+	/// hot path. `Artwork.backgroundColor` is unreliable for library items
+	/// ([[project-artwork-backgroundcolor-library-gap]]), so sample pixels
+	/// from a tiny thumbnail instead.
 	static func extract(from songs: [Song], maxColors: Int = 4) async -> [Color] {
 		var colors: [Color] = []
 		for song in songs {
@@ -245,9 +211,8 @@ enum PlaylistCoverPalette {
 		let r = Double(bitmap[0]) / 255.0
 		let g = Double(bitmap[1]) / 255.0
 		let b = Double(bitmap[2]) / 255.0
-		// Lightly boost saturation — area-average tends muted, and a
-		// muddy gradient reads as "bug" instead of "minimal." Clamp so
-		// already-vivid palettes don't blow out.
+		// Area-average comes back muddy, which reads as "bug" not "minimal";
+		// boost saturation, clamped so vivid palettes don't blow out.
 		return boostSaturation(r: r, g: g, b: b, by: 0.25)
 	}
 
@@ -272,10 +237,7 @@ enum PlaylistCoverPalette {
 // MARK: - PNG rendering
 
 enum PlaylistCoverRenderer {
-	/// Render the cover at `pixelSize` × `pixelSize` and return PNG data.
-	/// Runs on `@MainActor` because `ImageRenderer` does. Returns nil if
-	/// the renderer can't produce a CGImage (rare; usually a sign the
-	/// view tree failed to lay out).
+	/// Render the cover to PNG data. `@MainActor` because `ImageRenderer` is.
 	@MainActor
 	static func renderPNG(
 		title: String,
@@ -313,9 +275,7 @@ enum PlaylistCoverRenderer {
 
 // MARK: - Transferable wrapper
 
-/// PNG cover art ready for `ShareLink`. The `suggestedFileName` is the
-/// playlist title sanitised for the filesystem so AirDrop / Save to
-/// Files lands with a recognisable name rather than `image.png`.
+/// PNG cover art for `ShareLink`, named after the playlist title.
 struct PlaylistCoverImage: Transferable {
 	let title: String
 	let pngData: Data

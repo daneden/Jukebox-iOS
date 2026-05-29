@@ -2,10 +2,9 @@
 //  MusicPlayback.swift
 //  Jukebox
 //
-//  Cross-platform playback verb. On iOS we drive `SystemMusicPlayer` so
-//  Music.app's queue picks up what we play; on macOS that player doesn't
-//  exist, so we route through `AppleMusicScriptBridge` which controls
-//  Music.app via AppleScript instead. Call sites stay platform-agnostic.
+//  Cross-platform playback verb. iOS drives `SystemMusicPlayer`; macOS lacks it,
+//  so it routes through `AppleMusicScriptBridge` (AppleScript). Call sites stay
+//  platform-agnostic.
 //
 
 import Foundation
@@ -39,10 +38,8 @@ enum MusicPlayback {
 		#endif
 	}
 
-	/// Play a runway of songs. iOS enqueues the whole array through
-	/// `SystemMusicPlayer`; macOS stages them into a recycled
-	/// `▶ Playback` user playlist (Music.app exposes no scriptable
-	/// "Up Next") and plays that.
+	/// Play a runway of songs. macOS stages them into a recycled `▶ Playback`
+	/// user playlist (Music.app exposes no scriptable "Up Next") and plays that.
 	@discardableResult
 	static func play(songs: [Song]) async -> Bool {
 		guard !songs.isEmpty else { return false }
@@ -66,11 +63,9 @@ enum MusicPlayback {
 		#endif
 	}
 
-	/// Create a new playlist in the user's library from the given songs.
-	/// iOS uses MusicKit's `MusicLibrary.createPlaylist`; macOS drives
-	/// Music.app via AppleScript since MusicKit on macOS ships no library-
-	/// mutation API. Throws on failure so callers can surface a precise
-	/// error to the user.
+	/// Create a new library playlist from the given songs. macOS drives Music.app
+	/// via AppleScript since MusicKit on macOS ships no library-mutation API.
+	/// Throws on failure so callers can surface a precise error.
 	@discardableResult
 	static func save(songs: [Song], asPlaylistNamed name: String, description: String) async throws -> Int {
 		guard !songs.isEmpty else { return 0 }

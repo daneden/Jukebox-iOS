@@ -4,26 +4,20 @@
 //
 //  Created by Daniel Eden on 21/05/2026.
 //
-//  Bottom-bar popover that exposes the three composable walk knobs —
-//  meander, energy, decade span. Close reverts to the on-open snapshot;
-//  Confirm dismisses with current state; Reset wipes back to app
-//  defaults but keeps the popover open so the user can confirm or
-//  close from there. SongsView reads the values via @AppStorage and
-//  rebuilds the deck on dismiss when anything changed.
+//  Bottom-bar popover for the walk knobs. Close reverts to the on-open
+//  snapshot; Confirm dismisses with current state; Reset wipes to
+//  defaults but keeps the popover open.
 //
 
 import SwiftUI
 
 struct WalkControlsPopover: View {
 	@Binding var controls: WalkControls
-	/// Min/max decades observed in the user's candidate pool — when
-	/// provided, the range slider constrains its thumbs to this
-	/// window so they don't wander into empty decades. Nil means
-	/// fall back to the static 1900–2030 bounds.
+	/// Decades observed in the candidate pool; constrains the range slider
+	/// so thumbs don't wander into empty decades. Nil falls back to the
+	/// static 1900–2030 bounds.
 	let libraryDecadeBounds: ClosedRange<Int>?
-	/// Size of the currently-built deck after filters, surfaced as a
-	/// summary row so the user can see when their filters are biting
-	/// hard. Nil while the deck hasn't built yet (cold launch).
+	/// Deck size after filters. Nil before the deck has built (cold launch).
 	let poolSize: Int?
 
 	var body: some View {
@@ -39,8 +33,7 @@ struct WalkControlsPopover: View {
 }
 
 /// Inner view so `@Environment(\.dismiss)` resolves to the popover's
-/// presentation, not whatever container the parent lives in. Also
-/// owns the on-open snapshot used by Close-as-revert.
+/// presentation, not the parent's container.
 private struct WalkControlsForm: View {
 	@Binding var controls: WalkControls
 	let libraryDecadeBounds: ClosedRange<Int>?
@@ -95,29 +88,23 @@ private struct WalkControlsForm: View {
 		}
 		.formStyle(.grouped)
 		.toolbar {
-			// Close = revert to the snapshot taken when the sheet
-			// opened, then dismiss. This makes Close behave like Cancel
-			// in iOS sheet UX while still using the iOS 26 `.close`
-			// role chrome (the × glyph) the user asked for.
+			// Close reverts to the on-open snapshot then dismisses —
+			// Cancel semantics under the iOS 26 `.close` role chrome.
 			ToolbarItem(placement: .cancellationAction) {
 				Button(role: .close) {
 					controls = initialSnapshot
 					dismiss()
 				}
 			}
-			// Confirm = dismiss with current state. SongsView's
-			// onChange-of-isPresented compares current controls against
-			// its own snapshot and rebuilds the deck if anything changed.
+			// Confirm dismisses with current state; SongsView rebuilds
+			// the deck on dismiss if anything changed.
 			ToolbarItem(placement: .confirmationAction) {
 				Button(role: .confirm) {
 					dismiss()
 				}
 			}
-			// Reset clears the knobs back to .default but doesn't
-			// dismiss — gives the user a chance to confirm or close
-			// from the reset state. `.bottomBar` is iOS-only; on
-			// macOS `.destructiveAction` keeps the role semantics in
-			// the toolbar without the iOS bottom bar.
+			// Reset to .default without dismissing. `.bottomBar` is
+			// iOS-only; macOS uses `.destructiveAction` instead.
 			#if os(iOS)
 				ToolbarSpacer(placement: .bottomBar)
 
@@ -143,11 +130,8 @@ private struct WalkControlsForm: View {
 	}
 
 	private var meanderSlider: some View {
-		// `neutralValue: 0` anchors the fill at the centre so the bar
-		// grows outward from the app default — pulling left fills toward
-		// Steady, right toward Meandering. `step` produces native tick
-		// marks (iOS 26 / macOS 26); the min/max labels replace the
-		// hand-rolled HStack we used before the new SDK.
+		// `neutralValue: 0` anchors the fill at centre so the bar grows
+		// outward from the default. `step` produces native tick marks.
 		Slider(
 			value: $controls.meander,
 			in: -1 ... 1,
@@ -169,8 +153,8 @@ private struct WalkControlsForm: View {
 
 	// MARK: Energy
 
-	/// Toggling on seeds a mid-axis target; toggling off clears it
-	/// (nil = no filter) while leaving the window for next time.
+	/// Toggling on seeds a mid-axis target; off clears it (nil) but keeps
+	/// the window for next time.
 	private var energyEnabled: Binding<Bool> {
 		Binding(
 			get: { controls.energy.isActive },
@@ -228,11 +212,8 @@ private struct WalkControlsForm: View {
 	}
 }
 
-/// Visual summary of how many songs survived the current filter
-/// stack. Reflects the deck *as currently built* — when the user
-/// changes controls and confirms, the next time they reopen the
-/// popover the count reflects the new deck. Severity tints + an
-/// inline warning icon make low counts hard to miss.
+/// How many songs survived the current filter stack, with severity
+/// tints + a warning icon so low counts are hard to miss.
 private struct PoolSummaryRow: View {
 	let count: Int
 

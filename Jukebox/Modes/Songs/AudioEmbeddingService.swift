@@ -4,17 +4,10 @@
 //
 //  Created by Daniel Eden on 20/05/2026.
 //
-//  Spike: feed a song's 30-second `previewAssets` clip into Apple's
-//  built-in `AudioFeaturePrint` extractor and return a single mean-pooled
-//  embedding vector. Cosine distance between two such vectors is our
-//  on-device proxy for "do these songs sound similar." All work is local;
-//  there's nothing to bundle and no third-party API.
-//
-//  Apple's `AudioFeaturePrint` outputs a 512-d vector per ~960ms window;
-//  for a 30s preview that's ~30 windows, and we mean-pool them so the
-//  whole clip collapses to one fixed-size vector. Mean-pooling discards
-//  intra-song temporal structure (verse vs chorus) which is fine — we
-//  want a per-song fingerprint, not a per-section one.
+//  Feeds a song's 30s preview clip into Apple's `AudioFeaturePrint` and
+//  mean-pools the per-window vectors into one per-song fingerprint;
+//  cosine distance between fingerprints is the on-device similarity proxy.
+//  Mean-pooling discards intra-song structure (verse vs chorus) on purpose.
 
 import AVFoundation
 import CoreML
@@ -23,14 +16,10 @@ import Foundation
 import MusicKit
 
 enum AudioEmbeddingService {
-	/// Dedicated URLSession for embedding work — preview MP3 downloads
-	/// and the iTunes Search API fallback. Separate from
-	/// `URLSession.shared` (which `AsyncImage` uses for album art) so
-	/// the warmer's stream of preview downloads doesn't tie up the
-	/// artwork loader's connection pool. The per-host limit keeps us
-	/// from monopolising connections to Apple's preview CDN; the
-	/// `.background` service type signals to QoS-aware routing that
-	/// these requests can yield to user-initiated traffic.
+	/// Separate from `URLSession.shared` (which `AsyncImage` uses for
+	/// album art) so the warmer's preview downloads don't tie up the
+	/// artwork loader's connection pool. Per-host limit + `.background`
+	/// service type so these requests yield to user-initiated traffic.
 	private static let session: URLSession = {
 		let config = URLSessionConfiguration.default
 		config.httpMaximumConnectionsPerHost = 2
@@ -55,23 +44,19 @@ enum AudioEmbeddingService {
 		}
 	}
 
-	/// Resolve a `MusicKit.Song` to its embedding, hitting the persistent
-	/// cache first and falling through to the full compute pipeline (catalog
-	/// preview lookup → download → AudioFeaturePrint → mean-pool) on miss.
-	/// Computed embeddings are written back to the cache automatically.
+	/// Resolve a `MusicKit.Song` to its embedding, cache-first, falling
+	/// through to the full pipeline (preview lookup → download →
+	/// AudioFeaturePrint → mean-pool) on miss and writing back.
 	///
-	/// BPM detection defaults to off — it adds ~200ms of synchronous CPU
-	/// + a second file decode per song, which competes with foreground
-	/// MusicKit/artwork work badly. The library warmer's `ensureCached`
-	/// path turns it on for background passes where the cost can hide
-	/// behind the 500ms breath; the foreground deck warm leaves it off
-	/// and BPM is backfilled overnight.
+	/// BPM detection defaults to off — it adds ~200ms synchronous CPU +
+	/// a second decode per song, which competes badly with foreground
+	/// MusicKit/artwork work. Background passes (`ensureCached`) turn it
+	/// on; the foreground deck warm leaves it off and backfills overnight.
 	///
 	/// Library-fetched songs almost never have `previewAssets` populated —
-	/// that field lives on Apple Music catalog metadata, not the library
-	/// record, and isn't in `Song.PartialMusicProperty` so we can't lazy-
-	/// hydrate it via `.with(...)`. The `previewURL(for:)` helper handles
-	/// a cascade of bridges, ordered most-accurate to most-permissive.
+	/// that field is catalog metadata, not on the library record, and
+	/// isn't in `Song.PartialMusicProperty` so it can't be lazy-hydrated
+	/// via `.with(...)`. `previewURL(for:)` cascades bridges instead.
 	static func embed(song: Song, computeBPM: Bool = false) async throws -> [Float] {
 		if let cached = await EmbeddingStore.shared.embedding(for: song.id) {
 			return cached
@@ -87,12 +72,10 @@ enum AudioEmbeddingService {
 			)
 			return vector
 		} catch let error as EmbedError {
-			// Negative-cache permanent failures so the library warmer
-			// doesn't redo `noCatalogMatch` work for the same song on
-			// every pass. `downloadFailed` is left uncached on purpose
-			// — it covers network-transient and stale-URL alike; the
-			// retry cost is small compared to over-permanently-failing
-			// a song that would succeed on the next attempt.
+			// Negative-cache permanent failures so the warmer doesn't
+			// redo them every pass. `downloadFailed` stays uncached —
+			// it's network-transient/stale-URL, cheaper to retry than
+			// to permanently fail a song that would later succeed.
 			switch error {
 			case .noCatalogMatch, .noPreview, .emptyOutput:
 				await EmbeddingStore.shared.recordFailure(
@@ -112,10 +95,8 @@ enum AudioEmbeddingService {
 			return url
 		}
 
-		// 2. ISRC bridge — exact catalog match when ISRC is populated.
-		//    Requires the MusicKit capability enabled on the dev portal so
-		//    the framework can request a developer token. Falls through
-		//    silently if either ISRC is nil or the dev token can't be issued.
+		// 2. ISRC bridge — exact catalog match. Needs the MusicKit
+		//    capability for a dev token; falls through silently without it.
 		if let isrc = song.isrc, !isrc.isEmpty {
 			let req = MusicCatalogResourceRequest<Song>(matching: \.isrc, equalTo: isrc)
 			if let match = try? await req.response().items.first,
@@ -125,8 +106,7 @@ enum AudioEmbeddingService {
 			}
 		}
 
-		// 3. Free-text catalog search. Same dev-token requirement; same
-		//    silent fallthrough.
+		// 3. Free-text catalog search. Same dev-token requirement.
 		let term = "\(song.title) \(song.artistName)"
 		let searchReq = MusicCatalogSearchRequest(term: term, types: [Song.self])
 		if let response = try? await searchReq.response() {
@@ -141,10 +121,8 @@ enum AudioEmbeddingService {
 			}
 		}
 
-		// 4. iTunes Search API — public, no auth, no developer token. The
-		//    underlying catalog is the same one Apple Music uses, just
-		//    exposed via the older unauthenticated endpoint. Lets the spike
-		//    work without the MusicKit capability being configured.
+		// 4. iTunes Search API — same catalog, unauthenticated endpoint.
+		//    Works without the MusicKit capability configured.
 		if let url = try await itunesSearchPreviewURL(title: song.title, artist: song.artistName) {
 			return url
 		}
@@ -185,11 +163,9 @@ enum AudioEmbeddingService {
 	}
 
 	/// Download → decode → AudioFeaturePrint → mean-pool, optionally
-	/// plus a BPMDetector pass over the same downloaded file. Returns
-	/// the 512-d (`SOUND_VERSION_1` output dim) mean-pooled embedding
-	/// and (when `computeBPM` is true) a BPM detection — nil for
-	/// tracks whose audio defeats the detector (ambient, classical,
-	/// free-time) or when `computeBPM` is false.
+	/// plus a BPMDetector pass over the same file. BPM is nil when
+	/// `computeBPM` is false or the audio defeats the detector
+	/// (ambient, classical, free-time).
 	static func embed(
 		previewURL: URL,
 		computeBPM: Bool = false
@@ -203,9 +179,8 @@ enum AudioEmbeddingService {
 		}
 		defer { try? FileManager.default.removeItem(at: localURL) }
 
-		// AudioFeaturePrint windows internally at 0.96s / 50% overlap; we set
-		// it explicitly so the choice is visible. ~60 windows per 30s preview,
-		// mean-pooled to a single 512-d fingerprint.
+		// Window params set explicitly for visibility; ~60 windows per
+		// 30s preview, mean-pooled to a single 512-d fingerprint.
 		let buffers = try AudioReader.read(contentsOf: localURL)
 		let featurePrint = AudioFeaturePrint(windowDuration: 0.96, overlapFactor: 0.5)
 		let features = try featurePrint.applied(to: buffers)
@@ -227,26 +202,18 @@ enum AudioEmbeddingService {
 		let inv = 1.0 / Float(count)
 		let vector = sum.map { $0 * inv }
 
-		// BPM detection re-reads the file via AVAudioFile (cheaper
-		// than restructuring AudioReader's stream into raw PCM).
-		// `BPMDetector.detect` returns nil on any decode hiccup so a
-		// BPM failure can't fail the embedding alongside it.
+		// BPM re-reads the file via AVAudioFile (cheaper than
+		// restructuring AudioReader's stream into raw PCM); detect
+		// returns nil on decode hiccups so it can't fail the embedding.
 		let bpm = computeBPM ? BPMDetector.detect(audioFileURL: localURL) : nil
 
 		return (vector, bpm)
 	}
 
-	/// Library-warmer entrypoint. Ensures the cache row for `song`
-	/// has both an embedding *and* a BPM. Three cases:
-	///  - Neither cached: full pipeline (download → embed → BPM).
-	///  - Embedding cached, no BPM: download + BPM only, update the
-	///    existing row in place. Skips the AudioFeaturePrint pass.
-	///  - Both cached: no-op.
-	///
-	/// The foreground deck warm uses `embed(song:)` with the default
-	/// `computeBPM: false`, which means deck songs land in the cache
-	/// without BPM. This method backfills them overnight via the
-	/// library warmer's WiFi + power-gated pass.
+	/// Library-warmer entrypoint. Ensures the cache row for `song` has
+	/// both an embedding and a BPM, computing only what's missing.
+	/// Backfills the BPM the foreground deck warm skips (it runs
+	/// `embed(song:)` with `computeBPM: false`).
 	static func ensureCached(song: Song) async throws {
 		let hasEmbedding = await EmbeddingStore.shared.embedding(for: song.id) != nil
 		let hasBPM = await EmbeddingStore.shared.hasBPM(for: song.id)
@@ -284,12 +251,11 @@ enum AudioEmbeddingService {
 		}
 	}
 
-	/// Re-run BPM detection for a song whose cached BPM is at a stale
-	/// `BPMDetector` version. Re-downloads the preview and runs BPMDetector
-	/// only (no AudioFeaturePrint, so the cached embedding vector is
-	/// untouched), then stamps the row to the current BPM version —
-	/// overwriting the value on a confident result, or just marking it
-	/// re-evaluated on a nil so the warmer stops re-fetching it.
+	/// Re-run BPM detection for a song at a stale `BPMDetector` version.
+	/// Runs BPMDetector only (cached embedding untouched), then stamps
+	/// the row to the current version — overwriting on a confident
+	/// result, or just marking it re-evaluated on nil so the warmer
+	/// stops re-fetching it.
 	static func redetectBPM(song: Song) async throws {
 		do {
 			let url = try await previewURL(for: song)
@@ -314,8 +280,6 @@ enum AudioEmbeddingService {
 	}
 
 	/// Download → BPMDetector, skipping AudioFeaturePrint entirely.
-	/// Used by `ensureCached` when the embedding is already cached
-	/// and we only need the BPM.
 	private static func detectBPMOnly(previewURL: URL) async throws -> BPMDetector.Detection? {
 		let localURL: URL
 		do {

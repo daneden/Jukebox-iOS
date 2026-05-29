@@ -14,19 +14,12 @@ import SwiftUI
 	import AppKit
 #endif
 
-// `DialItemView` (single rotating cover) lives in `DialItemView.swift`.
-// `ScrollWheelDialReader` (macOS scroll input) lives in `ScrollWheelInput.swift`.
-
 // MARK: - Haptics
 
-// Persistent selection-feedback generator. Holding it across renders keeps it
-// prepared between detent crossings (vs spinning up a fresh generator each
-// time, which can drop the first tick). macOS has no equivalent direct
-// generator suitable for firing inside `animatableData` (NSHapticFeedback
-// requires a trackpad and isn't useful for keyboard/scroll-driven motion),
-// so the per-frame detent tick is iOS-only — Mac falls back to the parent's
-// `.sensoryFeedback(trigger: focusedIndex)` path, which still fires on
-// every focus change, just not on intermediate animation frames.
+// Held across renders so it stays prepared between detent crossings; a fresh
+// generator each time can drop the first tick. iOS-only: macOS has no direct
+// generator usable inside `animatableData`, so Mac falls back to the parent's
+// `.sensoryFeedback(trigger: focusedIndex)`.
 #if canImport(UIKit)
 	private enum DialHapticEngine {
 		static let selection: UISelectionFeedbackGenerator = {
@@ -46,15 +39,13 @@ struct DialView<Item: MusicItem & DialItem, Menu: View>: View {
 	let items: MusicItemCollection<Item>
 	@Binding var rotation: Angle
 	@Binding var focusedIndex: Int
-	/// Per-item ripple trigger counter. Each cover reads its own entry as
-	/// the RippleEffect trigger, so a shuffle landing on item X bumps only
-	/// X's counter and only X ripples.
+	/// Per-item ripple trigger; each cover reads its own entry, so a shuffle
+	/// landing on item X bumps only X's counter and only X ripples.
 	var rippleCounters: [MusicItemID: Int] = [:]
 	var placeholderSymbol: String = "music.note.list"
 	/// Per-cover context menu, built by the mode (which holds the concrete
-	/// `Song`/`Playlist` and so can offer item-specific actions). Declared
-	/// before `onTapFocused` so the latter stays the trailing closure at
-	/// call sites.
+	/// `Song`/`Playlist`). Declared before `onTapFocused` so the latter stays
+	/// the trailing closure at call sites.
 	@ViewBuilder var contextMenu: (Item) -> Menu
 	var onTapFocused: () -> Void = {}
 
@@ -70,13 +61,9 @@ struct DialView<Item: MusicItem & DialItem, Menu: View>: View {
 
 	var body: some View {
 		GeometryReader { proxy in
-			// 80% of the smaller container dimension. Equivalent to applying
-			// `containerRelativeFrame([.horizontal, .vertical]) { l, _ in l * 0.8 }`
-			// and constraining to a square — but expressed inline because the
-			// closure-based API can't compute min-of-both directly.
 			let coverSize = min(proxy.size.width, proxy.size.height) * DialTunables.coverSizeRatio
-			// Request at the peak displayed size so the focused cover (which can
-			// be scaled up by focusedScale) renders without upsample blur.
+			// Request at the focused-scale peak size so the focused cover renders
+			// without upsample blur.
 			let requestSize = coverSize * DialTunables.focusedScale * DialTunables.artworkRequestRatio
 			let radius = coverSize * DialTunables.cylinderRadiusFactor
 
@@ -113,9 +100,8 @@ struct DialView<Item: MusicItem & DialItem, Menu: View>: View {
 			if phase == .ended {
 				snapToNearestDetent()
 			} else if phase == [] {
-				// Mouse wheel deliveries arrive without phase information,
-				// so debounce a snap after the last tick instead of snapping
-				// per event (which would spring-back every wheel notch).
+				// Mouse-wheel events arrive without phase info; debounce a snap
+				// after the last tick or it springs back on every notch.
 				scrollSnapTask = Task { @MainActor in
 					try? await Task.sleep(for: .milliseconds(140))
 					guard !Task.isCancelled else { return }
@@ -143,11 +129,8 @@ struct DialView<Item: MusicItem & DialItem, Menu: View>: View {
 			}
 			.onEnded { value in
 				dragStartRotation = nil
-				// Normalize the flick projection into detent units (1 detent
-				// = coverWidth points of finger travel — same conversion the
-				// active drag uses). Then apply a superlinear curve so slow
-				// flicks stay at native scroll feel while fast ones traverse
-				// exponentially further.
+				// Superlinear flick curve: slow flicks keep native scroll feel,
+				// fast ones traverse exponentially further.
 				let rawDetents = (value.predictedEndTranslation.width - value.translation.width) / coverWidth
 				let sign: Double = rawDetents < 0 ? -1 : 1
 				let absDetents = abs(rawDetents)
@@ -187,13 +170,10 @@ struct DialView<Item: MusicItem & DialItem, Menu: View>: View {
 
 // MARK: - Animatable content
 
-/// Renders the visible window of covers. Conforms to `Animatable` with rotation
-/// as `animatableData` so SwiftUI's animation system re-runs `body` once per
-/// frame during any `withAnimation` transition — that's what lets covers
-/// actually fly past during a long-distance snap instead of cross-fading at
-/// the destination. The setter is also the per-detent haptic site for
-/// animation-driven motion (drag haptics still flow through the parent's
-/// `.sensoryFeedback(trigger: focusedIndex)`).
+/// Renders the visible window of covers. `Animatable` over rotation so `body`
+/// re-runs each frame during a `withAnimation` snap — that's what lets covers
+/// fly past instead of cross-fading at the destination. The setter is also the
+/// per-detent haptic site for animation-driven motion.
 private struct DialContent<Item: MusicItem & DialItem, Menu: View>: View, Animatable {
 	var rotation: Double
 	let items: MusicItemCollection<Item>
@@ -239,13 +219,9 @@ private struct DialContent<Item: MusicItem & DialItem, Menu: View>: View, Animat
 				) {
 					onTap(entry.index)
 				}
-				// Custom static preview. The live cover wobbles (a TimelineView
-				// driving rotation3DEffect) and carries 3D/scale/blur/shadow
-				// transforms, so the default context-menu snapshot lifts a
-				// skewed, mid-oscillation tile. A plain CoverArtView shows the
-				// artwork flat and still. The preview variant is iOS-only —
-				// AppKit context menus have no preview, so macOS uses the
-				// menu-only form.
+				// Flat static preview: the live cover wobbles and carries
+				// 3D/scale/blur/shadow, so the default snapshot lifts a skewed,
+				// mid-oscillation tile. iOS-only — AppKit menus have no preview.
 				#if os(iOS)
 				.contextMenu {
 					contextMenu(entry.item)
@@ -260,13 +236,9 @@ private struct DialContent<Item: MusicItem & DialItem, Menu: View>: View, Animat
 				#else
 				.contextMenu { contextMenu(entry.item) }
 				#endif
-				// Covers entering or leaving the visible window (because
-				// the library reordered while we were backgrounded, the
-				// deck was reshuffled, or focus jumped) blur-replace
-				// rather than scale-fade. Pair with the .smooth curve
-				// in the mode's applyPlaylists/applyDeck so the slide
-				// of stayers and the blur of movers share the same
-				// transaction.
+				// Covers entering/leaving the window blur-replace. Pair with the
+				// .smooth curve in the mode's apply step so the slide of stayers
+				// and the blur of movers share one transaction.
 				.transition(.blurReplace)
 			}
 		}

@@ -4,44 +4,33 @@
 //
 //  Created by Daniel Eden on 20/05/2026.
 //
-//  Greedy similarity walk that orders a deck of songs so consecutive
-//  entries share sonic mood. Uses cached AudioFeaturePrint embeddings
-//  via cosine similarity when available, falling back to a graph-based
-//  genre similarity for songs that haven't been embedded yet — so the
-//  walk produces a coherent ordering on a fresh install (zero
-//  embeddings cached) and gradually sharpens as the embedding cache
-//  fills via background work.
+//  Greedy similarity walk that orders a deck so consecutive entries share
+//  sonic mood. Cosine over cached AudioFeaturePrint embeddings when
+//  available, falling back to genre similarity for un-embedded songs — so
+//  a fresh install is still coherent and sharpens as the cache fills.
 //
-//  Diversity rules (hard-exclude, with graceful relaxation):
-//   - No same artist within the previous 2 songs.
-//   - No same album within the previous 3 songs.
-//  These break up "5 Sgt. Pepper tracks in a row" runs that pure
-//  similarity would produce — sonically those tracks are very close
-//  (they came out of the same session at the same studio) and a
-//  greedy walk would happily stack them.
+//  Diversity rules (hard-exclude, with graceful relaxation): no same artist
+//  within 2 songs, no same album within 3. These break up same-session
+//  runs (e.g. five tracks off one album) that pure similarity would stack,
+//  since same-album tracks score very close.
 //
-//  Complexity: O(N²) similarity comparisons where N = deck size.
-//  For N=300 that's 45,000 pairs × a few hundred multiplies each;
-//  well under 100ms on-device.
+//  O(N²) similarity comparisons; well under 100ms at N=300.
 
 import Foundation
 import MusicKit
 
 enum SongDeckWalk {
-	/// Lookback for the same-artist rule. Two means "no artist may repeat
-	/// in three consecutive slots."
+	/// Lookback for the same-artist rule: no artist repeats within 3 slots.
 	static let artistLookback = 2
 	/// Lookback for the same-album rule.
 	static let albumLookback = 3
-	/// How many of the top-scored songs the walk picks its seed from.
-	/// Wider = more per-session variety at cold start; the same 10 high-
-	/// scorers were cycling too predictably at 10.
+	/// How many top-scored songs the seed is picked from. Wider = more
+	/// per-session variety at cold start.
 	static let seedTier = 20
 
-	/// Minimum number of post-filter candidates required for the
-	/// neighbourhood-avoidance seed picker to use the filtered subset.
-	/// Below this we accept the unfiltered top tier — a one-or-two-song
-	/// remainder isn't meaningfully a "different neighbourhood."
+	/// Min post-filter candidates for the avoidance seed picker to use the
+	/// filtered subset; below this, a one-or-two-song remainder isn't
+	/// meaningfully a "different neighbourhood," so fall back to the top tier.
 	static let seedAvoidanceFloor = 3
 
 	static func walk(
@@ -62,13 +51,10 @@ enum SongDeckWalk {
 		var ordered: [Song] = []
 		ordered.reserveCapacity(songs.count)
 
-		// Seed from the top of the score-ranked input but offset by the
-		// session seed so different launches start the walk in different
-		// places. When the caller provides an avoid-decade/avoid-artist
-		// hint (the previous shuffle's seed), prefer tier entries that
-		// don't match — that's how the shuffle button reliably jumps
-		// the walk into a new neighbourhood instead of grinding through
-		// the same era/artist cluster.
+		// Seed from the top tier, offset by the session seed for variety.
+		// An avoid-decade/avoid-artist hint (the previous shuffle's seed)
+		// prefers non-matching tier entries — that's how shuffle jumps the
+		// walk into a new neighbourhood instead of the same era/artist cluster.
 		let tier = min(Self.seedTier, remaining.count)
 		let topTier = remaining.prefix(tier)
 		let preferred = topTier.enumerated().filter { _, song in
@@ -90,14 +76,10 @@ enum SongDeckWalk {
 			let previous = ordered.last!
 			let history = Array(ordered.suffix(max(artistLookback, albumLookback)))
 
-			// Try strict rules first; relax in two steps if no candidates
-			// survive. relaxLevel=0 enforces both artist and album; =1
-			// drops album; =2 drops both (pure similarity pick).
-			//
-			// User-blocked pairs are checked at every relax level — they
-			// represent an explicit "never again" signal, so we'd rather
-			// violate artist/album smoothing than recreate a pairing the
-			// user already rejected.
+			// Relax in two steps if no candidates survive: 0 enforces artist
+			// + album, 1 drops album, 2 drops both. User-blocked pairs are
+			// checked at every level — an explicit "never again" outweighs
+			// artist/album smoothing.
 			var scored: [(index: Int, score: Float)] = []
 			for relaxLevel in 0 ... 2 {
 				scored.removeAll(keepingCapacity: true)
@@ -119,13 +101,9 @@ enum SongDeckWalk {
 				if !scored.isEmpty { break }
 			}
 
-			// Fallback: the blocked-pair filter is strict, so it's
-			// theoretically possible for every remaining candidate to be
-			// blocked against `previous`. Rather than deadlocking the
-			// walk, accept the first remaining song — blocked pairs are
-			// a soft preference, not a hard contract, and an N=300 deck
-			// would have to be extraordinarily blocked for this branch
-			// to fire in practice.
+			// If every remaining candidate is blocked against `previous`,
+			// accept the first rather than deadlock — blocked pairs are a
+			// soft preference, not a hard contract.
 			let index = scored.isEmpty ? 0 : pickIndex(from: scored, temperature: temperature)
 			ordered.append(remaining.remove(at: index))
 		}
@@ -133,10 +111,8 @@ enum SongDeckWalk {
 		return ordered
 	}
 
-	/// `temperature == 0` returns the argmax (greedy, deterministic).
-	/// Positive temperature samples from a softmax over the scored
-	/// candidates, so the runner-up sometimes wins — this is the
-	/// "meander" knob from the walk-controls popover.
+	/// `temperature == 0` returns the argmax (greedy); positive samples a
+	/// softmax so runners-up sometimes win — the "meander" knob.
 	private static func pickIndex(
 		from candidates: [(index: Int, score: Float)],
 		temperature: Double
@@ -145,9 +121,7 @@ enum SongDeckWalk {
 			return candidates.max(by: { $0.score < $1.score })!.index
 		}
 		let T = Float(temperature)
-		// Subtract the max before exp() — keeps numbers in a sane range
-		// even when scores are bunched (which they often are after the
-		// metadata-blend bunches cosine into a narrow band).
+		// Subtract the max before exp() for numerical stability.
 		let maxScore = candidates.map(\.score).max() ?? 0
 		let weights = candidates.map { exp(($0.score - maxScore) / T) }
 		let total = weights.reduce(0, +)
@@ -178,7 +152,7 @@ enum SongDeckWalk {
 	) -> Bool {
 		if relaxLevel >= 2 { return true }
 
-		// Walk back through history; index 0 = most recent placement.
+		// index 0 = most recent placement.
 		let recent = Array(history.reversed())
 		for (i, prev) in recent.enumerated() {
 			if i < artistLookback, candidate.artistName == prev.artistName {
@@ -201,33 +175,15 @@ enum SongDeckWalk {
 		return s
 	}
 
-	/// Blended similarity score. AudioFeaturePrint is a general-purpose
-	/// sound classifier — it clusters strongly by coarse acoustic texture
-	/// (timbre/instrumentation/"is this a song with vocals + rhythm")
-	/// but discriminates weakly between genres and eras *within* that
-	/// broad cluster. Empirically, on diverse-but-vocal samples it bunches
-	/// pairwise cosine into a narrow 0.80–0.94 band that the walk can't
-	/// use to make meaningful next-song decisions.
-	///
-	/// We compensate by blending the cosine with metadata signals: era
-	/// (releaseDate, ~100% via the original-date cache) and genre (from
-	/// `GenreStore` — the `.genres` relationship the warmer caches, since
-	/// `Song.genreNames` is empty on library songs; coverage grows as the
-	/// warmer fills, so an un-warmed pair scores neutral rather than
-	/// wrong) and — when both sides have BPM cached — a tempo-proximity
-	/// term that captures the rhythmic dimension the timbral embedding
-	/// flattens. BPM coverage is partial (legacy embeddings have nil
-	/// BPM, ambient/classical defeats the detector), so pairs without
-	/// it fall through to the no-BPM blend.
-	///
-	/// Era is weighted heavily because the embedding flattens decades —
-	/// without it, the walk happily pairs e.g. 1940s vocal-jazz with
-	/// modern electronic that happens to share "vocals + rhythm"
-	/// texture. Combined with the exponential decay in `eraProximity`,
-	/// a 50+ year gap is penalised hard enough that the walk needs an
-	/// unusually strong cosine + genre case to bridge it.
-	///
-	/// Tunable; revisit after the walk's been used in anger.
+	/// Blended similarity. AudioFeaturePrint clusters by coarse acoustic
+	/// texture but bunches pairwise cosine into a narrow ~0.80–0.94 band,
+	/// too tight for the walk to act on alone. We blend in metadata: era
+	/// (heavy, because the embedding flattens decades — without it the walk
+	/// pairs 1940s jazz with modern electronic that shares "vocals +
+	/// rhythm"), genre (from `GenreStore`, since `Song.genreNames` is empty
+	/// on library songs; un-warmed pairs score neutral), and a tempo term
+	/// when both sides have BPM cached (partial coverage; pairs without it
+	/// take the no-BPM blend). Tunable.
 	static func similarity(
 		_ a: Song,
 		_ b: Song,
@@ -243,23 +199,17 @@ enum SongDeckWalk {
 			let cosine = AudioEmbeddingService.cosineSimilarity(eA, eB)
 			if let bA = bpms[a.id], let bB = bpms[b.id] {
 				let tempo = bpmProximity(bA, bB)
-				// 0.35 cos + 0.20 tempo + 0.20 genre + 0.25 era.
-				// Cosine keeps the most weight, era stays heavy to
-				// police cross-decade jumps, and tempo + genre share
-				// what's left. Sums to 1.00.
+				// Weights sum to 1; era stays heavy to police cross-decade jumps.
 				return 0.35 * cosine + 0.20 * tempo + 0.20 * genre + 0.25 * era
 			}
 			return 0.4 * cosine + 0.25 * genre + 0.35 * era
 		}
-		// No cached embedding for at least one side — metadata only.
+		// Metadata only when either side lacks an embedding.
 		return 0.5 * genre + 0.5 * era
 	}
 
-	/// Tempo similarity in [0, 1] with octave folding. A 70 BPM ballad
-	/// and a 140 BPM rock track share the same pulse subdivision, so
-	/// pairs at 2× / ½× the detected BPM are treated as identical
-	/// rhythmically. Exponential decay with a ~30 BPM half-life: 0
-	/// diff → 1.0, 30 → 0.37, 60 → 0.14.
+	/// Tempo similarity in [0, 1], octave-folded so 2×/½× pairs (70 vs 140)
+	/// read as the same pulse. Exponential decay, ~30 BPM half-life.
 	private static func bpmProximity(_ a: Double, _ b: Double) -> Float {
 		let direct = abs(a - b)
 		let doubled = abs(a - 2 * b)
@@ -268,24 +218,13 @@ enum SongDeckWalk {
 		return Float(exp(-diff / 30.0))
 	}
 
-	/// Exponential decay with a ~20-year halflife. Linear clamping at 30
-	/// years stopped distinguishing between "kind of distant" (e.g. 30y)
-	/// and "wildly distant" (80y) — both produced an era score of 0.0,
-	/// which let cosine-bunched cross-era pairs (1940s vocal-jazz vs
-	/// 2020s electronic) sneak adjacent in the walk. Exponential keeps
-	/// dropping past 30y so a half-century gap is meaningfully worse
-	/// than a generation gap.
+	/// Exponential decay, ~20-year half-life. Exponential (not linear
+	/// clamping) so it keeps dropping past 30y — clamping scored both 30y
+	/// and 80y gaps as 0.0, letting cosine-bunched cross-era pairs sneak
+	/// adjacent. Missing release date → neutral 0.5.
 	///
-	/// Sample values: 0y → 1.00, 10y → 0.61, 20y → 0.37, 30y → 0.22,
-	/// 50y → 0.08, 80y → 0.02.
-	///
-	/// Songs without a release date get a neutral 0.5 — we don't punish
-	/// missing data, just don't reward it.
-	///
-	/// `originals` carries the `OriginalReleaseStore` cached date when
-	/// available, so remasters and compilations are scored against
-	/// when the music was first released rather than when this edition
-	/// was. Cold (unwarmed) songs still use `releaseDate` directly.
+	/// `originals` carries the `OriginalReleaseStore` date so remasters and
+	/// compilations score against first release; cold songs use `releaseDate`.
 	private static func eraProximity(
 		_ a: Song,
 		_ b: Song,
@@ -300,19 +239,15 @@ enum SongDeckWalk {
 }
 
 extension Song {
-	/// Decade of release as an Int (1960, 1970, ..., 2020). Nil when
-	/// MusicKit has no release date — common for library-only items
-	/// and tracks with missing metadata. Used by the walk's shuffle-
-	/// neighbourhood avoidance.
+	/// Decade of release (1960, 1970, …). Nil when MusicKit has no release
+	/// date, common for library-only items.
 	var releaseDecade: Int? {
 		releaseDecade(override: nil)
 	}
 
-	/// Override-aware variant. `override` is the `OriginalReleaseStore`
-	/// cached "original" date for this song (catches remasters and
-	/// compilations whose own `releaseDate` is the reissue / compilation
-	/// year rather than when the music was first released). Falls back
-	/// to `releaseDate` when no override is cached.
+	/// Override-aware variant. `override` is the `OriginalReleaseStore` date
+	/// (catches remasters/compilations whose own `releaseDate` is the
+	/// reissue year); falls back to `releaseDate`.
 	func releaseDecade(override: Date?) -> Int? {
 		guard let date = override ?? releaseDate else { return nil }
 		let year = Calendar.current.component(.year, from: date)

@@ -4,13 +4,8 @@
 //
 //  Created by Daniel Eden on 20/05/2026.
 //
-//  Toolbar button that shows the current gem-deck embedding progress
-//  as a circular ring, swaps to a checkmark when complete, and opens a
-//  popover with finer-grained detail when tapped.
-//
-//  The popover is the surface where future "library status" affordances
-//  will live — neighborhood breakdowns once clusters exist (#12), a
-//  last-embedded ticker, error log if any songs failed to embed, etc.
+//  Toolbar button showing gem-deck embedding progress as a ring, swapping to
+//  a checkmark when complete, opening a detail popover on tap.
 
 import SwiftUI
 
@@ -38,10 +33,9 @@ struct EmbeddingProgressIndicator: View {
 			}
 			.accessibilityLabel("Library analysis progress")
 			.accessibilityValue(accessibilityValue)
-			// Eager prime: compute + persist the library-overview snapshot once
-			// the indicator appears, so opening the sheet paints instantly
-			// instead of waiting on the union fetch. Coalesced + .utility so it
-			// doesn't compete with the dial.
+			// Eager prime: persist the library-overview snapshot now so the sheet
+			// paints instantly instead of waiting on the union fetch. .utility so
+			// it doesn't compete with the dial.
 			.task(priority: .utility) {
 				await LibraryStatsBuilder.refresh()
 			}
@@ -99,18 +93,8 @@ private struct EmbeddingProgressPopover: View {
 			Divider()
 
 			Button(action: onShowDetails) {
-				HStack {
-					Text("Library overview")
-					Spacer()
-					Image(systemName: "chevron.right")
-						.font(.caption.weight(.semibold))
-						.foregroundStyle(.tertiary)
-				}
-				// On the label, not the button: with `.plain` the tap target
-				// is the label's painted content, so the Spacer gap between
-				// the text and chevron wasn't hittable. Declaring the full
-				// row rect as the content shape makes the whole row tap.
-				.contentShape(.rect)
+				Label("Library analysis", systemImage: "waveform.badge.magnifyingglass")
+					.contentShape(.rect)
 			}
 			.buttonStyle(.plain)
 		}

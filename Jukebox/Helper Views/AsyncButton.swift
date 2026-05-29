@@ -20,9 +20,8 @@ struct AsyncButton<T: View>: View {
 				isBusy = false
 			}
 		} label: {
-			// The spinner sits inside the label, not as an outer .overlay,
-			// so glass button styles (which paint their material over outer
-			// overlays) don't bury it behind the glass.
+			// Spinner inside the label, not an outer .overlay — glass styles
+			// paint their material over outer overlays and would bury it.
 			ZStack {
 				label()
 					.opacity(isBusy ? 0 : 1)

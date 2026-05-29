@@ -10,46 +10,32 @@ import MusicKit
 
 /// Builds the "hidden gems" deck for Songs mode.
 ///
-/// Strategy: fetch three complementary candidate pools from MusicKit
-/// (nostalgia: highest playCount; discovery: oldest libraryAddedDate;
-/// freshness: newest libraryAddedDate), merge & dedupe, score with
-/// `GemScorer`, keep the top N, then shuffle within that top-N so the
-/// user sees variety per session instead of the same #1 every time.
+/// Strategy: fetch three complementary candidate pools (nostalgia:
+/// highest playCount; discovery: oldest libraryAddedDate; freshness:
+/// newest libraryAddedDate), dedupe, score with `GemScorer`, keep the
+/// top N, then shuffle within it for per-session variety.
 ///
-/// Why three pools instead of scanning the whole library: a heavy user
-/// has 5k–50k library songs. Paging the entire library on every
-/// Songs-tab appearance is wasteful (and user has flagged unbounded
-/// scans before). The cost we accept: a song that's middling on *all
-/// three* axes can miss every pool and never appear. Worth it.
+/// Three pools instead of scanning the whole library: a heavy user has
+/// 5k–50k songs and paging all of them per appearance is wasteful. The
+/// accepted cost: a song middling on all three axes can miss every pool.
 enum GemDeckBuilder {
 	/// Baseline per-pool fetch limit when no walk filters are active.
-	/// 1000 each gives a healthy three-pool union (~2-2.5k after
-	/// dedupe) for scoring without scanning the whole library. Down
-	/// from 1500 with two pools: with three pools the previous size
-	/// pulled ~50% more MusicKit hydration than needed, and shuffle
-	/// times stretched well past the user's tolerance. When the user
-	/// narrows the pool via energy/decade filters, `poolSize(for:)`
-	/// scales this up so the post-filter candidate set has enough
-	/// material to score and walk against.
+	/// 1000 gives a healthy three-pool union (~2–2.5k after dedupe)
+	/// without scanning the whole library; higher pulled more MusicKit
+	/// hydration than needed and stretched shuffle past tolerance.
+	/// `poolSize(for:)` scales this up when filters narrow the pool.
 	static let basePoolSize = 1000
-	/// Hard ceiling on a single pool fetch even with the most restrictive
-	/// filters active. Set to 4× the baseline — much higher and we start
-	/// approaching a full-library scan for heavy users (50k libraries),
-	/// which past incidents have flagged as wasteful.
+	/// Hard ceiling on a single pool fetch. 4× the baseline — much higher
+	/// approaches a full-library scan for 50k libraries.
 	static let maxPoolSize = 6000
-	/// Top-N kept after scoring. The deck is then shuffled so the actual
-	/// playback order varies per session.
+	/// Top-N kept after scoring, then shuffled for per-session order.
 	static let deckSize = 300
 
-	/// Per-pool fetch limit adapted to the active filters. MusicKit can't
+	/// Per-pool fetch limit adapted to active filters. MusicKit can't
 	/// range-filter on releaseDate and the energy classifier needs an
-	/// unfiltered pool to centroid-score against, so both filters must
-	/// run client-side post-fetch — but with a 1500-cap fetch a strict
-	/// "1960s Glacial" query can collapse the candidate set to a
-	/// handful of songs. Growing the fetch when filters narrow the pool
-	/// pushes the filter as high as we can practically apply it: same
-	/// MusicLibraryRequest, just with more raw material so the filter
-	/// has more to bite into.
+	/// unfiltered pool, so both run client-side post-fetch — and a strict
+	/// "1960s Glacial" query can collapse the candidate set to a handful.
+	/// Growing the fetch when filters narrow gives them more to bite into.
 	///
 	/// Multipliers compound, capped at `maxPoolSize`:
 	///  - energy filter active  → ×2
@@ -68,20 +54,17 @@ enum GemDeckBuilder {
 	struct BuildResult {
 		let deck: [Song]
 		let scannedCount: Int
-		/// Min/max release decades from the *unfiltered* candidate pool.
-		/// Used by the walk-controls range slider so its thumbs only
-		/// travel decades that actually exist in the user's library.
-		/// Nil when the pool is empty or no candidate has a releaseDate.
+		/// Min/max release decades from the *unfiltered* pool, so the
+		/// range slider's thumbs only travel decades that exist in the
+		/// library. Nil when the pool has no dated candidates.
 		let libraryDecadeBounds: ClosedRange<Int>?
-		/// `OriginalReleaseStore` snapshot for the pool — surfaced so the
-		/// shuffle-avoidance hint can read a focused song's original
-		/// decade synchronously instead of hopping back to the actor.
+		/// `OriginalReleaseStore` snapshot, so the shuffle-avoidance hint
+		/// can read a focused song's decade synchronously without an
+		/// actor hop.
 		let originals: [MusicItemID: Date]
 	}
 
 	/// Final-result API: consumes the stream and returns the last emission.
-	/// Useful for callers that don't care about intermediate progress
-	/// (e.g. the embedding spike).
 	static func build(now: Date = Date()) async throws -> BuildResult {
 		var last: BuildResult?
 		for try await result in buildStreaming(now: now) {
@@ -90,23 +73,17 @@ enum GemDeckBuilder {
 		return last ?? BuildResult(deck: [], scannedCount: 0, libraryDecadeBounds: nil, originals: [:])
 	}
 
-	/// Builds the deck end-to-end: all three pools fetched in parallel,
-	/// deduped, scored, capped, and walk-ordered. Yields exactly once
-	/// with the finished deck. (Earlier versions yielded a nostalgia-
-	/// only partial before the full union arrived, to make the dial
-	/// interactive sooner on cold launch. The visible swap when the
-	/// final landed was jarring — particularly once the freshness pool
-	/// joined and the three-pool score normalisation diverged from the
-	/// nostalgia-only one — so the partial yield was removed and the
-	/// dial now waits behind the loading overlay for the full deck.)
+	/// Builds the deck end-to-end: three pools in parallel, deduped,
+	/// scored, capped, walk-ordered. Yields exactly once. A nostalgia-only
+	/// partial yield was tried to make the dial interactive sooner on cold
+	/// launch, but the swap when the full deck landed was jarring — the
+	/// dial now waits behind the loading overlay.
 	///
-	/// Wrapped in `AsyncThrowingStream` rather than `async throws` so
-	/// `onTermination` can cancel the underlying fetch task when the
-	/// caller bails (the previous streaming consumer relied on this and
-	/// the cancellation hook is still useful even with a single yield).
-	/// Multiplier on `deckSize` used as the candidate slice when
-	/// `wideSample: true`. Larger = more variety in super-shuffle, at
-	/// the cost of letting lower-scored gems into the deck.
+	/// Wrapped in `AsyncThrowingStream` (not `async throws`) so
+	/// `onTermination` can cancel the fetch task when the caller bails.
+	/// Multiplier on `deckSize` for the candidate slice when
+	/// `wideSample: true`. Larger = more super-shuffle variety, at the
+	/// cost of lower-scored gems entering the deck.
 	static let wideSampleMultiplier = 2
 
 	static func buildStreaming(
@@ -119,41 +96,35 @@ enum GemDeckBuilder {
 		AsyncThrowingStream { continuation in
 			let task = Task {
 				do {
-					// Our own recent-play log supplements MusicKit's
-					// `Song.lastPlayedDate` for the recency downrank —
-					// that field lags or outright fails to update for
-					// `SystemMusicPlayer` plays on library-only items,
-					// so songs we know we just queued would otherwise
-					// resurface as high-ranked seeds. Soft penalty (not
-					// hard exclude) so smaller libraries don't run out
-					// of candidates inside the 14-day window.
+					// Our own recent-play log supplements
+					// `Song.lastPlayedDate`, which lags or fails to update
+					// for `SystemMusicPlayer` plays on library-only items —
+					// just-queued songs would otherwise resurface as
+					// high-ranked seeds. Soft penalty, not hard exclude, so
+					// small libraries don't exhaust the 14-day window.
 					let recentPlays = await HistoryStore.shared.recentPlays(within: 14 * 86400)
 					let scorer = GemScorer(
 						now: now,
 						recentPlays: recentPlays
 					)
-					// Songs/albums/artists the user has explicitly removed
-					// from the deck. Hard-excluded below — unlike the recency
-					// downrank, there's no soft-fallback resurfacing: the user
-					// said remove, so they stay gone.
+					// User-removed songs/albums/artists. Hard-excluded below
+					// with no soft-fallback resurfacing — they stay gone.
 					let exclusions = await ExclusionStore.shared.exclusions()
 					let seed = UInt64.random(in: 0 ... UInt64.max)
 
-					// Gate fan-out behind the process-wide MusicKit probe.
-					// Without this, parallel `MusicLibraryRequest`s racing
-					// against `musicd`'s cold-init wedge the daemon — see
-					// `MusicKitWarmup` for the full story.
+					// Gate fan-out behind the MusicKit probe: parallel
+					// `MusicLibraryRequest`s racing `musicd`'s cold-init
+					// wedge the daemon. See `MusicKitWarmup`.
 					await MusicKitWarmup.waitUntilReady()
 
 					let limit = poolSize(for: controls)
 					async let nostalgiaTask = fetchPool(sort: .playCount, ascending: false, limit: limit)
 					async let discoveryTask = fetchPool(sort: .libraryAddedDate, ascending: true, limit: limit)
 					async let freshnessTask = fetchPool(sort: .libraryAddedDate, ascending: false, limit: limit)
-					// Targeted slice for the requested band — fixes the
-					// case where a mellow-leaning library would otherwise
-					// post-filter the three base pools to almost nothing
-					// when the user asks for Intense or Energetic. No-ops
-					// when the filter is `.any`.
+					// Targeted slice for the requested band: a mellow-leaning
+					// library would otherwise post-filter the base pools to
+					// almost nothing when asked for Intense or Energetic.
+					// No-ops when the filter is `.any`.
 					async let bandSliceTask = fetchOptionalGenreSlice(for: controls.energy.target.map(EnergyBand.forValue))
 
 					let nostalgia = try await nostalgiaTask
@@ -175,13 +146,9 @@ enum GemDeckBuilder {
 
 					continuation.finish()
 
-					// After the final deck lands, kick off background
-					// embedding work for any songs in it that don't have a
-					// cached embedding yet. This converges the next
-					// session's walk on real audio similarity rather than
-					// the genre-similarity fallback. Fire-and-forget — survives
-					// or doesn't survive the buildStreaming task's lifetime
-					// independently.
+					// Background-embed any uncached deck songs so the next
+					// session's walk converges on real audio similarity
+					// instead of the genre fallback. Fire-and-forget.
 					warmEmbeddings(for: final.deck)
 				} catch {
 					continuation.finish(throwing: error)
@@ -191,23 +158,17 @@ enum GemDeckBuilder {
 		}
 	}
 
-	/// Per-band fetch limit for the genre-keyword slice fetched
-	/// alongside the three base pools when the user's walk filter
-	/// targets a non-`.any` energy band. The base pools are sorted by
-	/// playCount / libraryAddedDate, which inherit whatever bias the
-	/// user's listening habits carry — a strictly mellow listener
-	/// never sees their long-tail intense tracks surface through those
-	/// alone. A targeted `filter(text:)` slice keyed off the selected
-	/// band guarantees the post-classifier set has something to walk.
+	/// Per-band fetch limit for the genre-keyword slice fetched alongside
+	/// the base pools for a non-`.any` band. The base pools sort by
+	/// playCount / libraryAddedDate, inheriting the user's listening bias —
+	/// a strictly mellow listener never surfaces their long-tail intense
+	/// tracks through those alone.
 	static let bandSliceLimit = 500
 
-	/// Most-distinctive genre keyword per band. Each band's
-	/// `genreKeywords` array carries broader-coverage terms (e.g.
-	/// "pop"/"rock") that would over-fetch into the wrong bucket; this
-	/// picks the narrowest term that still has realistic library
-	/// coverage. Mirrors `DesignedPlaylistBuilder.primarySliceKeyword`
-	/// — duplicated rather than shared so each builder owns its own
-	/// filtering policy.
+	/// Most-distinctive genre keyword per band — the narrowest term with
+	/// realistic library coverage (`genreKeywords` has broader terms like
+	/// "pop"/"rock" that over-fetch into the wrong bucket). Duplicated
+	/// from `DesignedPlaylistBuilder` so each builder owns its policy.
 	private static let primarySliceKeyword: [EnergyBand: String] = [
 		.glacial: "ambient",
 		.mellow: "soul",
@@ -215,18 +176,15 @@ enum GemDeckBuilder {
 		.intense: "metal",
 	]
 
-	/// Cap on how many tracks from a single artist enter the deck. The
-	/// walk's artist-lookback (≤2) only prevents adjacency; if the
-	/// candidate pool itself is e.g. 30 Zomby tracks (heavy nostalgia
-	/// playCount), the walk runs out of non-Zomby candidates and
-	/// relaxes, clumping them anyway. Capping at the deck stage means
-	/// the walk always has enough variety on hand.
+	/// Cap on tracks per artist in the deck. The walk's artist-lookback
+	/// (≤2) only prevents adjacency; a pool of 30 same-artist tracks lets
+	/// the walk run out of alternatives and clump them anyway. Capping at
+	/// the deck stage keeps variety on hand.
 	static let perArtistCap = 8
 
-	/// Cap on tracks from a single album. The user reported "almost an
-	/// entire Zomby album" in one deck — heavy library skew was filling
-	/// the deck with full-album-listings. 3 lets distinctive albums
-	/// still surface multiple tracks without dominating the list.
+	/// Cap on tracks per album — heavy library skew was filling the deck
+	/// with full-album listings. 3 lets distinctive albums surface
+	/// multiple tracks without dominating.
 	static let perAlbumCap = 3
 
 	private static func rank(
@@ -238,28 +196,23 @@ enum GemDeckBuilder {
 		avoidDecade: Int? = nil,
 		avoidArtist: String? = nil
 	) async -> BuildResult {
-		// Uncached songs fall through to `Song.releaseDate` inside
-		// `releaseDecade(override:)`; the cache fills in only for
-		// remasters/compilations the resolver has already looked up.
+		// Cache only holds remasters/compilations the resolver has looked
+		// up; uncached songs fall through to `Song.releaseDate` inside
+		// `releaseDecade(override:)`.
 		let originals = await OriginalReleaseStore.shared.originalDates(for: songs.map(\.id))
 
-		// Library decade bounds from the *unfiltered* pool — surfaced so
-		// the popover's range slider knows which decades actually exist
-		// in the library. Calculated once here; the filter steps below
-		// don't change the answer.
+		// Decade bounds from the *unfiltered* pool — the filter steps
+		// below don't change the answer.
 		let libraryDecadeBounds: ClosedRange<Int>? = {
 			let decades = songs.compactMap { $0.releaseDecade(override: originals[$0.id]) }
 			guard let lo = decades.min(), let hi = decades.max() else { return nil }
 			return lo ... hi
 		}()
 
-		// When energy filtering is active we need embeddings for the
-		// whole input pool (the centroid classifier scores everything),
-		// not just the eventual top-300. For the "Any" band we defer the
-		// embedding fetch to after `top` is picked — the current pre-
-		// classifier behaviour — to avoid loading ~3000 vectors when we
-		// don't need them. The 'top-only' path below short-circuits this
-		// branch.
+		// Energy filtering needs embeddings for the whole pool (the
+		// centroid classifier scores everything), not just the top-300.
+		// For "Any" we defer the fetch until after `top` is picked, to
+		// avoid loading ~3000 vectors we don't need.
 		var poolEmbeddings: [MusicItemID: [Float]]?
 		var poolGenres: [MusicItemID: [String]] = [:]
 		var poolBpms: [MusicItemID: Double] = [:]
@@ -270,10 +223,9 @@ enum GemDeckBuilder {
 		}
 
 		// Energy: keep songs whose continuous energy (band center floated
-		// by BPM — see SongEnergy) sits within the target window. Songs we
-		// can't place (no embedding and no cached genre) are excluded;
-		// soft-fail to the whole pool if a too-narrow window would blank
-		// the deck, so the dial is never empty.
+		// by BPM, see SongEnergy) sits within the target window.
+		// Unplaceable songs are excluded; soft-fail to the whole pool if a
+		// too-narrow window would blank the deck.
 		let energyPool: [Song]
 		if let target = controls.energy.target, let bundle = EnergyCentroidsLoader.bundled {
 			let flat = EnergyClassifier.flatten(bundle: bundle)
@@ -292,11 +244,9 @@ enum GemDeckBuilder {
 			energyPool = songs
 		}
 
-		// Decade range: hard filter on candidate releaseDecade. Songs
-		// without a release date pass through (don't punish missing
-		// metadata). Skip the filter when the range covers everything
-		// (default); soft-fall-back to the un-decade-filtered pool if
-		// the user's range matches nothing.
+		// Decade range: hard filter on releaseDecade. Dateless songs pass
+		// through (don't punish missing metadata). Soft-fall-back to the
+		// undecade-filtered pool if the range matches nothing.
 		let pool: [Song]
 		if controls.decadeRange.isUnbounded {
 			pool = energyPool
@@ -311,14 +261,11 @@ enum GemDeckBuilder {
 		let ranked = scorer.scoreAndRank(pool)
 		let top: [Song]
 		if wideSample {
-			// Super-shuffle: widen the slice and sample down to deckSize,
-			// so the deck genuinely turns over rather than just re-walking
-			// the same top-300 in a different order. Shuffle uses the
-			// system RNG (fresh per call) — each press gives a different
-			// sample even though scoring is deterministic.
-			//
-			// Caps applied to the widened pool first so the resulting
-			// shuffled deck still respects per-artist/album limits.
+			// Super-shuffle: widen the slice and sample down to deckSize so
+			// the deck genuinely turns over instead of re-walking the same
+			// top-300. System RNG gives a fresh sample per press even
+			// though scoring is deterministic. Caps applied to the widened
+			// pool first so the shuffled deck still respects them.
 			let wideCount = min(deckSize * wideSampleMultiplier, ranked.count)
 			let widePool = capPerArtistAndAlbum(
 				ranked.prefix(wideCount).map(\.song),
@@ -328,8 +275,8 @@ enum GemDeckBuilder {
 		} else {
 			top = capPerArtistAndAlbum(ranked.map(\.song), limit: deckSize)
 		}
-		// Use the pool-wide embeddings if we already loaded them for the
-		// classifier; otherwise fetch just the top-N for the walk.
+		// Reuse pool-wide embeddings if the classifier loaded them;
+		// otherwise fetch just the top-N for the walk.
 		let embeddings: [MusicItemID: [Float]]
 		if let emb = poolEmbeddings {
 			let topIDs = Set(top.map(\.id))
@@ -337,17 +284,13 @@ enum GemDeckBuilder {
 		} else {
 			embeddings = await EmbeddingStore.shared.embeddings(for: top.map(\.id))
 		}
-		// BPM data isn't pool-wide cached (we don't use it for
-		// energy classification), so always fetch fresh for the
-		// top-N. Returns only songs with a non-nil BPM; the walk's
-		// similarity blend gates on per-pair coverage.
+		// BPM isn't pool-wide cached, so fetch fresh for the top-N. Only
+		// songs with a non-nil BPM come back; the walk gates on per-pair
+		// coverage.
 		let bpms = await EmbeddingStore.shared.bpms(for: top.map(\.id))
-		// Cached genres for the walk's genre-similarity term. `genreNames`
-		// is empty on library songs, so this is the only genre signal;
-		// coverage grows as the warmer fills GenreStore.
+		// `genreNames` is empty on library songs, so cached genres are the
+		// only genre signal for the walk's similarity term.
 		let genres = await GenreStore.shared.genres(for: top.map(\.id))
-		// Pull the user's blocked-pair feedback so the walk avoids
-		// recreating transitions they've explicitly rejected.
 		let blockedPairs = await TransitionFeedbackStore.shared.allBlockedPairs()
 		let deck = SongDeckWalk.walk(
 			songs: top,
@@ -369,11 +312,9 @@ enum GemDeckBuilder {
 		)
 	}
 
-	/// Walks the score-sorted candidate list and keeps each song unless
-	/// its artist or album has already hit the cap. Stops at `limit` or
-	/// when the pool is exhausted — whichever comes first. An empty
-	/// `albumTitle` skips the album cap (don't lump all metadata-less
-	/// tracks under one "unknown album" bucket).
+	/// Keeps each song unless its artist or album has hit the cap, until
+	/// `limit` or exhaustion. An empty `albumTitle` skips the album cap so
+	/// metadata-less tracks don't all land in one "unknown album" bucket.
 	private static func capPerArtistAndAlbum(_ ordered: [Song], limit: Int) -> [Song] {
 		var perArtist: [String: Int] = [:]
 		var perAlbum: [String: Int] = [:]
@@ -402,20 +343,16 @@ enum GemDeckBuilder {
 	}
 
 	private static func warmEmbeddings(for deck: [Song]) {
-		// `.utility` not `.background` — narrows the QoS gap to the
-		// user-initiated walk reads from the same actor so the runtime
-		// doesn't flag a priority inversion when a walk fetch lands
-		// behind us.
+		// `.utility` not `.background`: narrows the QoS gap to the
+		// user-initiated walk reads on the same actor, avoiding a
+		// priority-inversion flag when a walk fetch lands behind us.
 		Task.detached(priority: .utility) {
-			// One bulk fetch instead of 300 per-song actor hops, so the
-			// walk's `embeddings(for:)` isn't stuck behind hundreds of
-			// low-QoS queries inside the actor.
+			// One bulk fetch, not 300 actor hops, so the walk's
+			// `embeddings(for:)` isn't stuck behind low-QoS queries.
 			let cached = await EmbeddingStore.shared.embeddings(for: deck.map(\.id))
 			let cachedIDs = Set(cached.keys)
-			// Songs we've permanently failed to embed get marked processed
-			// up-front so the toolbar indicator's denominator reflects what
-			// can actually finish in this pass — and so we don't burn the
-			// 200ms breath re-attempting them.
+			// Mark permanent-fail songs processed up-front so the indicator
+			// denominator reflects what can finish, and we don't re-attempt.
 			let failedIDs = await EmbeddingStore.shared.recentFailures(
 				within: LibraryEmbeddingWarmer.failureRetryAfter
 			)
@@ -431,38 +368,31 @@ enum GemDeckBuilder {
 					_ = try await AudioEmbeddingService.embed(song: song)
 					// `EmbeddingStore.store` already fired `recordProcessed`.
 				} catch {
-					// Mark permanent failures (noCatalogMatch, noPreview, …)
-					// processed too — otherwise the indicator stalls at e.g.
-					// 298/300 for songs that can't be resolved to a preview.
+					// Mark permanent failures processed too, else the
+					// indicator stalls at e.g. 298/300 for unresolvable songs.
 					await MainActor.run {
 						EmbeddingProgress.shared.recordProcessed(song.id)
 					}
 				}
-				// 500ms breath matches the library warmer's cadence and
-				// stops the deck-warm from hammering MusicKit's catalog
-				// endpoints (each embed can make 2-3 catalog calls in
-				// `previewURL(for:)` before downloading) while the user
-				// is mid-shuffle.
+				// 500ms breath so the deck-warm doesn't hammer MusicKit's
+				// catalog endpoints (2-3 calls per embed in
+				// `previewURL(for:)`) while the user is mid-shuffle.
 				try? await Task.sleep(for: .milliseconds(500))
 			}
 
-			// Original-date resolution for the deck. Same 500ms breath
-			// + skip-if-already-resolved pattern as the embedding pass,
-			// so each song goes through one catalog round-trip at most
-			// per app install. Decade-filter accuracy grows with each
-			// shuffle as more deck songs get their remaster/compilation
-			// origin year cached.
+			// Original-date resolution: same breath + skip-if-resolved as
+			// the embedding pass, one catalog round-trip per song per
+			// install. Decade-filter accuracy grows as each shuffle caches
+			// more remaster/compilation origin years.
 			let resolved = await OriginalReleaseStore.shared.resolvedIDs(for: deck.map(\.id))
 			for song in deck where !resolved.contains(song.id.rawValue) {
 				try? await OriginalReleaseResolver.resolveAndStore(song: song)
 				try? await Task.sleep(for: .milliseconds(500))
 			}
 
-			// Deck is fully warm (or as warm as it'll get this session).
-			// Hand off to the library warmer for the long tail. Foreground
-			// pass: gates on WiFi + not-Low-Power-Mode (no external-power
-			// requirement) so it makes progress while the user browses on
-			// battery — cheap if conditions aren't favourable.
+			// Hand off the long tail to the library warmer. Foreground
+			// pass gates on WiFi + not-Low-Power-Mode (no external-power
+			// requirement) so it progresses while browsing on battery.
 			await LibraryEmbeddingWarmer.shared.runWarmPass(requirePower: false)
 			#if os(iOS)
 				LibraryEmbeddingWarmer.scheduleNextBackgroundTask()
@@ -482,8 +412,7 @@ enum GemDeckBuilder {
 		return union
 	}
 
-	/// Which axis to sort the candidate pool on. One sort key per
-	/// `MusicLibraryRequest`, so we run two requests in parallel.
+	/// Which axis to sort the candidate pool on.
 	enum PoolSort {
 		case playCount
 		case libraryAddedDate
@@ -502,15 +431,11 @@ enum GemDeckBuilder {
 		return Array(response.items)
 	}
 
-	/// Top-played library songs whose metadata matches the requested
-	/// band's primary keyword. `filter(text:)` is a full-field search
-	/// so the slice can include false positives, but the downstream
-	/// energy classifier is what decides what each song's band
-	/// actually is — this only widens the raw material.
-	///
-	/// Returns `[]` for `.any` (the base pools already cover everything)
-	/// or when MusicKit fails the request; the union just absorbs the
-	/// empty contribution without affecting the build's success.
+	/// Top-played songs matching the band's primary keyword.
+	/// `filter(text:)` is full-field so the slice may include false
+	/// positives — the energy classifier decides the real band; this
+	/// only widens the raw material. Returns `[]` for `.any` or on
+	/// request failure.
 	private static func fetchOptionalGenreSlice(for band: EnergyBand?) async -> [Song] {
 		guard let band, band != .any, let keyword = primarySliceKeyword[band] else { return [] }
 		var request = MusicLibraryRequest<Song>()

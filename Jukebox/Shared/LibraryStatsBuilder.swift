@@ -4,26 +4,11 @@
 //
 //  Created by Daniel Eden on 27/05/2026.
 //
-//  Computes the LibraryOverviewView snapshot: deck + library embedding
-//  progress, total library size, and three categorical distributions
-//  (energy band, release decade, top genres) over the same analysis
-//  pool the LibraryEmbeddingWarmer is filling.
-//
-//  Producer/consumer split — the overview never blocks on MusicKit:
-//   - `refresh()` (producer) fetches the warmer's memoized 3-pool union,
-//     classifies, and persists the result to `LibraryStatsStore`. Coalesced
-//     so the eager prime + the sheet's revalidate don't stack. Triggered
-//     eagerly when the toolbar indicator appears and on a coverage-gated tick
-//     while the sheet is open.
-//   - The view (consumer) paints the persisted snapshot instantly, then shows
-//     `refresh()`'s result as it lands. First-ever open pays one compute; the
-//     eager prime usually beats the user to it.
-//   - `paginatedSongCount()` — total library count via 1000-per-batch
-//     pagination, run in parallel for the size cell only.
-//
-//  We persist the small computed *result* (a few hundred counts + ≤1500
-//  sampled points), not the heavy *inputs* (the 10k-song union, the vectors)
-//  — a different, cheaper trade than the previously-rejected union cache.
+//  Computes the LibraryOverviewView snapshot over the same analysis pool the
+//  LibraryEmbeddingWarmer fills. Producer/consumer split so the overview never
+//  blocks on MusicKit: `refresh()` classifies and persists to LibraryStatsStore;
+//  the view paints the persisted snapshot instantly. We persist the small result
+//  (counts + ≤1500 sampled points), not the heavy 10k-song union and vectors.
 //
 
 import Foundation
@@ -57,15 +42,11 @@ struct LibraryStats: Codable {
 		}
 	}
 
-	/// A classified song placed in the energy-over-time scatter: continuous
-	/// energy (0–1) against either its release date or the date it was added
-	/// to the library, colored by band. Full dates, not years — the scatter
-	/// plots them on a temporal axis so songs spread across months rather than
-	/// stacking into yearly columns. Only songs we can place (energy non-nil,
-	/// with a release date) appear; `addedDate` is nil when the library
-	/// add-date is missing, so the date-added view drops it. Sampled to a cap
-	/// so the chart stays cheap. Songs with no cached BPM sit exactly on their
-	/// band's centre line and spread off it only as tempo is analyzed.
+	/// A classified song on the energy-over-time scatter. Full dates, not years,
+	/// so the temporal axis spreads songs across months rather than stacking them
+	/// into yearly columns. `addedDate` is nil when the library add-date is
+	/// missing, so the date-added view drops it. Songs with no cached BPM sit on
+	/// their band's centre line and spread off it only as tempo is analyzed.
 	struct EnergyPoint: Identifiable, Equatable, Codable {
 		let id: String
 		let releaseDate: Date
@@ -86,22 +67,17 @@ struct LibraryStats: Codable {
 }
 
 enum LibraryStatsBuilder {
-	/// Top N genres surfaced in the overview. The tail is summarised as
-	/// "+ N more" in the view rather than listed — past ~12 rows the
-	/// table stops being scannable on a phone.
+	/// Top N genres surfaced in the overview; past ~12 rows the table stops
+	/// being scannable on a phone.
 	static let topGenresLimit = 12
 
-	/// Compute the snapshot from an already-fetched union + the *current*
-	/// cache state — store reads + in-memory tallies, cheap enough to run
-	/// on a refresh timer while the sheet is open. Caller fetches the
-	/// library size separately via `paginatedSongCount()`.
+	/// Compute the snapshot from an already-fetched union + current cache state.
+	/// Caller fetches the library size separately via `paginatedSongCount()`.
 	static func stats(deck: LibraryStats.ProgressCounts, over union: [Song]) async -> LibraryStats {
 		let ids = union.map(\.id)
 
-		// One EmbeddingStore fetch yields both vectors and BPMs — they live on
-		// the same rows, and two separate calls would serialize on the store's
-		// pinned executor and scan the table twice. Genres + originals are
-		// separate actors, so they run concurrently with it via async let.
+		// One EmbeddingStore fetch yields both vectors and BPMs — they share rows;
+		// two calls would serialize on the store's pinned executor and scan twice.
 		async let embeddingBundle = EmbeddingStore.shared.embeddingsAndBPMs(for: ids)
 		async let originalsLookup = OriginalReleaseStore.shared.originalDates(for: ids)
 		async let genresLookup = GenreStore.shared.genres(for: ids)
@@ -131,9 +107,6 @@ enum LibraryStatsBuilder {
 			}
 			let decade = song.releaseDecade(override: originals[song.id])
 
-			// Energy: count the band, and place classified songs on the
-			// scatter (release year × continuous energy). Songs with no BPM
-			// sit at their band centre; BPM spreads them.
 			if let band {
 				energyCounts[band, default: 0] += 1
 				if let date = originals[song.id] ?? song.releaseDate,
@@ -151,16 +124,13 @@ enum LibraryStatsBuilder {
 				unclassifiedCount += 1
 			}
 
-			// Decade
 			if let decade {
 				decadeCounts[decade, default: 0] += 1
 			}
 
-			// Genre (Apple's slash-combined tokens are kept atomic — see
-			// GenreSimilarity.swift; splitting them merges unrelated genres
-			// together that Apple deliberately groups). Sourced from the
-			// genre cache, not `song.genreNames` — the latter is always
-			// empty on library songs.
+			// Apple's slash-combined tokens are kept atomic (see
+			// GenreSimilarity.swift) — splitting them merges genres Apple groups.
+			// From the genre cache, not `song.genreNames` (always empty on library).
 			for raw in songGenres {
 				let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 				if !trimmed.isEmpty {
@@ -169,10 +139,9 @@ enum LibraryStatsBuilder {
 			}
 		}
 
-		// Band order so the table reads the same as the energy chips
-		// (glacial → intense). Unclassified is tagged with a stable
-		// sentinel `id` past the band range so SwiftUI's diffing keeps
-		// it pinned at the bottom of the list.
+		// Band order matches the energy chips (glacial → intense). Unclassified
+		// gets a sentinel `id` past the band range so SwiftUI's diffing keeps it
+		// pinned at the bottom.
 		var energyRows: [LibraryStats.EnergyCount] = []
 		for band in EnergyBand.allCases where band != .any {
 			energyRows.append(LibraryStats.EnergyCount(
@@ -189,9 +158,8 @@ enum LibraryStatsBuilder {
 		}
 		decades.sort { $0.decade < $1.decade }
 
-		// Sample the scatter points to a cap so the chart stays cheap on a
-		// large, fully-warmed library. `classifiedCount` keeps the true
-		// placeable total for the footer even when fewer dots are drawn.
+		// Cap scatter points so the chart stays cheap on a large library;
+		// `classifiedCount` keeps the true placeable total for the footer.
 		let sampleCap = 1500
 		let energyPoints: [LibraryStats.EnergyPoint]
 		if points.count > sampleCap {
@@ -233,13 +201,10 @@ enum LibraryStatsBuilder {
 		case failed
 	}
 
-	/// Recompute the whole-library stats over the (memoized) union and persist
-	/// the snapshot. The overview reads the persisted result for an instant
-	/// first paint; this keeps it current. Coalesced — concurrent callers (the
-	/// eager prime on indicator-appear, the sheet's background revalidate, a
-	/// refresh tick) collapse to one in-flight pass; losers get `.coalesced`
-	/// and read the winner's write. Reuses the warmer's memoized union, so
-	/// back-to-back refreshes don't each re-fetch 10k Songs from MusicKit.
+	/// Recompute the whole-library stats over the memoized union and persist the
+	/// snapshot. Coalesced — concurrent callers collapse to one in-flight pass;
+	/// losers get `.coalesced` and read the winner's write. Reuses the warmer's
+	/// memoized union so back-to-back refreshes don't each re-fetch 10k Songs.
 	@discardableResult
 	static func refresh() async -> RefreshOutcome {
 		guard await RefreshGate.shared.begin() else { return .coalesced }
@@ -257,11 +222,9 @@ enum LibraryStatsBuilder {
 		return outcome
 	}
 
-	/// Cheap "has analysis advanced?" fingerprint for the overview's refresh
-	/// gate: deck progress plus COUNT(*) of embedded and genre-resolved rows.
-	/// All counts, no row materialization — when the tuple is unchanged between
-	/// ticks the sheet skips the full reclassify, so an idle open sheet doesn't
-	/// burn the energy gauge.
+	/// Cheap "has analysis advanced?" fingerprint: deck progress plus COUNT(*) of
+	/// embedded and genre-resolved rows. When unchanged between ticks the sheet
+	/// skips the full reclassify, so an idle open sheet doesn't burn the energy gauge.
 	static func coverageSignature() async -> [Int] {
 		async let embedded = EmbeddingStore.shared.totalEmbeddedCount()
 		async let genres = GenreStore.shared.totalResolvedCount()
@@ -280,14 +243,10 @@ enum LibraryStatsBuilder {
 		}
 	}
 
-	/// Total song count via paginated `MusicLibraryRequest<Song>`. We
-	/// page through 1000 at a time and only retain the running count —
-	/// holding 50k Song values just to discard them would defeat the
-	/// "lightweight in parallel with the union" intent.
-	///
-	/// Returns nil on failure rather than throwing — the view degrades
-	/// gracefully to "Library size unavailable" instead of breaking the
-	/// rest of the sheet.
+	/// Total song count via paginated `MusicLibraryRequest<Song>`. Retains only
+	/// the running count — holding 50k Song values just to discard them would
+	/// defeat the lightweight intent. Returns nil on failure so the view degrades
+	/// to "Library size unavailable" rather than breaking the sheet.
 	static func paginatedSongCount() async -> Int? {
 		var request = MusicLibraryRequest<Song>()
 		request.limit = 1000
@@ -306,15 +265,14 @@ enum LibraryStatsBuilder {
 	}
 }
 
-/// Coalesces concurrent `LibraryStatsBuilder.refresh()` calls so the eager
-/// prime, the sheet's background revalidate, and the refresh ticks don't stack
-/// multiple union-fetch + 10k-song reclassify passes at once.
+/// Coalesces concurrent `LibraryStatsBuilder.refresh()` calls so they don't
+/// stack multiple union-fetch + 10k-song reclassify passes at once.
 private actor RefreshGate {
 	static let shared = RefreshGate()
 	private var running = false
 
-	/// True if the caller acquired the gate and should run; false if a refresh
-	/// is already in flight (the loser bails and reads the winner's snapshot).
+	/// True if the caller acquired the gate; false if a refresh is already in
+	/// flight (the loser bails and reads the winner's snapshot).
 	func begin() -> Bool {
 		if running { return false }
 		running = true

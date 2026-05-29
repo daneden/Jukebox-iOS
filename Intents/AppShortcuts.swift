@@ -4,10 +4,8 @@
 //
 //  Created by Daniel Eden on 21/05/2026.
 //
-//  Voice/Shortcuts trigger phrases. The `\(.applicationName)` token is
-//  required by AppIntents — Siri only matches phrases that include the
-//  app's name (display name "Playback"), so "Make a playlist with
-//  Playback" works while a bare "Make a playlist" does not.
+//  AppIntents requires the `\(.applicationName)` token — Siri only matches
+//  phrases that include the app's name.
 
 import AppIntents
 

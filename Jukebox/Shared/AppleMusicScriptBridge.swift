@@ -2,24 +2,17 @@
 //  AppleMusicScriptBridge.swift
 //  Jukebox
 //
-//  macOS-only. MusicKit on macOS only ships `ApplicationMusicPlayer`, which
-//  plays audio in-process and doesn't touch Music.app's queue or Now Playing
-//  state. To get iOS-like behaviour (the user lands on a playlist/song and
-//  Music.app picks it up) we drive Music.app's AppleScript dictionary.
+//  macOS MusicKit only ships `ApplicationMusicPlayer` (in-process audio, no
+//  Music.app queue/Now Playing), so we drive Music.app's AppleScript dictionary.
 //
-//  Sandbox requires `com.apple.security.scripting-targets` with
-//  `com.apple.Music` → `playback` + `library.read` + `library.read-write`;
-//  hardened runtime requires `com.apple.security.automation.apple-events`;
-//  Info.plist needs `NSAppleEventsUsageDescription`. Without all three TCC
-//  silently denies with -1743 and Playback never appears under System
-//  Settings → Privacy & Security → Automation.
+//  Sandbox needs `com.apple.security.scripting-targets` (com.apple.Music →
+//  `playback` + `library.read` + `library.read-write`); hardened runtime needs
+//  `com.apple.security.automation.apple-events`; Info.plist needs
+//  `NSAppleEventsUsageDescription`. Missing any → TCC silently denies (-1743).
 //
-//  Every script returns either "OK" / "OK <key>=<value>" or "ERR …" so a
-//  failure inside Music.app surfaces to OSLog (`subsystem
-//  me.daneden.Jukebox`, category `AppleScript`) and bubbles up as a thrown
-//  `BridgeError`. Never wrap a script body in a bare `try ... end try` —
-//  that silently swallows real failures and was the original reason play
-//  appeared dead on TestFlight builds.
+//  Every script returns "OK" / "OK <key>=<value>" or "ERR …". Never wrap a
+//  script body in a bare `try ... end try` — it swallows real failures (the
+//  original cause of play appearing dead on TestFlight).
 //
 
 #if os(macOS)
@@ -34,14 +27,11 @@
 		private static let log = Logger(subsystem: "me.daneden.Jukebox", category: "AppleScript")
 		private static let musicBundleID = "com.apple.Music"
 
-		/// Name of the transient playlist used to stage a song sequence
-		/// before playback. Music.app has no scriptable "Up Next" verb,
-		/// so we have to materialise a playlist to hand it an ordered
-		/// queue — but we delete the playlist right after `play` engages
-		/// (Music keeps the loaded queue playing after the source is
-		/// gone). The triangle prefix marks any leaked instance from a
-		/// prior run where delete didn't fire, so the next play recycles
-		/// and deletes it.
+		/// Transient playlist staging an ordered song queue (Music.app has no
+		/// scriptable "Up Next"). Deleted right after `play` engages — Music
+		/// keeps the loaded queue playing once the source is gone. The triangle
+		/// prefix lets the next play recycle a leaked instance where delete
+		/// didn't fire.
 		private static let queuePlaylistName = "▶ Playback"
 
 		enum BridgeError: LocalizedError {
@@ -70,11 +60,9 @@
 			}
 		}
 
-		/// Triggers the "Playback wants to control Music" prompt on the first
-		/// call after a fresh install or `tccutil reset AppleEvents
-		/// me.daneden.Jukebox`; returns the cached decision instantly thereafter.
-		/// Music.app must be running before we ask — otherwise the call returns
-		/// -600 (procNotFound) without prompting.
+		/// Triggers the "Playback wants to control Music" automation prompt.
+		/// Music.app must be running first — otherwise the call returns -600
+		/// (procNotFound) without prompting.
 		@discardableResult
 		static func requestAutomationPermission() async -> Bool {
 			await launchMusicIfNeeded()
@@ -96,10 +84,9 @@
 			return result == noErr
 		}
 
-		/// Ensure Music.app's process exists and has finished launching.
-		/// Library hydration happens later — `waitForLibrary` polls for it
-		/// separately so the AppleScript itself stays one-shot and we don't
-		/// block the main thread for seconds inside `executeAndReturnError`.
+		/// Ensure Music.app's process exists and has finished launching. Library
+		/// hydration is `waitForLibrary`'s job, kept separate so each AppleScript
+		/// stays one-shot and doesn't block the main thread for seconds.
 		private static func launchMusicIfNeeded() async {
 			let runningApp = NSWorkspace.shared.runningApplications.first {
 				$0.bundleIdentifier == musicBundleID
@@ -122,10 +109,9 @@
 			}
 		}
 
-		/// Poll for Music's library to have hydrated at least one playlist.
-		/// On cold launch (especially right after sign-in) the process exists
-		/// but `count of playlists` reads 0 for a couple of seconds. We do
-		/// the wait in Swift so the AppleScript bodies can stay one-shot.
+		/// Poll for Music's library to hydrate at least one playlist. On cold
+		/// launch the process exists but `count of playlists` reads 0 for a few
+		/// seconds.
 		private static func waitForLibrary() async throws {
 			for _ in 0 ..< 80 {
 				let result = try run("tell application \"Music\" to return (count of playlists) as string")
@@ -137,14 +123,11 @@
 
 		// MARK: - Public verbs
 
-		/// Play a library playlist by name. Sandbox + scripting-targets only
-		/// authorises the abstract `playlist` element of the application
-		/// class — enumerating `every user playlist` / `every library
-		/// playlist` trips -10004 ("privilege violation") even with
-		/// `library.read`. So we enumerate the abstract class and take the
-		/// first match. Duplicate names go to whichever Music finds first
-		/// (MusicKit doesn't expose Music.app's persistent ID, so name is
-		/// our only key).
+		/// Play a library playlist by name. The sandbox only authorises the
+		/// abstract `playlist` element — enumerating `every user playlist` /
+		/// `every library playlist` trips -10004 even with `library.read`. Name
+		/// is the only key (MusicKit doesn't expose Music.app's persistent ID),
+		/// so duplicate names go to whichever Music finds first.
 		static func play(playlist: Playlist) async throws {
 			await launchMusicIfNeeded()
 			try await waitForLibrary()
@@ -165,20 +148,15 @@
 			}
 		}
 
-		/// Stage an ordered list of songs into a transient playlist and
-		/// play it, then delete the playlist as soon as playback engages.
-		/// The macOS counterpart to iOS's `SystemMusicPlayer.queue = .init(for: songs)`:
-		/// Music.app has no scriptable "Up Next" verb, so a playlist is
-		/// the only way to hand it a multi-track ordered queue — but
-		/// Music snapshots the queue when `play` is invoked, so deleting
-		/// the source playlist after that leaves playback intact while
-		/// keeping the user's sidebar clean.
+		/// macOS counterpart to `SystemMusicPlayer.queue = .init(for: songs)`:
+		/// stage an ordered queue into a transient playlist, play it, then delete
+		/// the playlist once playback engages (Music snapshots the queue at
+		/// `play`, so deleting the source keeps playback while leaving the
+		/// sidebar clean).
 		///
-		/// Tracks are matched by `name + artist`; if that misses we retry
-		/// by `name` alone (Music.app drops trailing parenthetical bits
-		/// like `(feat. X)` and `(Remastered 2011)` that MusicKit returns).
-		/// Unmatched songs are skipped, but if *zero* match we throw rather
-		/// than playing an empty queue.
+		/// Tracks match by `name + artist`, falling back to `name` alone
+		/// (Music.app drops trailing parentheticals like `(feat. X)` that
+		/// MusicKit returns). Zero matches throws rather than play an empty queue.
 		static func play(songs: [Song]) async throws {
 			guard !songs.isEmpty else { return }
 			await launchMusicIfNeeded()
@@ -188,12 +166,8 @@
 			let titlesLiteral = literalList(songs.map(\.title))
 			let artistsLiteral = literalList(songs.map(\.artistName))
 
-			// Reuses any leaked queue playlist from a prior run where
-			// delete didn't fire (clears + refills it instead of stacking
-			// a duplicate), otherwise creates a fresh one. After `play`
-			// loads the queue, we wait for `player state is playing` then
-			// delete the source. Music keeps streaming through the loaded
-			// queue snapshot once `play` has engaged.
+			// Recycle a leaked queue playlist if present (clear + refill rather
+			// than stack a duplicate), else create fresh.
 			let result = try run("""
 			tell application "Music"
 				set queueName to "\(escapedQueueName)"
@@ -256,10 +230,8 @@
 			}
 		}
 
-		/// Create a brand-new user playlist with the given name and
-		/// description, populate it from the given songs, and return the
-		/// number of tracks that actually matched. Caller decides whether a
-		/// partial match counts as success.
+		/// Create a user playlist, populate it from `songs`, and return the
+		/// matched-track count. Caller decides whether a partial match is success.
 		@discardableResult
 		static func save(songs: [Song], asPlaylistNamed name: String, description: String) async throws -> Int {
 			guard !songs.isEmpty else { return 0 }
@@ -308,10 +280,8 @@
 			return Int(result[range.upperBound ..< result.endIndex])
 		}
 
-		/// Wrap a string in AppleScript double-quoted form, escaping `"` and
-		/// `\`. AppleScript string literals don't accept raw newlines, so
-		/// any LF/CR in the input is replaced with a space rather than
-		/// emitting a syntax-error-causing literal break.
+		/// Escape a string for an AppleScript literal. Newlines become spaces —
+		/// AppleScript literals reject raw LF/CR.
 		private static func escape(_ string: String) -> String {
 			string
 				.replacingOccurrences(of: "\\", with: "\\\\")
@@ -320,20 +290,16 @@
 				.replacingOccurrences(of: "\r", with: " ")
 		}
 
-		/// Turn a Swift `[String]` into an AppleScript list literal:
-		/// `{"a", "b", "c"}`. Empty list becomes `{}` which AppleScript
-		/// accepts.
+		/// Turn a `[String]` into an AppleScript list literal `{"a", "b"}`.
 		private static func literalList(_ strings: [String]) -> String {
 			let items = strings.map { "\"\(escape($0))\"" }.joined(separator: ", ")
 			return "{\(items)}"
 		}
 
-		/// Synchronously execute a script and return its trimmed string
-		/// result. Errors are logged with their AppleScript code (e.g. -1743
-		/// = TCC denied, -1728 = no such object, -10004 = privilege denied
-		/// — usually sandbox/scripting-targets enumerating an undeclared
-		/// element subclass, -600 = Music.app not running) along with the
-		/// failing source snippet so future sandbox traps name the line.
+		/// Execute a script, returning its trimmed result. Error codes:
+		/// -1743 TCC denied, -1728 no such object, -10004 privilege denied
+		/// (usually enumerating an undeclared element subclass), -600 Music.app
+		/// not running. The failing source snippet is logged alongside.
 		@discardableResult
 		private static func run(_ source: String) throws -> String {
 			guard let script = NSAppleScript(source: source) else {
@@ -361,10 +327,8 @@
 			return result
 		}
 
-		/// Pull the source substring named by `NSAppleScript.errorRange`
-		/// (an `NSRange` boxed as `NSValue`) so error logs identify the
-		/// exact failing fragment. Returns "<unknown range>" if the dict
-		/// doesn't carry one — most runtime errors do.
+		/// Pull the failing source fragment named by `NSAppleScript.errorRange`
+		/// for error logs. "<unknown range>" when the dict carries none.
 		private static func failingSnippet(in source: String, errorInfo: NSDictionary) -> String {
 			guard let value = errorInfo[NSAppleScript.errorRange] as? NSValue else {
 				return "<unknown range>"

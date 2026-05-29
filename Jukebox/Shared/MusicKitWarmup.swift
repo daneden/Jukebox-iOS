@@ -7,31 +7,19 @@
 
 import MusicKit
 
-/// Process-wide gate to serialise the very first `MusicLibraryRequest`
-/// after launch. On iOS 26, `musicd` / `itunescloudd` can wedge if two
-/// or more library requests fan out in parallel before account and
-/// subscription resolution finishes — symptoms cluster as a hung
-/// `response()`, stuck `library://` artwork loads, and back-pressure
-/// into shared system services (which has knocked over an unrelated
-/// SwiftData sheet in `HistoryView` in practice). Once a single request
-/// has completed, the daemon is initialised and parallels are fine.
-///
-/// Surfaces that initiate library work on app launch (the Songs deck
-/// builder, the Playlists list, anywhere else that fires
-/// `MusicLibraryRequest`) `await` the same probe before fanning out.
-/// The probe runs once per process; subsequent calls return
-/// immediately.
+/// Process-wide gate serialising the first `MusicLibraryRequest` after launch.
+/// On iOS 26, `musicd` / `itunescloudd` can wedge if two or more library
+/// requests fan out in parallel before account/subscription resolution finishes
+/// (hung `response()`, stuck `library://` artwork, back-pressure that has
+/// knocked over an unrelated SwiftData sheet in `HistoryView`). Once one request
+/// completes the daemon is initialised and parallels are fine. Launch surfaces
+/// `await` this probe before fanning out; it runs once per process.
 enum MusicKitWarmup {
 	private static let task: Task<Void, Never> = Task {
-		// Two serial probes — Songs and Playlists — because the daemon
-		// appears to warm per entity path. A Songs-only probe was
-		// enough to fix the original cold-launch cluster (only Songs
-		// fetches were in flight then), but the tab-switch-during-load
-		// case stacks a Playlists fetch on top of Songs fan-out, and
-		// that path is still cold without its own probe. Confirmed
-		// empirically: launching directly on the Playlists tab — which
-		// fires one serial Playlists request as the very first
-		// MusicKit op — avoids the bug entirely.
+		// Two serial probes because the daemon warms per entity path. A Songs-only
+		// probe fixed the original cold-launch cluster, but tab-switch-during-load
+		// stacks a Playlists fetch on Songs fan-out — that path is cold without its
+		// own probe.
 		var songProbe = MusicLibraryRequest<Song>()
 		songProbe.limit = 1
 		_ = try? await songProbe.response()
@@ -42,8 +30,7 @@ enum MusicKitWarmup {
 	}
 
 	/// Suspend until the first `MusicLibraryRequest` of this process has
-	/// completed. Safe to call from many concurrent contexts; they all
-	/// await the same singleton task.
+	/// completed. Safe to call from many concurrent contexts.
 	static func waitUntilReady() async {
 		await task.value
 	}

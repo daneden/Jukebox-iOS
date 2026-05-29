@@ -8,13 +8,10 @@
 import Foundation
 import SwiftUI
 
-/// Pure math shared by the dial and the modes that drive it. No SwiftUI
-/// state, no animation — just rotation/index/destination arithmetic.
+/// Pure rotation/index/destination arithmetic. No SwiftUI state or animation.
 enum DialMechanics {
-	/// Rotation that lands `target` at the front via the shortest modular
-	/// path. No forced full-rotations, no minimum sweep — the wheel travels
-	/// straight to its destination, which keeps the number of covers that
-	/// pass through the visible window bounded.
+	/// Rotation that lands `target` at the front via the shortest modular path.
+	/// No minimum sweep, so the covers passing through the visible window stay bounded.
 	static func spinDestination(current: Angle, target: Int, count: Int) -> Angle {
 		guard count > 0 else { return current }
 		let cp = -current.degrees / DialTunables.stepVisual
@@ -26,9 +23,8 @@ enum DialMechanics {
 		return .degrees(-newCp * DialTunables.stepVisual)
 	}
 
-	/// Pick a random target within `maxShuffleJump` of the current focus,
-	/// in either direction. Bounded so a spin doesn't have to load half
-	/// the library's artwork to cross from one end to the other.
+	/// Random target within `maxShuffleJump` of current focus, either direction.
+	/// Bounded so a spin doesn't load half the library's artwork end-to-end.
 	static func shuffleTarget(currentFocus: Int, itemCount: Int) -> Int? {
 		guard itemCount > 0 else { return nil }
 		if itemCount == 1 { return 0 }
@@ -38,10 +34,9 @@ enum DialMechanics {
 		return ((currentFocus + magnitude * direction) % itemCount + itemCount) % itemCount
 	}
 
-	/// Find the angle congruent (mod `count`) to `rotation` that's nearest
-	/// to the current position when re-anchoring on `newIdx`. Keeps the
-	/// same item centered after a list reorder without teleporting the
-	/// wheel to the modular-zero representative.
+	/// Angle congruent (mod `count`) to `current`, nearest the current position,
+	/// re-anchored on `newIdx`. Keeps the same item centered after a reorder
+	/// without teleporting the wheel to the modular-zero representative.
 	static func reanchoredRotation(current: Angle, newIdx: Int, count: Int) -> Angle {
 		guard count > 0 else { return current }
 		let cp = -current.degrees / DialTunables.stepVisual

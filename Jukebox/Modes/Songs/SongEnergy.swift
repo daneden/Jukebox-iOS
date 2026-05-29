@@ -4,43 +4,31 @@
 //
 //  Created by Daniel Eden on 29/05/2026.
 //
-//  Continuous per-song energy in [0, 1]. The four `EnergyBand`s become
-//  labeled ranges of this axis rather than the unit of classification:
-//  the band sets a coarse center, and cached BPM floats the song up or
-//  down — *across* band lines, so a clubby 130bpm electronic track reads
-//  more energetic than a 70bpm ambient-electronic one even though both
-//  are "Electronic".
+//  Continuous per-song energy in [0, 1]: the band sets a coarse center,
+//  and cached BPM floats the song up or down across band lines.
 //
 //      energy = (1 - bpmWeight)·bandCenter + bpmWeight·bpmEnergy(bpm)
 //
-//  No BPM cached → pure band center. No band (no embedding and no usable
-//  genre) → nil (unknown energy). The embedding is deliberately *not*
-//  projected onto a 1-D energy axis: AudioFeaturePrint bunches the bands
-//  at cosine 0.96–0.99 (see EnergyCentroids.swift), so a single linear
-//  direction barely separates them — BPM is the reliable continuous
-//  signal, the embedding's job is the coarse band via EnergyClassifier.
+//  No BPM → pure band center; no band → nil. The embedding is deliberately
+//  not projected onto a 1-D energy axis — AudioFeaturePrint bunches the
+//  bands at cosine 0.96–0.99, so BPM is the reliable continuous signal and
+//  the embedding only supplies the coarse band via EnergyClassifier.
 //
 
 import Foundation
 import SwiftUI
 
 enum SongEnergy {
-	/// Share of the final energy contributed by BPM vs the band center.
-	/// 0.3 keeps the (more reliable) band leading and lets tempo nudge a
-	/// song toward — or just across — a boundary rather than override the
-	/// band wholesale; deliberately modest because detected BPM carries
-	/// octave-detection noise (see BPMDetector). Tunable.
+	/// Share of energy from BPM vs band center. Modest so the more reliable
+	/// band leads and tempo only nudges across boundaries — detected BPM
+	/// carries octave-detection noise. Tunable.
 	static let bpmWeight: Double = 0.3
 
-	/// BPM range mapped onto [0, 1]. Below `bpmFloor` reads as minimum
-	/// energy, above `bpmCeil` as maximum.
+	/// BPM range mapped onto [0, 1]; clamped below `bpmFloor` / above `bpmCeil`.
 	static let bpmFloor: Double = 60
 	static let bpmCeil: Double = 160
 
 	/// Continuous energy for a song, or nil when it can't be placed.
-	/// `band` is the coarse assignment from
-	/// `EnergyClassifier.band(embedding:genres:…)`; `bpm` is the cached
-	/// tempo (`EmbeddingStore.bpms`), nil when not yet detected.
 	static func value(band: EnergyBand?, bpm: Double?) -> Double? {
 		guard let band else { return nil }
 		let center = band.centerValue
@@ -48,12 +36,10 @@ enum SongEnergy {
 		return (1 - bpmWeight) * center + bpmWeight * bpmEnergy(bpm)
 	}
 
-	/// Tempo → [0, 1] energy. Higher BPM reads as higher energy, so we do
-	/// *not* octave-fold (folding would flatten the 70-vs-140 distinction
-	/// this whole axis exists to capture). We only canonicalise obvious
-	/// half/double-time detection artifacts at the extremes before the
-	/// linear map — a sustained sub-55 or over-200 reading is almost
-	/// always the detector landing an octave off.
+	/// Tempo → [0, 1] energy. Deliberately not octave-folded (unlike the
+	/// walk) — folding would flatten the 70-vs-140 distinction this axis
+	/// exists for. Only the extremes are canonicalised, where a sub-55 or
+	/// over-200 reading is almost always the detector an octave off.
 	static func bpmEnergy(_ bpm: Double) -> Double {
 		var b = bpm
 		if b < 55 { b *= 2 }
@@ -63,8 +49,8 @@ enum SongEnergy {
 }
 
 extension EnergyBand {
-	/// Center of the band's quarter of the [0, 1] energy axis — the
-	/// no-BPM fallback value and the band's anchor in the energy blend.
+	/// Center of the band's quarter of the energy axis — the no-BPM fallback
+	/// and the band's anchor in the blend.
 	var centerValue: Double {
 		switch self {
 		case .any: 0.5
@@ -75,11 +61,9 @@ extension EnergyBand {
 		}
 	}
 
-	/// The band a continuous energy value falls into — equal 0.25-wide
-	/// bins, the inverse of `centerValue`. Generalises the old
-	/// `forCurveValue` so the Design curve, the Songs-tab energy target,
-	/// and the overview buckets all label energy the same way. `.any` is
-	/// intentionally unreachable; it's a filter state, not a position.
+	/// The band a continuous energy value falls into — equal 0.25-wide bins,
+	/// the inverse of `centerValue`. `.any` is intentionally unreachable;
+	/// it's a filter state, not a position.
 	static func forValue(_ energy: Double) -> EnergyBand {
 		switch energy {
 		case ..<0.25: .glacial
@@ -89,10 +73,8 @@ extension EnergyBand {
 		}
 	}
 
-	/// Color for a continuous energy value: the band tints blended across
-	/// their centres, so a song sitting between two bands gets a mix of the
-	/// two (e.g. 0.45 → mellow.mix(energetic)). Gives the scatter a smooth
-	/// teal→blue→violet→red gradient up the energy axis.
+	/// Color for a continuous energy value: band tints blended across their
+	/// centres, giving the scatter a smooth gradient up the energy axis.
 	static func color(forEnergy energy: Double) -> Color {
 		let stops: [(center: Double, color: Color)] = [
 			(EnergyBand.glacial.centerValue, EnergyBand.glacial.tint),

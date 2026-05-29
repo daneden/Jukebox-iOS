@@ -24,7 +24,6 @@ struct RippleModifier: ViewModifier {
 			.float2(origin),
 			.float(elapsedTime),
 
-			// Parameters
 			.float(amplitude),
 			.float(frequency),
 			.float(decay),

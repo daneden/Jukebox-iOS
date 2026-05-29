@@ -10,39 +10,32 @@ import MusicKit
 
 /// Pure-function scoring for "hidden gems". Three complementary tracks:
 ///
-/// - **Nostalgia** — songs the user has actually played a lot in the past
-///   that have gone quiet. `playCount × dormantMonths`, log-saturated on
-///   plays so a 500-play outlier doesn't dominate the whole deck.
-/// - **Discovery** — songs added to the library a long time ago and barely
-///   touched since. `libraryAgeMonths / (playCount + 1)`.
-/// - **Freshness** — songs added recently that got a handful of plays and
-///   then drifted off rotation. The gap the other two miss: nostalgia
-///   wants high playCount; discovery wants long library tenure. Songs
-///   you discovered a few months ago and only half-explored fall through
-///   both.
+/// - **Nostalgia** — heavily-played songs gone quiet. `playCount ×
+///   dormantMonths`, log-saturated on plays so a 500-play outlier doesn't
+///   dominate the deck.
+/// - **Discovery** — songs added long ago and barely touched.
+///   `libraryAgeMonths / (playCount + 1)`.
+/// - **Freshness** — recently-added songs with a few plays that drifted
+///   off rotation. The gap the other two miss: nostalgia wants high
+///   playCount, discovery wants long tenure.
 ///
-/// Each is scored raw; the caller normalises to [0,1] across the candidate
-/// pool and blends them. Recency is now a soft multiplier — songs played
-/// today get `recencyFloor` (default 0.1, i.e. 10× downranked but still
-/// reachable), recovering linearly to no penalty at `recencyCutoffDays`.
-/// Hard exclusion was too aggressive for small libraries where the user
-/// could play through a meaningful fraction of the candidate pool inside
-/// a 14-day window. Unplayable songs (nil playParameters) are still hard-
-/// excluded because there's no point ranking something we can't play.
+/// Each is scored raw; the caller normalises to [0,1] across the pool and
+/// blends. Recency is a soft multiplier (`recencyFloor` at days-since=0,
+/// recovering linearly to 1.0 at `recencyCutoffDays`) — hard exclusion
+/// was too aggressive for small libraries inside a 14-day window.
+/// Unplayable songs (nil playParameters) are still hard-excluded.
 struct GemScorer {
 	let now: Date
 	let recencyCutoffDays: Int
 	let nostalgiaWeight: Double
 	let discoveryWeight: Double
 	let freshnessWeight: Double
-	/// Score multiplier at "played right now." 0.1 means recently-
-	/// played songs score at 10% of what they'd otherwise score —
-	/// strongly deprioritised but not impossible. Anything between
-	/// 0 and 1; 0 would replicate the old hard-exclusion behaviour.
+	/// Score multiplier at "played right now". 0.1 = just-played songs
+	/// score 10%, strongly deprioritised but reachable; 0 would replicate
+	/// the old hard exclusion.
 	let recencyFloor: Double
-	/// Per-song most-recent play date from our own log. Combined with
-	/// MusicKit's `Song.lastPlayedDate` via max() inside
-	/// `recencyPenalty` — we use whichever signal is more recent.
+	/// Per-song most-recent play date from our own log, max()'d with
+	/// `Song.lastPlayedDate` inside `recencyPenalty`.
 	let recentPlays: [String: Date]
 
 	init(
@@ -69,14 +62,11 @@ struct GemScorer {
 		let freshness: Double
 	}
 
-	/// Returns nil only when the song can't be played at all. Recency is
-	/// folded into the scores via a multiplier rather than gating
-	/// eligibility outright.
+	/// Returns nil only when the song can't be played at all.
 	func rawScores(for song: Song) -> RawScores? {
-		// `playParameters == nil` means SystemMusicPlayer will silently
-		// skip past this song when it lands in the queue (rights lapsed,
-		// non-catalog library item with no cloud match, region-locked,
-		// etc). Filter outright so it never reaches the deck.
+		// `playParameters == nil` → SystemMusicPlayer silently skips it in
+		// the queue (rights lapsed, no cloud match, region-locked). Filter
+		// outright so it never reaches the deck.
 		if song.playParameters == nil { return nil }
 
 		let penalty = recencyPenalty(for: song)
@@ -87,10 +77,9 @@ struct GemScorer {
 		)
 	}
 
-	/// Linear ramp from `recencyFloor` at days-since-play=0 up to 1.0 at
-	/// `recencyCutoffDays`. Uses the max of MusicKit's lastPlayedDate
-	/// and our own HistoryStore-derived date because MusicKit's lags
-	/// (or never updates) for SystemMusicPlayer plays.
+	/// Linear ramp from `recencyFloor` at days-since=0 to 1.0 at
+	/// `recencyCutoffDays`. Uses the max of `lastPlayedDate` and our
+	/// HistoryStore date because MusicKit's lags for SystemMusicPlayer.
 	private func recencyPenalty(for song: Song) -> Double {
 		let candidate = max(
 			song.lastPlayedDate ?? .distantPast,
@@ -102,10 +91,9 @@ struct GemScorer {
 		return recencyFloor + (1.0 - recencyFloor) * (daysSince / Double(recencyCutoffDays))
 	}
 
-	/// log(plays + 1) × min(dormantMonths, 60).
-	/// - Zero if never played (nil or 0 playCount) — that's the discovery
-	///   track's job.
-	/// - Played but no `lastPlayedDate` (rare): treat as 24 months dormant.
+	/// log(plays + 1) × min(dormantMonths, 60). Zero if never played
+	/// (that's discovery's job); played-but-no-`lastPlayedDate` is treated
+	/// as 24 months dormant.
 	private func nostalgia(_ song: Song) -> Double {
 		guard let plays = song.playCount, plays > 0 else { return 0 }
 		let dormantMonths: Double = song.lastPlayedDate.map {
@@ -122,24 +110,16 @@ struct GemScorer {
 		return ageMonths / (Double(song.playCount ?? 0) + 1)
 	}
 
-	/// exp(-daysSinceAdded / 90) × min(1, log(plays+1)) × dormantWeeks.
+	/// exp(-daysSinceAdded / 90) × min(1, log(plays+1)) × dormantWeeks —
+	/// three multiplicative gates:
+	///  - `exp(-daysSinceAdded / 90)` — ~90-day half-life on add recency.
+	///  - `min(1, log(plays+1))` — must have ≥1 play; saturates at ~2 so a
+	///    discovery binge doesn't over-rank.
+	///  - `dormantWeeks` — bounded by library tenure so a never-played
+	///    song doesn't accrue a bogus dormant window via MusicKit's
+	///    `lastPlayedDate` defaulting.
 	///
-	/// Reads as three multiplicative gates:
-	///  - `exp(-daysSinceAdded / 90)` — ~90-day half-life, so a song
-	///    added 3 months ago still scores meaningfully, a year-old
-	///    song is ~0.02. Starting tune; revisit after the deck has
-	///    been used in anger.
-	///  - `min(1, log(plays+1))` — must have been played at least
-	///    once (you haven't really *discovered* something you've
-	///    only added). Saturates at ~2 plays so a single discovery
-	///    binge doesn't over-rank.
-	///  - `dormantWeeks` — weeks since last play, bounded by the
-	///    song's library tenure so a freshly-added unplayed-since-add
-	///    song doesn't accumulate a misleadingly large dormant window
-	///    via MusicKit's `lastPlayedDate` defaulting weirdness.
-	///
-	/// Zero when the song has never been played or has no
-	/// `libraryAddedDate`.
+	/// Zero when never played or no `libraryAddedDate`.
 	private func freshness(_ song: Song) -> Double {
 		guard let added = song.libraryAddedDate else { return 0 }
 		guard let plays = song.playCount, plays > 0 else { return 0 }
@@ -159,9 +139,8 @@ struct GemScorer {
 		later.timeIntervalSince(earlier) / (30.44 * 86400)
 	}
 
-	/// Score a candidate pool: filter by recency, normalise each track to
-	/// [0,1] across the pool, blend with weights, sort descending, return
-	/// `(song, score)` pairs.
+	/// Score a candidate pool: normalise each track to [0,1] across the
+	/// pool, blend with weights, sort descending.
 	func scoreAndRank(_ songs: [Song]) -> [(song: Song, score: Double)] {
 		let raw: [(Song, Double, Double, Double)] = songs.compactMap { song in
 			guard let s = rawScores(for: song) else { return nil }

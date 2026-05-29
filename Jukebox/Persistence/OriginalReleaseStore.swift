@@ -4,14 +4,11 @@
 //
 //  Created by Daniel Eden on 25/05/2026.
 //
-//  Actor wrapper around the SwiftData container holding
-//  `SongOriginalDate` rows. Cache-first lookup for the decade filter +
-//  walk-side era similarity, populated opportunistically by
-//  `OriginalReleaseResolver` via deck-warm and long-tail library
-//  warming. Behaviour mirrors `EmbeddingStore`.
+//  Actor over the SwiftData container of `SongOriginalDate` rows.
+//  Cache-first lookup for the decade filter + walk-side era similarity,
+//  populated by `OriginalReleaseResolver` during library warming.
 //
-//  Local-only (no CloudKit). Reinstall loses the cache; the warmer
-//  rebuilds it under WiFi + power.
+//  Local-only (no CloudKit); reinstall rebuilds the cache under WiFi + power.
 
 import Dispatch
 import Foundation
@@ -25,11 +22,9 @@ actor OriginalReleaseStore {
 
 	static let shared = OriginalReleaseStore()
 
-	/// Pinned `userInitiated` executor for the same reason as
-	/// `EmbeddingStore`: the decade filter (user-initiated) and the
-	/// warmer (utility) both touch the actor, and without pinning the
-	/// runtime flags priority inversions when a higher-priority waiter
-	/// lands behind a lower-priority job.
+	/// Pinned `userInitiated` executor (as `EmbeddingStore`): the
+	/// user-initiated decade filter and the utility warmer both touch the
+	/// actor, and pinning avoids priority-inversion warnings.
 	private nonisolated let queue = DispatchSerialQueue(
 		label: "me.daneden.Jukebox.OriginalReleaseStore",
 		qos: .userInitiated
@@ -44,20 +39,16 @@ actor OriginalReleaseStore {
 	private func ensureLoaded() throws {
 		if container != nil { return }
 		let schema = Schema([SongOriginalDate.self])
-		// Named so this store gets its own sqlite file rather than
-		// fighting `EmbeddingStore`, `HistoryStore`, and
-		// `TransitionFeedbackStore` over the default unnamed store.
-		// Multiple actors opening the same file with different schemas
-		// leaves whichever container initialised first holding the
-		// tables; the others surface "no such table" errors at fetch
-		// time.
+		// Named so this store gets its own sqlite file. Multiple actors
+		// opening one file with different schemas leaves whichever
+		// container initialised first holding the tables; the rest hit
+		// "no such table" at fetch time.
 		let config = ModelConfiguration("originalDates", schema: schema, cloudKitDatabase: .none)
 		let c = try ModelContainer(for: schema, configurations: [config])
 		container = c
 		context = ModelContext(c)
 	}
 
-	/// Bulk lookup — single SwiftData fetch for all matching rows.
 	/// Returns only songs with a non-nil cached date; the read-side
 	/// fallback (`?? song.releaseDate`) handles the rest.
 	func originalDates(for songIDs: [MusicItemID]) -> [MusicItemID: Date] {
@@ -81,11 +72,9 @@ actor OriginalReleaseStore {
 		return result
 	}
 
-	/// "Have we already looked these up?" lookup for the warmer —
-	/// includes rows with `originalDate == nil` because we still
-	/// recorded the resolution. Skipping them avoids burning a catalog
-	/// request on songs whose original we already determined to be
-	/// the library's own date.
+	/// "Already looked up?" lookup for the warmer. Includes `nil`-date
+	/// rows — those were resolved to the library's own date, and skipping
+	/// them avoids burning a redundant catalog request.
 	func resolvedIDs(for songIDs: [MusicItemID]) -> Set<String> {
 		do { try ensureLoaded() } catch { return [] }
 		guard let context else { return [] }
@@ -99,9 +88,9 @@ actor OriginalReleaseStore {
 		return Set(rows.map(\.songID))
 	}
 
-	/// Upsert. Pass `nil` for `date` when the resolver looked but found
-	/// nothing earlier than the library's own date — recording the
-	/// resolution stops the warmer from repeating the lookup.
+	/// Upsert. Pass `nil` for `date` when nothing earlier than the
+	/// library's own date was found — recording it stops the warmer from
+	/// repeating the lookup.
 	func store(_ date: Date?, for songID: MusicItemID) {
 		do { try ensureLoaded() } catch { return }
 		guard let context else { return }

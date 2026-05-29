@@ -4,21 +4,18 @@
 //
 //  Created by Daniel Eden on 21/05/2026.
 //
-//  macOS trackpad / mouse-wheel input for the dial. Catches scroll events
-//  while the cursor is over the dial and forwards them as deltas — the
-//  parent translates them into rotation changes and snap-to-detent.
+//  macOS trackpad / mouse-wheel input for the dial.
 
 #if os(macOS)
 
 	import AppKit
 	import SwiftUI
 
-	/// Catches scroll events while the cursor is over the modified view and
-	/// forwards them to `onScroll`. Uses an `NSEvent.addLocalMonitorForEvents`
-	/// (rather than an `NSViewRepresentable` overlay) so the modifier doesn't
-	/// have to claim hit-testing — clicks still reach the SwiftUI views below.
-	/// The hover flag is a class so the long-lived monitor closure can read
-	/// the latest value without going stale.
+	/// Forwards scroll events while the cursor is over the modified view to
+	/// `onScroll`. Uses `NSEvent.addLocalMonitorForEvents` rather than an
+	/// `NSViewRepresentable` overlay so it doesn't claim hit-testing — clicks
+	/// still reach the SwiftUI views below. The hover flag is a class so the
+	/// long-lived monitor closure reads the latest value without going stale.
 	struct ScrollWheelDialReader: ViewModifier {
 		let onScroll: (CGFloat, NSEvent.Phase) -> Void
 
@@ -52,11 +49,7 @@
 				guard flag.isInside else { return event }
 				let dx = event.scrollingDeltaX
 				let dy = event.scrollingDeltaY
-				// Use the dominant axis. Negate dy so a downward scroll
-				// (positive dy under natural scrolling) advances focus
-				// rather than retreating — matches the "scroll down = next"
-				// convention that mouse-wheel users expect from a
-				// horizontally-arranged carousel.
+				// Dominant axis; negate dy so scroll-down advances focus.
 				let delta: CGFloat = abs(dx) >= abs(dy) ? dx : -dy
 				onScroll(delta, event.phase)
 				return nil

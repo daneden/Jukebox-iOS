@@ -4,17 +4,11 @@
 //
 //  Created by Daniel Eden on 20/05/2026.
 //
-//  Spike harness for AudioEmbeddingService. Pulls a small sample of songs
-//  from the user's library (the gem-deck head), embeds each via Apple's
-//  AudioFeaturePrint extractor, and shows a pairwise cosine-similarity
-//  matrix. The whole point is to eyeball the result: do tracks that
-//  *should* sound similar (same artist, same genre, same era) land closer
-//  to each other than tracks that shouldn't? If yes, the embedding signal
-//  is real and we can build the dial-flow on it. If not, we need a
-//  music-specialized model (CLAP) before going further.
-//
-//  Debug-only: gated behind `#if DEBUG` so it doesn't ship into
-//  release builds. The Settings menu only surfaces it in debug too.
+//  Debug spike harness for AudioEmbeddingService: embeds a sample of
+//  library songs (the gem-deck head) and shows a pairwise cosine-
+//  similarity matrix. The eyeball test — do tracks that should sound
+//  similar land closer than tracks that shouldn't? If not, reach for a
+//  music-specialized model (CLAP).
 
 #if DEBUG
 
@@ -120,7 +114,6 @@
 		// MARK: - Run
 
 		private func run() async {
-			// 1. Authorize MusicKit if needed.
 			let status = MusicAuthorization.currentStatus
 			if status == .notDetermined {
 				let newStatus = await MusicAuthorization.request()
@@ -133,9 +126,8 @@
 				return
 			}
 
-			// 2. Fetch a small sample. Top of the gem deck gives us songs the
-			//    user has some history with, which makes the "is this signal real"
-			//    eyeball test more meaningful than random catalog picks.
+			// Gem-deck head gives songs the user has history with, more
+			// meaningful for the eyeball test than random catalog picks.
 			let songs: [Song]
 			do {
 				let result = try await GemDeckBuilder.build()
@@ -151,7 +143,6 @@
 
 			phase = .running(.init(done: 0, total: songs.count, currentTitle: nil))
 
-			// 3. Embed each.
 			var embeddings: [[Float]] = []
 			var entries: [Report.SongEntry] = []
 			for (idx, song) in songs.enumerated() {
@@ -170,7 +161,6 @@
 				}
 			}
 
-			// 4. Pairwise similarities.
 			var pairs: [Report.Pair] = []
 			for i in 0 ..< embeddings.count {
 				for j in (i + 1) ..< embeddings.count {

@@ -7,9 +7,7 @@
 
 import MusicKit
 
-/// Common surface the dial needs from any item it spins. Playlists and library
-/// songs both already expose `artwork`; this protocol just names the shape so
-/// `DialView` can be generic over either without reaching for a closure.
+/// Common surface the dial needs from any item it spins, so `DialView` can be generic over Playlist or Song.
 protocol DialItem {
 	var artwork: Artwork? { get }
 }

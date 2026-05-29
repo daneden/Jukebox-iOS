@@ -4,43 +4,15 @@
 //
 //  Created by Daniel Eden on 22/05/2026.
 //
-//  Long-tail audio-embedding warmer. `GemDeckBuilder.warmEmbeddings`
-//  handles the current 300-song deck synchronously after it's built;
-//  this warmer takes everything *else* — capped at the top ~10k
-//  library songs by play-count and library-add date — and chews
-//  through them while the user isn't waiting.
+//  Long-tail audio-embedding warmer: embeds everything beyond the active
+//  300-song deck (capped at ~10k library songs by play-count and add
+//  date) so future decks start on real sonic similarity instead of the
+//  walk's metadata-only fallback.
 //
-//  Why expand past the deck: `SongDeckWalk.similarity` falls back to a
-//  metadata-only blend (genre + era) whenever either side of a
-//  candidate pair lacks a cached embedding. The walk can't promote a
-//  song into the deck on real sonic similarity if it's never been
-//  embedded. Warming the long tail means decks built under different
-//  filter combos, or after library mutations, start with audio
-//  similarity instead of the fallback.
-//
-//  Gating — checked at entry and between each song. WiFi is always
-//  required; the power requirement depends on which mode is running
-//  (see `conditionsFavorable(requirePower:)`):
-//   - WiFi reachable (`NWPathMonitor`). 30s previews are ~500KB; a
-//     full 10k pass is ~5GB of downloads, which we won't burn on
-//     cellular.
-//   - Power: background passes require external power; foreground
-//     passes run on battery but defer to Low Power Mode.
-//
-//  Triggered in two modes:
-//   - Foreground opportunistic: kicked from `GemDeckBuilder` after
-//     deck-warm finishes, `requirePower: false`. Runs at `.utility`
-//     QoS so it doesn't compete with the dial, on battery as long as
-//     the user isn't in Low Power Mode. Without the battery path the
-//     warmer never progressed for a phone that's rarely charged on
-//     WiFi — it bailed on every battery session. No-op if conditions
-//     aren't met.
-//   - Background processing: via `BGProcessingTask` on iOS, registered
-//     with `requiresExternalPower` + `requiresNetworkConnectivity`, run
-//     `requirePower: true`. The system only wakes us when those are
-//     mostly satisfied; WiFi is re-checked at handler entry because
-//     `requiresNetworkConnectivity` doesn't differentiate WiFi from
-//     cellular — cellular runs return immediately and reschedule.
+//  Gating is checked at entry and between each song. WiFi is always
+//  required (a full pass is ~5GB). Background passes require external
+//  power; foreground passes run on battery but defer to Low Power Mode.
+//  See `conditionsFavorable(requirePower:)`.
 //
 
 import Foundation
@@ -55,74 +27,59 @@ import os
 actor LibraryEmbeddingWarmer {
 	static let shared = LibraryEmbeddingWarmer()
 
-	/// Hard cap on how many library songs we'll embed beyond the active
-	/// deck. A 50k-song library × ~500KB preview is ~25GB if we go
-	/// all-in; capping keeps the bandwidth + storage budget bounded
-	/// while still covering the songs most likely to influence future
-	/// decks (top playCount + oldest library entries).
+	/// Hard cap on songs embedded beyond the active deck. Keeps bandwidth +
+	/// storage bounded (a 50k library all-in is ~25GB) while covering the
+	/// songs most likely to influence future decks.
 	static let libraryCap = 10000
 
-	/// Per-pool fetch ceiling. Union of two pools, deduped, capped at
-	/// `libraryCap`. Set so the union *can* reach the cap even when
-	/// pools overlap heavily.
+	/// Per-pool fetch ceiling. Set so the deduped union can still reach
+	/// `libraryCap` even when pools overlap heavily.
 	static let perPoolFetch = 5000
 
-	/// Sleep between songs in the warm loop. Longer than the deck
-	/// warmer's 200ms — nobody's waiting for the long tail, and a
-	/// gentler cadence is friendlier on battery + Apple's preview CDN.
+	/// Sleep between songs in the warm loop. Gentle cadence — nobody's
+	/// waiting for the long tail, and it's friendlier on battery + the CDN.
 	static let breath: Duration = .milliseconds(500)
 
-	/// Sleep between songs in the genre-hydration loop. Much shorter than
-	/// `breath` — `.with([.genres])` is a lightweight relationship fetch,
-	/// no audio download — so the broadest-impact signal fills quickly.
+	/// Sleep between songs in the genre-hydration loop. Shorter than
+	/// `breath` — `.with([.genres])` is a lightweight fetch, no audio.
 	static let genreBreath: Duration = .milliseconds(80)
 
-	/// Window during which a permanently-failed song stays in the
-	/// negative cache. After this we retry once — Apple's catalog
-	/// occasionally backfills previews for older library items.
+	/// How long a permanently-failed song stays negative-cached before one
+	/// retry — Apple's catalog occasionally backfills previews for old items.
 	static let failureRetryAfter: TimeInterval = 60 * 86400
 
 	#if os(iOS)
-		/// Must match the entry in `Info.plist` →
-		/// `BGTaskSchedulerPermittedIdentifiers`. Registered at app launch;
-		/// scheduled after each handler run and after the foreground warmer
-		/// finishes a pass.
+		/// Must match `Info.plist` → `BGTaskSchedulerPermittedIdentifiers`.
 		static let bgTaskIdentifier = "me.daneden.Jukebox.libraryEmbedding"
 
-		/// Earliest re-fire delay for the background task. The scheduler
-		/// treats this as a hint, not a guarantee; iOS may delay
-		/// significantly based on usage patterns. 4h keeps us out of the
-		/// system's "this app is hungry" doghouse while still giving
-		/// multiple chances per day.
+		/// Earliest re-fire delay (a scheduler hint, not a guarantee). 4h
+		/// keeps us out of the system's "hungry app" doghouse while still
+		/// giving multiple chances per day.
 		static let bgTaskRefireDelay: TimeInterval = 4 * 60 * 60
 	#endif
 
 	private var isRunning = false
 
-	/// Session cache of the three-pool union. The union *membership* is stable
-	/// as the caches warm — only the per-song cached metadata changes — so
-	/// repeat callers within a short window (the overview's eager prime, its
-	/// background revalidate, a following warm pass) can share one fetch
-	/// instead of each re-paginating up to 10k Songs from MusicKit. Stats
-	/// recomputes still re-read the stores every time for fresh coverage.
+	/// Session cache of the three-pool union. Membership is stable as the
+	/// caches warm (only per-song metadata changes), so repeat callers in a
+	/// short window share one fetch instead of each re-paginating up to 10k
+	/// Songs from MusicKit.
 	private var cachedUnion: (songs: [Song], at: Date)?
 
 	/// How long a cached union stays fresh. Bounded so library mutations
-	/// (newly added / freshly played songs shifting the pool sorts) surface
-	/// within a session without forcing a refetch on every single call.
+	/// (newly added / played songs shifting the pool sorts) surface within
+	/// a session without refetching on every call.
 	static let unionCacheTTL: TimeInterval = 120
 
-	// Cached gating state, updated by background callbacks (NWPathMonitor
-	// path queue, UIDevice notifications on main). Kept in a lock so
-	// `conditionsFavorable` can be a synchronous nonisolated read in
+	// Cached gating state, updated by background callbacks. Kept in a lock
+	// so `conditionsFavorable` can be a synchronous nonisolated read in
 	// the warm loop's hot path.
 	private nonisolated let pathMonitor = NWPathMonitor()
 	private nonisolated let pathMonitorQueue = DispatchQueue(
 		label: "me.daneden.Jukebox.LibraryEmbeddingWarmer.path"
 	)
 	private nonisolated let _pathSatisfied = OSAllocatedUnfairLock<Bool>(initialState: false)
-	// Defaults to true so non-iOS targets (macOS) — where we don't
-	// observe battery state at all — read as "powered."
+	// Defaults to true so macOS (no battery observation) reads as "powered."
 	private nonisolated let _externalPowerConnected = OSAllocatedUnfairLock<Bool>(initialState: true)
 	private nonisolated let _monitoringStarted = OSAllocatedUnfairLock<Bool>(initialState: false)
 
@@ -147,10 +104,9 @@ actor LibraryEmbeddingWarmer {
 		warmer.pathMonitor.start(queue: warmer.pathMonitorQueue)
 
 		#if os(iOS)
-			// UIDevice is `@MainActor`-isolated. Setting up battery
-			// monitoring + seeding the cached state is a one-shot bounce
-			// to main; afterwards the notification observer keeps the
-			// cache fresh and `conditionsFavorable` stays synchronous.
+			// UIDevice is `@MainActor`-isolated; one-shot bounce to main to
+			// seed state, then the observer keeps the cache fresh so
+			// `conditionsFavorable` stays synchronous.
 			Task { @MainActor in
 				UIDevice.current.isBatteryMonitoringEnabled = true
 				let state = UIDevice.current.batteryState
@@ -174,8 +130,8 @@ actor LibraryEmbeddingWarmer {
 
 	#if os(iOS)
 		/// Register the BGTask handler. Must be called before the app
-		/// finishes launching (i.e. from `App.init`), otherwise the
-		/// scheduler refuses our identifier.
+		/// finishes launching (from `App.init`) or the scheduler refuses
+		/// our identifier.
 		nonisolated static func registerBackgroundTask() {
 			BGTaskScheduler.shared.register(
 				forTaskWithIdentifier: bgTaskIdentifier,
@@ -189,10 +145,8 @@ actor LibraryEmbeddingWarmer {
 			}
 		}
 
-		/// Submit a future BGProcessingTask. Safe to call repeatedly —
-		/// the scheduler treats duplicates as updates. We call this on
-		/// foreground warm-pass completion *and* after each BGTask run
-		/// so the queue stays primed.
+		/// Submit a future BGProcessingTask. Safe to call repeatedly — the
+		/// scheduler treats duplicates as updates.
 		nonisolated static func scheduleNextBackgroundTask() {
 			let request = BGProcessingTaskRequest(identifier: bgTaskIdentifier)
 			request.requiresNetworkConnectivity = true
@@ -202,8 +156,7 @@ actor LibraryEmbeddingWarmer {
 		}
 
 		private func handleBackgroundTask(_ task: BGProcessingTask) async {
-			// Re-arm the next run *before* doing work — if the handler
-			// crashes or expires uncleanly, we still get re-fired later.
+			// Re-arm before doing work so an unclean crash/expiry still re-fires.
 			Self.scheduleNextBackgroundTask()
 
 			let workTask = Task { await runWarmPass(requirePower: true) }
@@ -231,21 +184,17 @@ actor LibraryEmbeddingWarmer {
 			return
 		}
 
-		// Genre hydration. Bare `MusicLibraryRequest` songs come back with
-		// an empty `genreNames`; the genres only exist on the `.genres`
-		// relationship, which has to be hydrated per song. Cache the names
-		// so the energy fallback, the deck builders' band slices, and the
-		// walk's genre blend have a signal to read. Run first and on a
-		// short breath — it's the lightest pass and the broadest in impact,
-		// so it should land before the heavier embed pass across sessions.
+		// Genre hydration. `MusicLibraryRequest` songs come back with empty
+		// `genreNames`; genres only exist on the `.genres` relationship,
+		// hydrated per song. Run first and on a short breath — lightest pass,
+		// broadest impact, so it lands before the heavier embed pass.
 		let genreResolved = await GenreStore.shared.resolvedIDs(for: union.map(\.id))
 		for song in union where !genreResolved.contains(song.id.rawValue) {
 			if Task.isCancelled { return }
 			if !conditionsFavorable(requirePower: requirePower) { return }
 
-			// Only record on a successful hydration — a thrown error is
-			// transient, so leave the song unresolved to retry next pass
-			// rather than caching an empty list it doesn't deserve.
+			// Record only on success — a thrown error is transient, so leave
+			// the song unresolved to retry rather than caching an empty list.
 			if let hydrated = try? await song.with([.genres]) {
 				await GenreStore.shared.store(hydrated.genres?.map(\.name) ?? [], for: song.id)
 			}
@@ -259,20 +208,14 @@ actor LibraryEmbeddingWarmer {
 			do {
 				try await AudioEmbeddingService.ensureCached(song: song)
 			} catch {
-				// Permanent failures are negative-cached inside
-				// `ensureCached`; transient errors (downloadFailed)
-				// are silently retried next pass.
+				// Permanent failures are negative-cached inside `ensureCached`;
+				// transient errors are silently retried next pass.
 			}
 
 			try? await Task.sleep(for: Self.breath)
 		}
 
-		// Second pass: original-release-date resolution for songs we
-		// haven't yet looked up. Same WiFi + power gate, same 500ms
-		// breath. The resolver fires a catalog request per song so the
-		// budget shape matches embeds — but each row is a small Date
-		// rather than a 2KB vector, so the cache scales fine to the
-		// full long-tail.
+		// Second pass: original-release-date resolution for unlooked-up songs.
 		let resolved = await OriginalReleaseStore.shared.resolvedIDs(for: union.map(\.id))
 		for song in union where !resolved.contains(song.id.rawValue) {
 			if Task.isCancelled { return }
@@ -283,12 +226,9 @@ actor LibraryEmbeddingWarmer {
 		}
 
 		// Last pass: re-detect BPM for rows whose cached value came from an
-		// older detector version. Lowest priority — it improves existing
-		// data, where the earlier passes fill missing data. Re-downloads
-		// the preview but skips AudioFeaturePrint, so the embedding vector
-		// is preserved; reads keep serving the old BPM until each is
-		// overwritten, so there's no blackout. The negative-failure cache
-		// keeps unresolvable songs from re-downloading every pass.
+		// older detector version. Re-downloads the preview but skips
+		// AudioFeaturePrint, so the embedding vector is preserved; reads keep
+		// serving the old BPM until each is overwritten, so there's no blackout.
 		let staleBPM = await EmbeddingStore.shared.staleBPMIDs(for: union.map(\.id))
 		if !staleBPM.isEmpty {
 			let failedIDs = await EmbeddingStore.shared.recentFailures(within: Self.failureRetryAfter)
@@ -304,19 +244,11 @@ actor LibraryEmbeddingWarmer {
 		}
 	}
 
-	/// Synchronous read of the latest cached gating state. Cheap enough
-	/// to call between every embed.
-	///
-	/// WiFi is always required — a full pass is ~5GB, never on cellular.
-	/// The power requirement is conditional on who's asking:
-	///   - Background passes (`requirePower: true`) require external
-	///     power, so an unattended pass never drains the battery while
-	///     the user isn't even in the app.
-	///   - Foreground passes (`requirePower: false`) run on battery too,
-	///     but defer to Low Power Mode: if the user has signalled "save
-	///     battery," we don't compete. Without this the foreground pass
-	///     bailed on every battery session, so a phone that's rarely
-	///     charged-on-WiFi never embedded past its deck.
+	/// Synchronous read of cached gating state; cheap to call between embeds.
+	/// WiFi is always required. Background passes require external power;
+	/// foreground passes run on battery but defer to Low Power Mode — without
+	/// the battery path a rarely-charged-on-WiFi phone never embeds past its
+	/// deck.
 	private nonisolated func conditionsFavorable(requirePower: Bool) -> Bool {
 		guard _pathSatisfied.withLock({ $0 }) else { return false }
 		if requirePower {
@@ -325,11 +257,9 @@ actor LibraryEmbeddingWarmer {
 		return !ProcessInfo.processInfo.isLowPowerModeEnabled
 	}
 
-	/// Three-pool union of library songs (mirrors the deck builder's
-	/// pools so the long-tail warmer hits the same songs each axis
-	/// will surface). Capped at `libraryCap`. Also exposed so the
-	/// Library Overview view can compute its analysis-pool stats over
-	/// the same set the warmer will actually embed.
+	/// Three-pool union of library songs, mirroring the deck builder's pools
+	/// so the warmer hits the same songs each axis surfaces. Capped at
+	/// `libraryCap`. Also drives the Library Overview's analysis-pool stats.
 	func librarySnapshot() async throws -> [Song] {
 		if let cached = cachedUnion, Date().timeIntervalSince(cached.at) < Self.unionCacheTTL {
 			return cached.songs
@@ -366,11 +296,9 @@ actor LibraryEmbeddingWarmer {
 		return union
 	}
 
-	/// Filter the union to songs that need an embedding pass — either
-	/// signal missing (embedding or BPM). `ensureCached` decides
-	/// per-song between "full pipeline" (no embedding yet) and "BPM-
-	/// only backfill" (embedding cached but BPM nil). Recently-failed
-	/// songs are skipped at both layers.
+	/// Filter the union to songs missing either signal (embedding or BPM).
+	/// `ensureCached` decides per-song between full pipeline and BPM-only
+	/// backfill. Recently-failed songs are skipped.
 	private func embeddingEligible(_ union: [Song]) async -> [Song] {
 		let cached = await EmbeddingStore.shared.embeddings(for: union.map(\.id))
 		let cachedEmbeddingIDs = Set(cached.keys.map(\.rawValue))
@@ -392,10 +320,8 @@ actor LibraryEmbeddingWarmer {
 		case libraryAddedDate
 	}
 
-	/// Paginated fetch up to `Self.perPoolFetch` results. `MusicLibraryRequest.limit`
-	/// is documented small (25 default) but in practice accepts larger
-	/// values; we still paginate via `hasNextBatch` in case MusicKit
-	/// silently caps the first response.
+	/// Paginated fetch up to `perPoolFetch`. We still page via `hasNextBatch`
+	/// in case MusicKit silently caps the first response below the limit.
 	private func fetchPool(sort: PoolSort, ascending: Bool) async throws -> [Song] {
 		var request = MusicLibraryRequest<Song>()
 		switch sort {

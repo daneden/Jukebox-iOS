@@ -2,9 +2,8 @@
 //  Platform++.swift
 //  Jukebox
 //
-//  Small shims that let the same View tree compile on iOS and macOS.
-//  Each helper no-ops on the platform that lacks the underlying API
-//  rather than splitting call sites with `#if os(iOS)` everywhere.
+//  Shims so one View tree compiles on iOS and macOS — each no-ops on the
+//  platform lacking the API, instead of `#if os(iOS)` at every call site.
 //
 
 import SwiftUI
@@ -23,10 +22,7 @@ extension View {
 }
 
 extension ToolbarItemPlacement {
-	/// Trailing position in a navigation/window toolbar. Maps to
-	/// `.topBarTrailing` on iOS (which only exists there) and `.primaryAction`
-	/// on macOS, which lands buttons in the equivalent leading-of-window
-	/// trailing slot on a `NavigationStack` toolbar.
+	/// Trailing toolbar slot: `.topBarTrailing` on iOS, `.primaryAction` on macOS.
 	static var trailingAction: ToolbarItemPlacement {
 		#if os(iOS)
 			.topBarTrailing

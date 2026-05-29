@@ -4,14 +4,12 @@
 //
 //  Created by Daniel Eden on 20/05/2026.
 //
-//  A song pair the user has flagged as "don't put these next to each
-//  other again." Stored symmetrically — the pair key is the two song
-//  IDs sorted and joined, so we don't double-store a pair in both
-//  directions and the walk can check membership in O(1).
+//  A song pair flagged as "don't put these next to each other again."
+//  Pair key is the two IDs sorted and joined, so storage is symmetric
+//  and membership is O(1).
 //
-//  Soft preference, not a hard contract: if the walk can't find any
-//  unblocked candidate, it falls through to picking one rather than
-//  deadlocking the deck.
+//  Soft preference: if no unblocked candidate exists, the walk picks one
+//  anyway rather than deadlocking the deck.
 
 import Foundation
 import SwiftData

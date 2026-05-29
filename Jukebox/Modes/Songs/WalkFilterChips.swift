@@ -7,13 +7,8 @@
 
 import SwiftUI
 
-/// Capsule tags surfaced above the dial whenever any walk-control knob
-/// is off its default. Each active filter is its own glass chip; the
-/// energy chip carries the band's tint + a variable font width so the
-/// label itself hints at intensity (expanded reads calm, compressed
-/// reads tight). A trailing reset button clears every knob back to its
-/// app default. Chips wrap onto multiple lines when horizontal room
-/// runs out — see `ChipFlow`.
+/// Capsule tags above the dial for each off-default walk knob, plus a
+/// trailing reset chip. Wraps via `ChipFlow`.
 struct WalkFilterChips: View {
 	let controls: WalkControls
 	let onReset: () -> Void
@@ -65,9 +60,8 @@ struct WalkFilterChips: View {
 		}
 		.padding(.horizontal, 24)
 		.padding(.bottom, 12)
-		// macOS draws the wordmark inline above the dial (see `ToolbarLogo`
-		// in the VStack), so the chips need explicit breathing room beneath
-		// it. iOS hosts the wordmark in the nav bar — no extra gap needed.
+		// macOS draws the wordmark inline above the dial, so chips need a
+		// gap beneath it. iOS hosts the wordmark in the nav bar.
 		#if os(macOS)
 			.padding(.top, chips.isEmpty ? 0 : 16)
 		#endif
@@ -99,9 +93,7 @@ private struct ChipLabel: View {
 	}
 }
 
-/// Trailing chip rendered after the filter tags. Single tap clears
-/// every walk knob back to its app default; the chips animate out via
-/// the same scale+opacity transition the data chips use.
+/// Trailing chip that clears every walk knob back to its default.
 private struct ResetChip: View {
 	let action: () -> Void
 
@@ -116,10 +108,8 @@ private struct ResetChip: View {
 	}
 }
 
-/// Minimal flow layout — places subviews left-to-right and wraps to
-/// the next row when the proposed width can't fit the next one. Rows
-/// are centred horizontally so a single chip sits over the dial's
-/// centre line, and a wrapped pair stays balanced.
+/// Flow layout that wraps left-to-right and centres each row, so a single
+/// chip sits over the dial's centre line.
 private struct ChipFlow: Layout {
 	var spacing: CGFloat = 8
 	var rowSpacing: CGFloat = 8
