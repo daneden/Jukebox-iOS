@@ -245,6 +245,9 @@ enum GenreSimilarity {
 		["hip-hop/rap", "gangsta rap", "dirty south"],
 		["motown", "soul", "r&b/soul"],
 		["contemporary r&b", "neo-soul"],
+		// Doo Wop is a live Apple tag (1950s vocal R&B/pop); bridge it to
+		// the R&B/Soul spine so it reads as mellow rather than unknown.
+		["doo wop", "r&b/soul", "soul"],
 		// Trip-hop isn't in Apple's table; Bristol acts surface as
 		// Electronic > Downtempo. Bridge downtempo to hip-hop so
 		// dub/downtempo-tagged content connects to rap-tagged.

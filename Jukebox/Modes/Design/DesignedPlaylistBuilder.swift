@@ -101,6 +101,7 @@ enum DesignedPlaylistBuilder {
 		// we deliberately don't kick off fresh embedding work here. Songs
 		// without a cached embedding fall through to the keyword classifier.
 		let embeddings = await EmbeddingStore.shared.embeddings(for: pool.map(\.id))
+		let genres = await GenreStore.shared.genres(for: pool.map(\.id))
 
 		// Bucket the pool by band once, up front. Each band's bucket is
 		// independent of the others — same song could classify into
@@ -109,7 +110,7 @@ enum DesignedPlaylistBuilder {
 		// at most once across the final playlist.
 		var byBand: [EnergyBand: [Song]] = [:]
 		for band in EnergyBand.concreteOrdered {
-			byBand[band] = candidates(in: band, pool: pool, embeddings: embeddings)
+			byBand[band] = candidates(in: band, pool: pool, embeddings: embeddings, genres: genres)
 		}
 
 		// Bias each band away from songs that turned up in a Design run
@@ -193,13 +194,14 @@ enum DesignedPlaylistBuilder {
 	private static func candidates(
 		in band: EnergyBand,
 		pool: [Song],
-		embeddings: [MusicItemID: [Float]]
+		embeddings: [MusicItemID: [Float]],
+		genres: [MusicItemID: [String]]
 	) -> [Song] {
 		// Centroid classifier first; falls through to keyword filter on
 		// nil (no bundled centroids, or no anchor embeddings cached);
 		// falls through to keyword filter on empty result (centroid had
 		// no matches for this band).
-		if let centroid = EnergyClassifier.filter(pool, band: band, embeddings: embeddings),
+		if let centroid = EnergyClassifier.filter(pool, band: band, embeddings: embeddings, genres: genres),
 		   !centroid.isEmpty
 		{
 			return centroid

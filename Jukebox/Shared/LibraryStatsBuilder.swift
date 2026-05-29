@@ -76,8 +76,10 @@ enum LibraryStatsBuilder {
 
 		async let embeddingsLookup = EmbeddingStore.shared.embeddings(for: ids)
 		async let originalsLookup = OriginalReleaseStore.shared.originalDates(for: ids)
+		async let genresLookup = GenreStore.shared.genres(for: ids)
 		let embeddings = await embeddingsLookup
 		let originals = await originalsLookup
+		let genres = await genresLookup
 
 		let bundle = EnergyCentroidsLoader.bundled
 		let flat = bundle.map(EnergyClassifier.flatten(bundle:)) ?? []
@@ -88,11 +90,13 @@ enum LibraryStatsBuilder {
 		var genreCounts: [String: Int] = [:]
 
 		for song in union {
+			let songGenres = genres[song.id] ?? []
+
 			// Energy
 			if let bundle {
 				if let band = EnergyClassifier.band(
-					for: song,
 					embedding: embeddings[song.id],
+					genres: songGenres,
 					bundle: bundle,
 					flat: flat
 				) {
@@ -111,8 +115,10 @@ enum LibraryStatsBuilder {
 
 			// Genre (Apple's slash-combined tokens are kept atomic — see
 			// GenreSimilarity.swift; splitting them merges unrelated genres
-			// together that Apple deliberately groups).
-			for raw in song.genreNames {
+			// together that Apple deliberately groups). Sourced from the
+			// genre cache, not `song.genreNames` — the latter is always
+			// empty on library songs.
+			for raw in songGenres {
 				let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 				if !trimmed.isEmpty {
 					genreCounts[trimmed, default: 0] += 1

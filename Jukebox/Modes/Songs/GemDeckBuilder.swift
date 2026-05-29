@@ -261,8 +261,10 @@ enum GemDeckBuilder {
 		// don't need them. The 'top-only' path below short-circuits this
 		// branch.
 		var poolEmbeddings: [MusicItemID: [Float]]?
+		var poolGenres: [MusicItemID: [String]]?
 		if controls.energy != .any {
 			poolEmbeddings = await EmbeddingStore.shared.embeddings(for: songs.map(\.id))
+			poolGenres = await GenreStore.shared.genres(for: songs.map(\.id))
 		}
 
 		// Energy: centroid-based refinement first; if there aren't
@@ -274,7 +276,7 @@ enum GemDeckBuilder {
 		if controls.energy == .any {
 			energyPool = songs
 		} else if let emb = poolEmbeddings,
-		          let centroidFiltered = EnergyClassifier.filter(songs, band: controls.energy, embeddings: emb),
+		          let centroidFiltered = EnergyClassifier.filter(songs, band: controls.energy, embeddings: emb, genres: poolGenres ?? [:]),
 		          !centroidFiltered.isEmpty
 		{
 			energyPool = centroidFiltered
