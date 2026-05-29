@@ -60,8 +60,8 @@ struct LibraryOverviewView: View {
 		} else if let stats {
 			Form {
 				Section {
-					ProgressRow(label: "Deck", embedded: stats.deck.embedded, total: stats.deck.total)
-					ProgressRow(label: "Library", embedded: stats.analysisPool.embedded, total: stats.analysisPool.total)
+					analysisRow("Deck", embedded: stats.deck.embedded, total: stats.deck.total)
+					analysisRow("Library", embedded: stats.analysisPool.embedded, total: stats.analysisPool.total)
 				} header: {
 					Text("Analysis")
 				} footer: {
@@ -77,7 +77,7 @@ struct LibraryOverviewView: View {
 				}
 
 				Section("Energy") {
-					energyBars(rows: stats.energyBuckets)
+					EnergyChart(rows: stats.energyBuckets)
 				}
 
 				energyEraSection(stats: stats)
@@ -132,17 +132,19 @@ struct LibraryOverviewView: View {
 		}
 	}
 
-	private func energyBars(rows: [LibraryStats.EnergyCount]) -> some View {
-		let maxCount = max(rows.map(\.count).max() ?? 1, 1)
-		return VStack(spacing: 10) {
-			ForEach(rows) { row in
-				BarRow(
-					label: row.label,
-					count: row.count,
-					maxCount: maxCount,
-					tint: row.band?.tint ?? .secondary,
-					showSwatch: row.band != nil
-				)
+	private func analysisRow(_ label: String, embedded: Int, total: Int) -> some View {
+		// Built-in linear progress meter — replaces the hand-rolled
+		// Capsule track.
+		ProgressView(value: Double(embedded), total: Double(max(total, 1))) {
+			HStack {
+				Text(label)
+					.font(.subheadline.weight(.medium))
+				Spacer()
+				Text("\(embedded.formatted()) of \(total.formatted())")
+					.font(.subheadline)
+					.monospacedDigit()
+					.foregroundStyle(.secondary)
+					.contentTransition(.numericText())
 			}
 		}
 	}
@@ -172,7 +174,6 @@ struct LibraryOverviewView: View {
 	}
 
 	private func genresSection(rows: [LibraryStats.BucketCount], total: Int) -> some View {
-		let maxCount = max(rows.map(\.count).max() ?? 1, 1)
 		let remaining = max(0, total - rows.count)
 		return Section {
 			if rows.isEmpty {
@@ -180,17 +181,7 @@ struct LibraryOverviewView: View {
 					.font(.footnote)
 					.foregroundStyle(.secondary)
 			} else {
-				VStack(spacing: 10) {
-					ForEach(rows) { row in
-						BarRow(
-							label: row.label,
-							count: row.count,
-							maxCount: maxCount,
-							tint: .secondary,
-							showSwatch: false
-						)
-					}
-				}
+				GenreChart(rows: rows)
 			}
 		} header: {
 			Text("Genres")
@@ -248,103 +239,62 @@ struct LibraryOverviewView: View {
 	}
 }
 
-// MARK: - Row primitives
+// MARK: - Bar charts
 
-private struct ProgressRow: View {
-	let label: String
-	let embedded: Int
-	let total: Int
-
-	private var fraction: Double {
-		guard total > 0 else { return 0 }
-		return Double(embedded) / Double(total)
-	}
+/// Horizontal bar per energy band (+ Unclassified), colored by band tint,
+/// count as a trailing annotation. Swift Charts handles the bar scaling,
+/// layout, and animation that the old hand-rolled `BarRow` did by hand.
+private struct EnergyChart: View {
+	let rows: [LibraryStats.EnergyCount]
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: 6) {
-			HStack(alignment: .firstTextBaseline) {
-				Text(label)
-					.font(.subheadline.weight(.medium))
-				Spacer()
-				Text("\(embedded.formatted()) of \(total.formatted())")
-					.font(.subheadline)
+		Chart(rows) { row in
+			BarMark(
+				x: .value("Songs", row.count),
+				y: .value("Energy", row.label)
+			)
+			.foregroundStyle(row.band?.tint ?? .secondary)
+			.cornerRadius(4)
+			.annotation(position: .trailing, alignment: .leading) {
+				Text(row.count, format: .number)
+					.font(.caption)
 					.monospacedDigit()
 					.foregroundStyle(.secondary)
-					.contentTransition(.numericText())
 			}
-			ProgressTrack(fraction: fraction)
 		}
+		// rows are in band order (Glacial…Intense, then Unclassified);
+		// the first y-domain entry sits at the top, matching that order.
+		.chartYScale(domain: rows.map(\.label))
+		.chartXAxis(.hidden)
+		.chartLegend(.hidden)
+		.frame(height: CGFloat(rows.count) * 34)
 	}
 }
 
-private struct ProgressTrack: View {
-	let fraction: Double
+/// Horizontal bar per top genre, single neutral fill, count trailing.
+private struct GenreChart: View {
+	let rows: [LibraryStats.BucketCount]
 
 	var body: some View {
-		GeometryReader { geo in
-			ZStack(alignment: .leading) {
-				Capsule()
-					.fill(.tertiary)
-					.frame(height: 4)
-				Capsule()
-					.fill(Color.accentColor)
-					.frame(width: max(0, geo.size.width * fraction), height: 4)
-					.animation(.smooth(duration: 0.4), value: fraction)
+		Chart(rows) { row in
+			BarMark(
+				x: .value("Songs", row.count),
+				y: .value("Genre", row.label)
+			)
+			.foregroundStyle(Color.secondary)
+			.cornerRadius(4)
+			.annotation(position: .trailing, alignment: .leading) {
+				Text(row.count, format: .number)
+					.font(.caption)
+					.monospacedDigit()
+					.foregroundStyle(.secondary)
 			}
 		}
-		.frame(height: 4)
-	}
-}
-
-private struct BarRow: View {
-	let label: String
-	let count: Int
-	let maxCount: Int
-	let tint: Color
-	let showSwatch: Bool
-
-	private var fraction: Double {
-		guard maxCount > 0 else { return 0 }
-		return Double(count) / Double(maxCount)
-	}
-
-	var body: some View {
-		HStack(spacing: 12) {
-			HStack(spacing: 8) {
-				if showSwatch {
-					RoundedRectangle(cornerRadius: 2)
-						.fill(tint)
-						.frame(width: 6, height: 14)
-				} else {
-					// Keep the leading edge aligned across rows whether
-					// or not a swatch is present, so labels line up.
-					Color.clear.frame(width: 6, height: 14)
-				}
-				Text(label)
-					.font(.subheadline)
-					.lineLimit(1)
-					.truncationMode(.tail)
-			}
-			.frame(width: 132, alignment: .leading)
-
-			GeometryReader { geo in
-				ZStack(alignment: .leading) {
-					Capsule()
-						.fill(.tertiary)
-						.frame(height: 6)
-					Capsule()
-						.fill(tint)
-						.frame(width: max(0, geo.size.width * fraction), height: 6)
-				}
-			}
-			.frame(height: 6)
-
-			Text(count, format: .number)
-				.font(.subheadline)
-				.monospacedDigit()
-				.foregroundStyle(.secondary)
-				.frame(minWidth: 56, alignment: .trailing)
-		}
+		// rows are sorted by count descending → highest genre at the top.
+		.chartYScale(domain: rows.map(\.label))
+		.chartXAxis(.hidden)
+		.chartLegend(.hidden)
+		.frame(height: CGFloat(rows.count) * 30)
 	}
 }
 
