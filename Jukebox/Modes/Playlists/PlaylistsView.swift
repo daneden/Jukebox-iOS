@@ -166,9 +166,27 @@ struct PlaylistsView: View {
 	}
 
 	private func applyPlaylists(_ raw: MusicItemCollection<Playlist>) {
-		let new = blockedPlaylistIDs.isEmpty
-			? raw
-			: MusicItemCollection<Playlist>(raw.filter { !blockedPlaylistIDs.contains($0.id.rawValue) })
+		let filtered = blockedPlaylistIDs.isEmpty
+			? Array(raw)
+			: raw.filter { !blockedPlaylistIDs.contains($0.id.rawValue) }
+
+		// Keep the order already on the dial and append newly-seen playlists
+		// (themselves shuffled). On cold start nothing is on the dial, so the
+		// whole set is "new" and gets shuffled — each launch explores a fresh
+		// random sequence instead of last-played order. Preserving the
+		// existing order is what stops streaming batches and resume refetches
+		// from snapping the dial back to last-played mid-session.
+		let ordered: [Playlist]
+		if playlists.isEmpty {
+			ordered = filtered.shuffled()
+		} else {
+			let byID = Dictionary(filtered.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+			let known = Set(playlists.map(\.id))
+			ordered = playlists.compactMap { byID[$0.id] }
+				+ filtered.filter { !known.contains($0.id) }.shuffled()
+		}
+		let new = MusicItemCollection(ordered)
+
 		let preservedID = dial.focusedItemID
 		let newIdx = preservedID.flatMap { id in new.firstIndex(where: { $0.id == id }) }
 
