@@ -147,7 +147,7 @@ struct SongsView: View {
 					}
 					.buttonStyle(.glass)
 					.buttonBorderShape(.circle)
-					.controlSize(.extraLarge)
+					.controlSize(.large)
 					.disabled(dial.isSpinning || isReshuffling)
 					.popover(isPresented: $showingWalkControls) {
 						WalkControlsPopover(

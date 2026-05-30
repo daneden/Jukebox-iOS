@@ -25,6 +25,8 @@ struct PlaybackControls<Leading: View>: View {
 			HStack(spacing: 8) {
 				leading
 
+				AirPlayRouteButton()
+
 				AsyncButton(action: onPlay) {
 					Label("Play", systemImage: "play.fill")
 						.frame(maxWidth: .infinity)
@@ -32,7 +34,7 @@ struct PlaybackControls<Leading: View>: View {
 				.fontWeight(.bold)
 				.buttonStyle(.glass)
 				.buttonBorderShape(.capsule)
-				.controlSize(.extraLarge)
+				.controlSize(.large)
 				.disabled(disabled)
 
 				AsyncButton(action: handleShuffle) {
@@ -43,10 +45,8 @@ struct PlaybackControls<Leading: View>: View {
 				.fontWeight(.bold)
 				.buttonStyle(.glassProminent)
 				.buttonBorderShape(.capsule)
-				.controlSize(.extraLarge)
+				.controlSize(.large)
 				.disabled(disabled)
-
-				AirPlayRouteButton()
 			}
 			.frame(height: 44)
 		}
