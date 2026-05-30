@@ -31,7 +31,7 @@ struct PlaylistsTip: Tip {
 	}
 
 	var message: Text? {
-		Text("Flick the dial or hit shuffle to land on a playlist you forgot you saved.")
+		Text("You’ve got good taste. Flick the dial or hit shuffle to land on a playlist you forgot you saved.")
 	}
 
 	var image: Image? {
@@ -45,7 +45,7 @@ struct DesignTip: Tip {
 	}
 
 	var message: Text? {
-		Text("Create playlists from your library based on their energy. Works best after a few days of use.")
+		Text("Create playlists from your library based on their energy. Works best with more complete music library analysis.")
 	}
 
 	var image: Image? {
@@ -64,11 +64,11 @@ extension View {
 		safeAreaInset(edge: .top, spacing: 0) {
 			TipView(tip)
 				.padding(.horizontal)
-				#if os(macOS)
+			#if os(macOS)
 				.padding(.top, 8)
-				#else
+			#else
 				.padding(.bottom)
-				#endif
+			#endif
 		}
 		#if os(iOS)
 		.navigationBarTitleDisplayMode(.inline)
