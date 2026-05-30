@@ -119,7 +119,7 @@ struct HowItWorksView: View {
 			} label: {
 				Label {
 					VStack(alignment: .leading, spacing: 2) {
-						Text("Library analysis")
+						Text("See your library analysis")
 						Text(analysisStatus)
 							.font(.caption)
 							.foregroundStyle(.secondary)
@@ -127,8 +127,11 @@ struct HowItWorksView: View {
 				} icon: {
 					Image(systemName: "waveform.badge.magnifyingglass")
 				}
+				.padding(8)
+				.frame(maxWidth: .infinity, alignment: .leading)
 			}
 			.buttonStyle(.bordered)
+			.buttonBorderShape(.roundedRectangle(radius: 24))
 			.fontDesign(.default)
 			.padding(.top, 4)
 		}
@@ -138,11 +141,13 @@ struct HowItWorksView: View {
 	/// toolbar popover's wording.
 	private var analysisStatus: String {
 		let progress = EmbeddingProgress.shared
-		guard progress.hasDeck else { return "See your library breakdown" }
-		if progress.isComplete {
-			return "All \(progress.totalCount) songs analyzed"
+
+		if !progress.hasDeck {
+			return "Analysing library..."
+		} else if progress.isComplete {
+			return "All \(progress.totalCount) songs in rotation analyzed"
 		}
-		return "\(progress.embeddedCount) of \(progress.totalCount) songs analyzed"
+		return "\(progress.embeddedCount) of \(progress.totalCount) songs in rotation analyzed"
 	}
 
 	// MARK: - Energy section
