@@ -28,7 +28,11 @@ struct WalkControlsPopover: View {
 				poolSize: poolSize
 			)
 		}
-		.frame(idealWidth: 360)
+		// A popover sizes to its content's ideal dimensions, and a Form
+		// reports no intrinsic height — so without an explicit one the iPad
+		// popover collapses to a sliver. iPhone sidesteps this by adapting
+		// to a sheet (see the call site).
+		.frame(idealWidth: 360, idealHeight: 540)
 	}
 }
 
