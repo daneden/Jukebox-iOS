@@ -64,7 +64,11 @@ extension View {
 		safeAreaInset(edge: .top, spacing: 0) {
 			TipView(tip)
 				.padding(.horizontal)
+				#if os(macOS)
 				.padding(.top, 8)
+				#else
+				.padding(.bottom)
+				#endif
 		}
 		#if os(macOS)
 		.safeAreaInset(edge: .top, spacing: 0) {
