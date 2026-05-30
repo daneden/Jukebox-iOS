@@ -16,21 +16,7 @@
 
 	struct AirPlayRouteButton: View {
 		var body: some View {
-			Button(action: {}) {
-				// Hidden: reserves the same footprint as the Filters icon so the
-				// glass circle sizes identically; the picker overlay draws the
-				// visible glyph.
-				Label("AirPlay", systemImage: "airplayaudio")
-					.imageScale(.large)
-					.labelStyle(.iconOnly)
-					.hidden()
-			}
-			.buttonStyle(.glass)
-			.buttonBorderShape(.circle)
-			.overlay {
-				RoutePicker()
-					.accessibilityLabel("AirPlay")
-			}
+			RoutePicker()
 		}
 	}
 

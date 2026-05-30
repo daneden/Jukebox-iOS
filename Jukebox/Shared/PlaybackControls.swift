@@ -23,12 +23,23 @@ struct PlaybackControls<Leading: View>: View {
 	var body: some View {
 		GlassEffectContainer(spacing: 8) {
 			HStack(spacing: 8) {
-				ControlGroup {
-					leading
+				#if os(iOS)
+					HStack(spacing: 4) {
+						Group {
+							leading
 
-					AirPlayRouteButton()
-				}
-				.controlSize(.large)
+							AirPlayRouteButton()
+						}
+						.frame(minWidth: 36)
+					}
+					.padding(8)
+					.fixedSize(horizontal: true, vertical: false)
+					.glassEffect(.regular.interactive(), in: .capsule)
+				#else
+					leading
+						.buttonStyle(.glass)
+						.buttonBorderShape(.circle)
+				#endif
 
 				AsyncButton(action: onPlay) {
 					Label("Play", systemImage: "play.fill")
@@ -37,7 +48,6 @@ struct PlaybackControls<Leading: View>: View {
 				.fontWeight(.bold)
 				.buttonStyle(.glass)
 				.buttonBorderShape(.capsule)
-				.controlSize(.large)
 				.disabled(disabled)
 
 				AsyncButton(action: handleShuffle) {
@@ -48,13 +58,14 @@ struct PlaybackControls<Leading: View>: View {
 				.fontWeight(.bold)
 				.buttonStyle(.glassProminent)
 				.buttonBorderShape(.capsule)
-				.controlSize(.large)
 				.disabled(disabled)
 			}
 			.frame(height: 44)
 		}
+		.controlSize(.extraLarge)
 		.scenePadding(.horizontal)
 		.scenePadding(.bottom)
+		.allowsTightening(true)
 		.confirmationDialog(
 			"Play automatically when you shuffle?",
 			isPresented: $showingAutoplayPrompt,
