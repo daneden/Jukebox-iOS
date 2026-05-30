@@ -72,9 +72,9 @@ struct LibraryOverviewView: View {
 					energyEraSection(stats: stats)
 					genresSection(rows: stats.topGenres, total: stats.totalGenreCount)
 				} else {
-					analyzingSection("Energy")
-					analyzingSection("Energy over time")
-					analyzingSection("Genres")
+					analysingSection("Energy")
+					analysingSection("Energy over time")
+					analysingSection("Genres")
 				}
 			}
 			.formStyle(.grouped)
@@ -93,7 +93,7 @@ struct LibraryOverviewView: View {
 			if let stats {
 				analysisRow("Library", embedded: stats.analysisPool.embedded, total: stats.analysisPool.total)
 			} else {
-				analyzingRow("Library")
+				analysingRow("Library")
 			}
 		} header: {
 			Text("Analysis")
@@ -103,12 +103,12 @@ struct LibraryOverviewView: View {
 	}
 
 	/// Placeholder for a union-derived section before its snapshot lands.
-	private func analyzingSection(_ title: String) -> some View {
+	private func analysingSection(_ title: String) -> some View {
 		Section {
 			HStack(spacing: 8) {
 				ProgressView()
 					.controlSize(.small)
-				Text("Analyzing your library…")
+				Text("Analysing your library…")
 					.font(.subheadline)
 					.foregroundStyle(.secondary)
 			}
@@ -161,7 +161,7 @@ struct LibraryOverviewView: View {
 	}
 
 	/// `analysisRow`'s layout with a spinner in place of the count.
-	private func analyzingRow(_ label: String) -> some View {
+	private func analysingRow(_ label: String) -> some View {
 		HStack {
 			Text(label)
 				.font(.subheadline.weight(.medium))
@@ -189,7 +189,7 @@ struct LibraryOverviewView: View {
 	private func energyEraSection(stats: LibraryStats) -> some View {
 		Section {
 			if stats.energyPoints.isEmpty {
-				Text("Energy appears here as songs are analyzed.")
+				Text("Energy appears here as songs are analysed.")
 					.font(.footnote)
 					.foregroundStyle(.secondary)
 			} else {

@@ -46,7 +46,7 @@ struct LibraryStats: Codable {
 	/// so the temporal axis spreads songs across months rather than stacking them
 	/// into yearly columns. `addedDate` is nil when the library add-date is
 	/// missing, so the date-added view drops it. Songs with no cached BPM sit on
-	/// their band's centre line and spread off it only as tempo is analyzed.
+	/// their band's centre line and spread off it only as tempo is analysed.
 	struct EnergyPoint: Identifiable, Equatable, Codable {
 		let id: String
 		let releaseDate: Date

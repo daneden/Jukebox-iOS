@@ -101,7 +101,7 @@ struct HowItWorksView: View {
 		VStack(alignment: .leading, spacing: 12) {
 			sectionHeading("Audio fingerprints")
 
-			body(Text("Each song’s audio is fingerprinted from its 30-second iTunes preview using Apple’s built-in audio analyzer. The resulting 512-number vector captures the song’s sonic character and is cached locally on your device."))
+			body(Text("Each song’s audio is fingerprinted from its 30-second iTunes preview using Apple’s built-in audio analyser. The resulting 512-number vector captures the song’s sonic character and is cached locally on your device."))
 
 			body(Text("Cosine similarity between two vectors tells the ordering how alike two songs sound. That signal is blended with tempo, genre, and release date to create playlists that feel curated. Weights depend on what’s cached:"))
 
@@ -145,9 +145,9 @@ struct HowItWorksView: View {
 		if !progress.hasDeck {
 			return "Analysing library..."
 		} else if progress.isComplete {
-			return "All \(progress.totalCount) songs in rotation analyzed"
+			return "All \(progress.totalCount) songs in rotation analysed"
 		}
-		return "\(progress.embeddedCount) of \(progress.totalCount) songs in rotation analyzed"
+		return "\(progress.embeddedCount) of \(progress.totalCount) songs in rotation analysed"
 	}
 
 	// MARK: - Energy section

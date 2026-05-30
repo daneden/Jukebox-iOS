@@ -69,9 +69,9 @@ struct EmbeddingProgressIndicator: View {
 
 	private var accessibilityValue: String {
 		if progress.isComplete {
-			"All \(progress.totalCount) songs analyzed"
+			"All \(progress.totalCount) songs analysed"
 		} else {
-			"\(progress.embeddedCount) of \(progress.totalCount) songs analyzed"
+			"\(progress.embeddedCount) of \(progress.totalCount) songs analysed"
 		}
 	}
 }
@@ -119,9 +119,9 @@ private struct EmbeddingProgressPopover: View {
 
 	private var subtitle: String {
 		if progress.isComplete {
-			"All \(progress.totalCount) songs in rotation analyzed"
+			"All \(progress.totalCount) songs in rotation analysed"
 		} else {
-			"\(progress.embeddedCount) of \(progress.totalCount) songs in rotation analyzed"
+			"\(progress.embeddedCount) of \(progress.totalCount) songs in rotation analysed"
 		}
 	}
 
