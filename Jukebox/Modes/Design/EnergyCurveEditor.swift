@@ -113,6 +113,7 @@ struct EnergyCurveEditor: View {
 			.padding(4)
 			.padding(.horizontal, 4)
 			.background(.quinary)
+			.background(.background)
 			.drawingGroup(opaque: true)
 			.clipShape(.capsule)
 			.padding(12)
