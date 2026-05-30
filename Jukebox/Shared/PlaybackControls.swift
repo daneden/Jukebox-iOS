@@ -45,6 +45,8 @@ struct PlaybackControls<Leading: View>: View {
 				.buttonBorderShape(.capsule)
 				.controlSize(.extraLarge)
 				.disabled(disabled)
+
+				AirPlayRouteButton()
 			}
 			.frame(height: 44)
 		}
