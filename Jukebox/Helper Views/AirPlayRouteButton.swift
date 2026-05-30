@@ -17,6 +17,7 @@
 	struct AirPlayRouteButton: View {
 		var body: some View {
 			RoutePicker()
+				.frame(width: 24, height: 24)
 		}
 	}
 

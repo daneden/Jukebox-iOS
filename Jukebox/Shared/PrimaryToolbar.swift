@@ -17,7 +17,14 @@ private struct PrimaryToolbar: ViewModifier {
 			.toolbar {
 				ToolbarItem(placement: .navigation) { SettingsMenu() }
 				#if os(iOS)
-					// macOS renders the wordmark inline; the principal slot competes with window chrome.
+
+					ToolbarSpacer(.fixed, placement: .navigation)
+
+					ToolbarItem(placement: .navigation) {
+						AirPlayRouteButton()
+					}
+
+					// macOS renders the logo inline
 					ToolbarItem(placement: .principal) { ToolbarLogo() }
 				#endif
 				ToolbarItem(placement: .trailingAction) {
