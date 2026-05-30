@@ -2,8 +2,12 @@
 //  AirPlayRouteButton.swift
 //  Jukebox
 //
-//  System AirPlay / output-route picker, styled to sit beside Play + Shuffle.
-//  SwiftUI ships no route-picker view, so this wraps AVKit's AVRoutePickerView.
+//  System AirPlay / output-route picker, styled to match the Filters button.
+//  SwiftUI ships no route-picker view and no way to present the system route
+//  popover from a Button action — only AVRoutePickerView's own tap opens it.
+//  So a glass Button supplies the chrome (and inherits controlSize/buttonStyle),
+//  and a transparent AVRoutePickerView overlaid on top draws the glyph, captures
+//  the tap, and keeps its built-in active-state tint.
 //
 
 #if os(iOS)
@@ -12,10 +16,21 @@
 
 	struct AirPlayRouteButton: View {
 		var body: some View {
-			RoutePicker()
-				.frame(width: 44, height: 44)
-				.glassEffect(.regular.interactive(), in: .circle)
-				.accessibilityLabel("AirPlay")
+			Button(action: {}) {
+				// Hidden: reserves the same footprint as the Filters icon so the
+				// glass circle sizes identically; the picker overlay draws the
+				// visible glyph.
+				Label("AirPlay", systemImage: "airplayaudio")
+					.imageScale(.large)
+					.labelStyle(.iconOnly)
+					.hidden()
+			}
+			.buttonStyle(.glass)
+			.buttonBorderShape(.circle)
+			.overlay {
+				RoutePicker()
+					.accessibilityLabel("AirPlay")
+			}
 		}
 	}
 

@@ -23,9 +23,12 @@ struct PlaybackControls<Leading: View>: View {
 	var body: some View {
 		GlassEffectContainer(spacing: 8) {
 			HStack(spacing: 8) {
-				leading
+				ControlGroup {
+					leading
 
-				AirPlayRouteButton()
+					AirPlayRouteButton()
+				}
+				.controlSize(.large)
 
 				AsyncButton(action: onPlay) {
 					Label("Play", systemImage: "play.fill")
