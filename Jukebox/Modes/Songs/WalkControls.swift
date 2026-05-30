@@ -155,3 +155,32 @@ struct DecadeRange: Equatable {
 		decade >= lower && decade <= upper
 	}
 }
+
+extension WalkControls {
+	/// Reconstruct the user's persisted Songs-mode filters, mirroring the
+	/// `@AppStorage` reads in `SongsView` so off-dial callers (App Intents,
+	/// Control Center) build the same deck the app would. `@AppStorage`
+	/// defaults apply only when a key is absent, so substitute the same
+	/// fallbacks rather than trusting `UserDefaults`' raw 0.
+	static func saved(_ defaults: UserDefaults = .standard) -> WalkControls {
+		func double(_ key: String, fallback: Double) -> Double {
+			defaults.object(forKey: key) == nil ? fallback : defaults.double(forKey: key)
+		}
+		func int(_ key: String, fallback: Int) -> Int {
+			defaults.object(forKey: key) == nil ? fallback : defaults.integer(forKey: key)
+		}
+		// -1 is SongsView's "no energy filter" sentinel (AppStorage can't hold an optional).
+		let target = double(SettingsKeys.walkEnergyTarget, fallback: -1)
+		return WalkControls(
+			meander: double(SettingsKeys.walkMeander, fallback: WalkControls.default.meander),
+			energy: EnergyFilter(
+				target: target < 0 ? nil : target,
+				window: double(SettingsKeys.walkEnergyWindow, fallback: EnergyFilter.defaultWindow)
+			),
+			decadeRange: DecadeRange(
+				lower: int(SettingsKeys.walkDecadeLower, fallback: WalkControls.default.decadeRange.lower),
+				upper: int(SettingsKeys.walkDecadeUpper, fallback: WalkControls.default.decadeRange.upper)
+			)
+		)
+	}
+}

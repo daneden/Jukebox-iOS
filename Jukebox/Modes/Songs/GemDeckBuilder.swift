@@ -65,12 +65,50 @@ enum GemDeckBuilder {
 	}
 
 	/// Final-result API: consumes the stream and returns the last emission.
-	static func build(now: Date = Date()) async throws -> BuildResult {
+	/// Forwards the walk parameters so callers off the dial (App Intents,
+	/// Control Center) build the same filtered deck `SongsView` does.
+	static func build(
+		now: Date = Date(),
+		controls: WalkControls = .default,
+		wideSample: Bool = false,
+		avoidDecade: Int? = nil,
+		avoidArtist: String? = nil
+	) async throws -> BuildResult {
 		var last: BuildResult?
-		for try await result in buildStreaming(now: now) {
+		for try await result in buildStreaming(
+			now: now,
+			wideSample: wideSample,
+			controls: controls,
+			avoidDecade: avoidDecade,
+			avoidArtist: avoidArtist
+		) {
 			last = result
 		}
 		return last ?? BuildResult(deck: [], scannedCount: 0, libraryDecadeBounds: nil, originals: [:])
+	}
+
+	/// Default ± landing spread around the deck head, shared by the dial's
+	/// cold-launch landing and the off-dial intents.
+	static let defaultLandingSpread = 6
+
+	/// A random landing index within ±`spread` of the deck head, wrapped
+	/// modularly. Mirrors the dial's seed-landing so an intent-built deck
+	/// starts somewhere fresh near the top instead of always at index 0.
+	static func seedIndex(deckCount: Int, spread: Int = defaultLandingSpread) -> Int {
+		guard deckCount > 1 else { return 0 }
+		let s = min(spread, max(0, deckCount - 1))
+		guard s > 0 else { return 0 }
+		let offset = Int.random(in: -s ... s)
+		return ((offset % deckCount) + deckCount) % deckCount
+	}
+
+	/// `length` songs from `startIndex`, wrapping the deck modularly (it's a
+	/// cylinder, so a tail seed still gets a full runway). The runway both
+	/// `SongsView.play(from:)` and the intents seed the queue with.
+	static func runway(deck: [Song], startIndex: Int, length: Int = 20) -> [Song] {
+		guard !deck.isEmpty else { return [] }
+		let n = min(length, deck.count)
+		return (0 ..< n).map { deck[(startIndex + $0) % deck.count] }
 	}
 
 	/// Builds the deck end-to-end: three pools in parallel, deduped,

@@ -139,6 +139,16 @@ actor HistoryStore {
 		return rows.map(HistoryEntrySnapshot.init)
 	}
 
+	/// A single entry by id, for App Intents entity resolution.
+	func entry(id: UUID) -> HistoryEntrySnapshot? {
+		do { try ensureLoaded() } catch { return nil }
+		guard let context else { return nil }
+		let descriptor = FetchDescriptor<HistoryPlaylist>(
+			predicate: #Predicate { $0.id == id }
+		)
+		return (try? context.fetch(descriptor))?.first.map(HistoryEntrySnapshot.init)
+	}
+
 	func delete(id: UUID) {
 		do { try ensureLoaded() } catch { return }
 		guard let context else { return }
@@ -270,6 +280,21 @@ struct SongSnapshot: Hashable {
 		title = song.title
 		artistName = song.artistName
 		albumTitle = song.albumTitle
+	}
+}
+
+extension Array where Element == SongSnapshot {
+	/// Resolve snapshots back to live library `Song`s, preserving order and
+	/// dropping any no longer in the user's library. Shared by the History
+	/// "Save to library" button and the `SaveToLibrary` App Intent.
+	func resolveLibrarySongs() async throws -> [Song] {
+		let ids = map { MusicItemID($0.id) }
+		guard !ids.isEmpty else { return [] }
+		var request = MusicLibraryRequest<Song>()
+		request.filter(matching: \.id, memberOf: ids)
+		let response = try await request.response()
+		let byID = Dictionary(uniqueKeysWithValues: response.items.map { ($0.id, $0) })
+		return ids.compactMap { byID[$0] }
 	}
 }
 

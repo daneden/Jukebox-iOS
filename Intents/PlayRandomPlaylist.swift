@@ -30,27 +30,14 @@ struct PlayRandomPlaylist: AppIntent, CustomIntentMigratedAppIntent, Predictable
 		}
 	}
 
-	func perform() async throws -> some IntentResult {
-		let request = MusicLibraryRequest<Playlist>()
-		let response = try await request.response()
-
-		let eligiblePlaylists = response.items
-
-		guard let playlist = eligiblePlaylists.randomElement() else {
-			return .result(dialog: IntentDialog("No playlists found"))
+	func perform() async throws -> some IntentResult & ProvidesDialog {
+		let result = await IntentActions.playRandomPlaylist()
+		guard let name = result.name else {
+			throw PlaybackIntentError.noPlaylists
 		}
-
-		guard await MusicPlayback.play(playlist: playlist) else {
-			return .result(dialog: IntentDialog("Unable to play"))
+		guard result.ok else {
+			throw PlaybackIntentError.playbackFailed
 		}
-
-		return .result(dialog: IntentDialog.responseSuccess(playlistName: playlist.name))
-	}
-}
-
-@available(iOS 16.0, macOS 13.0, watchOS 9.0, tvOS 16.0, *)
-private extension IntentDialog {
-	static func responseSuccess(playlistName: String) -> Self {
-		"Playing your playlist “\(playlistName)”"
+		return .result(dialog: "Playing your playlist “\(name)”")
 	}
 }

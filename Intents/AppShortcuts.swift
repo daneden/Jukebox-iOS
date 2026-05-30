@@ -34,5 +34,25 @@ struct JukeboxAppShortcuts: AppShortcutsProvider {
 			shortTitle: "Play Random Playlist",
 			systemImageName: "shuffle"
 		)
+		AppShortcut(
+			intent: DesignPlaylist(),
+			phrases: [
+				"Design a playlist with \(.applicationName)",
+				"Design a playlist in \(.applicationName)",
+				"Build an energy curve with \(.applicationName)",
+			],
+			shortTitle: "Design a Playlist",
+			systemImageName: "point.topleft.down.to.point.bottomright.curvepath"
+		)
+		AppShortcut(
+			intent: SaveToLibrary(),
+			phrases: [
+				"Save that playlist with \(.applicationName)",
+				"Save to my library with \(.applicationName)",
+				"Save my \(.applicationName) playlist",
+			],
+			shortTitle: "Save Playlist to Library",
+			systemImageName: "plus.rectangle.on.folder"
+		)
 	}
 }

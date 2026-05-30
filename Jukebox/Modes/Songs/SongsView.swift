@@ -469,10 +469,7 @@ struct SongsView: View {
 		// Wrap modularly: the dial is a cylinder, so a tail landing still
 		// gets a full 20-song runway by continuing from the deck's start.
 		guard let startIdx = deck.firstIndex(where: { $0.id == song.id }) else { return }
-		let runwayLength = min(20, deck.count)
-		let runway = (0 ..< runwayLength).map { offset in
-			deck[(startIdx + offset) % deck.count]
-		}
+		let runway = GemDeckBuilder.runway(deck: Array(deck), startIndex: startIdx)
 		guard !runway.isEmpty else { return }
 
 		guard await MusicPlayback.play(songs: runway) else { return }

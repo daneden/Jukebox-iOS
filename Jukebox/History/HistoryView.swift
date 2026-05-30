@@ -402,13 +402,7 @@ struct HistoryDetailView: View {
 	}
 
 	private func fetchSongs() async throws -> [Song] {
-		let ids = songs.map { MusicItemID($0.id) }
-		guard !ids.isEmpty else { return [] }
-		var request = MusicLibraryRequest<Song>()
-		request.filter(matching: \.id, memberOf: ids)
-		let response = try await request.response()
-		let byID = Dictionary(uniqueKeysWithValues: response.items.map { ($0.id, $0) })
-		return ids.compactMap { byID[$0] }
+		try await songs.resolveLibrarySongs()
 	}
 
 	private func saveAsPlaylist(named rawName: String) async {
