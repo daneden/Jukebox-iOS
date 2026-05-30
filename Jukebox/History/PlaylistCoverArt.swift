@@ -70,7 +70,7 @@ struct PlaylistCoverArt: View {
 	/// `meshPoints` for why the corners are avoided.
 	private func unit(_ rng: inout SeededGenerator) -> Float {
 		let raw = Float(rng.next() >> 11) / Float(UInt64(1) << 53)
-		return 0.20 + raw * 0.60
+		return 0.175 + raw * 0.725
 	}
 
 	/// Non-breaking the final space binds the last two words, avoiding a
@@ -111,7 +111,7 @@ struct PlaylistCoverArt: View {
 			.blendMode(.plusDarker)
 
 			Text(Self.bondedLastWord(of: title))
-				.font(.system(size: size * 0.10, weight: .semibold, design: .default).leading(.tight))
+				.font(.system(size: size * 0.10, weight: .ultraLight, design: .serif).leading(.tight))
 				.lineLimit(5)
 				.minimumScaleFactor(0.5)
 				.foregroundStyle(.white)
