@@ -70,6 +70,9 @@ extension View {
 				.padding(.bottom)
 				#endif
 		}
+		#if os(iOS)
+		.navigationBarTitleDisplayMode(.inline)
+		#endif
 		#if os(macOS)
 		.safeAreaInset(edge: .top, spacing: 0) {
 			ToolbarLogo()

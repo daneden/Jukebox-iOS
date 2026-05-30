@@ -25,6 +25,7 @@ enum MusicPlayback {
 				return false
 			}
 		#else
+			AudioRouteSession.prepareForLongFormPlayback()
 			guard let detailed = try? await playlist.with([.entries]),
 			      let firstEntry = detailed.entries?.first else { return false }
 			do {
@@ -52,6 +53,7 @@ enum MusicPlayback {
 				return false
 			}
 		#else
+			AudioRouteSession.prepareForLongFormPlayback()
 			do {
 				SystemMusicPlayer.shared.queue = .init(for: songs)
 				try await SystemMusicPlayer.shared.play()

@@ -32,7 +32,6 @@ struct PlaybackControls<Leading: View>: View {
 				.fontWeight(.bold)
 				.buttonStyle(.glass)
 				.buttonBorderShape(.capsule)
-				.controlSize(.extraLarge)
 				.disabled(disabled)
 
 				AsyncButton(action: handleShuffle) {
@@ -43,13 +42,14 @@ struct PlaybackControls<Leading: View>: View {
 				.fontWeight(.bold)
 				.buttonStyle(.glassProminent)
 				.buttonBorderShape(.capsule)
-				.controlSize(.extraLarge)
 				.disabled(disabled)
 			}
 			.frame(height: 44)
 		}
+		.controlSize(.extraLarge)
 		.scenePadding(.horizontal)
 		.scenePadding(.bottom)
+		.allowsTightening(true)
 		.confirmationDialog(
 			"Play automatically when you shuffle?",
 			isPresented: $showingAutoplayPrompt,
