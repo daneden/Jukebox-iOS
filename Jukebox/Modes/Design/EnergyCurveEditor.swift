@@ -31,14 +31,17 @@ struct EnergyCurveEditor: View {
 		GeometryReader { geo in
 			ZStack {
 				backdrop
+				axisLabel("INTENSE")
+					.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+				axisLabel("GLACIAL")
+					.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
 				curvePath(in: geo.size)
 				controlPoints(in: geo.size)
 			}
 			.frame(width: geo.size.width, height: geo.size.height)
 			.coordinateSpace(name: Self.coordinateSpaceName)
-			.overlay(alignment: .topLeading) { axisLabel("INTENSE") }
-			.overlay(alignment: .bottomLeading) { axisLabel("GLACIAL") }
 		}
+		.aspectRatio(1, contentMode: .fit)
 		.frame(minHeight: 240)
 		.accessibilityElement(children: .contain)
 		.accessibilityLabel("Energy curve")
@@ -109,8 +112,10 @@ struct EnergyCurveEditor: View {
 			.foregroundStyle(.secondary)
 			.padding(4)
 			.padding(.horizontal, 4)
-			.background(.ultraThinMaterial, in: .capsule)
-			.padding(8)
+			.background(.quinary)
+			.drawingGroup(opaque: true)
+			.clipShape(.capsule)
+			.padding(12)
 			.allowsHitTesting(false)
 	}
 
