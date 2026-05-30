@@ -26,7 +26,11 @@ struct AsyncButton<T: View>: View {
 				label()
 					.opacity(isBusy ? 0 : 1)
 				ProgressView()
+				#if os(macOS)
 					.controlSize(.small)
+				#else
+					.controlSize(.regular)
+				#endif
 					.opacity(isBusy ? 1 : 0)
 			}
 		}
