@@ -73,12 +73,16 @@ struct MakeGemsControlIntent: AppIntent {
 		/// one-tap Control Center action, "heavily-played but long-dormant" is a
 		/// good-enough surprise.
 		private static func quickGemsRunway(limit: Int = 20) async throws -> [Song] {
-			var topPlayed = MusicLibraryRequest<Song>()
-			topPlayed.sort(by: \.playCount, ascending: false)
-			topPlayed.limit = 250
-			var oldest = MusicLibraryRequest<Song>()
-			oldest.sort(by: \.libraryAddedDate, ascending: true)
-			oldest.limit = 250
+			var topReq = MusicLibraryRequest<Song>()
+			topReq.sort(by: \.playCount, ascending: false)
+			topReq.limit = 250
+			var oldReq = MusicLibraryRequest<Song>()
+			oldReq.sort(by: \.libraryAddedDate, ascending: true)
+			oldReq.limit = 250
+			// Immutable snapshots: `async let` mustn't capture a mutable var
+			// (an error under Swift 6).
+			let topPlayed = topReq
+			let oldest = oldReq
 
 			async let topResponse = topPlayed.response()
 			async let oldestResponse = oldest.response()
