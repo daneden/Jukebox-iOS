@@ -19,7 +19,7 @@ struct PlayRandomPlaylistControl: ControlWidget {
 			}
 		}
 		.displayName("Play Random Playlist")
-		.description("Play a random playlist from your Apple Music library.")
+		.description("Play a random playlist from your Music library.")
 	}
 }
 

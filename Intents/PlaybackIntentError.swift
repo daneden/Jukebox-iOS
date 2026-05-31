@@ -21,7 +21,7 @@ enum PlaybackIntentError: Error, CustomLocalizedStringResourceConvertible {
 		case .noPlaylists: "No playlists found in your library."
 		case .playbackFailed: "Couldn't start playback."
 		case .nothingToSave: "There's no generated playlist to save yet."
-		case .songsUnavailable: "None of these songs are in your Apple Music library anymore."
+		case .songsUnavailable: "None of these songs are in your Music library anymore."
 		}
 	}
 }

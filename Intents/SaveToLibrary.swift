@@ -14,7 +14,7 @@ import MusicKit
 struct SaveToLibrary: AppIntent {
 	static var title: LocalizedStringResource = "Save Playlist to Library"
 	static var description = IntentDescription(
-		"Saves a generated playlist to your Apple Music library."
+		"Saves a generated playlist to your Music library."
 	)
 
 	/// Unset → the most recently generated playlist.
