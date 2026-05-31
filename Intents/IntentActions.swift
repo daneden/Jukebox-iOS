@@ -34,7 +34,15 @@ enum IntentActions {
 		count: Int = 20,
 		startPlaying: Bool = true
 	) async throws -> HistoryEntrySnapshot? {
-		let result = try await GemDeckBuilder.build(controls: controls)
+		// `wideSample` + avoid-last (the shuffle path's variety) so repeated
+		// runs turn the candidate pool over and don't keep landing the same
+		// first artist/decade.
+		let result = try await GemDeckBuilder.build(
+			controls: controls,
+			wideSample: true,
+			avoidDecade: AppGroupStore.lastSeedDecade,
+			avoidArtist: AppGroupStore.lastSeedArtist
+		)
 		let deck = result.deck
 		guard !deck.isEmpty else { return nil }
 
@@ -45,6 +53,8 @@ enum IntentActions {
 		if startPlaying, await MusicPlayback.play(songs: runway) == false {
 			return nil
 		}
+		AppGroupStore.lastSeedArtist = seed.artistName
+		AppGroupStore.lastSeedDecade = seed.releaseDecade(override: result.originals[seed.id])
 		return await record(seed: seed, runway: runway)
 	}
 

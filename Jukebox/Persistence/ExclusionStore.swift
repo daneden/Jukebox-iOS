@@ -22,12 +22,34 @@ actor ExclusionStore {
 	private func ensureLoaded() throws {
 		if container != nil { return }
 		let schema = Schema([ExcludedItem.self])
-		// Named so this store gets its own sqlite file — see
-		// `EmbeddingStore.ensureLoaded` for the full rationale.
-		let config = ModelConfiguration("exclusions", schema: schema, cloudKitDatabase: .none)
+		// App Group container so the widget extension's controls see the same
+		// removed songs/albums/artists the app set.
+		let config = AppGroupStore.configuration("exclusions", schema: schema)
 		let c = try ModelContainer(for: schema, configurations: [config])
 		container = c
 		context = ModelContext(c)
+		migrateLegacyExclusionsIfNeeded(schema: schema)
+	}
+
+	/// Copy pre-App-Group exclusions into the shared store once, so the user's
+	/// removed items survive the move. Skips keys already present.
+	private func migrateLegacyExclusionsIfNeeded(schema: Schema) {
+		guard AppGroupStore.needsMigration("exclusions") else { return }
+		AppGroupStore.markMigrated("exclusions")
+		guard let context,
+		      let legacy = try? ModelContainer(
+		      	for: schema,
+		      	configurations: [AppGroupStore.legacyConfiguration("exclusions", schema: schema)]
+		      )
+		else { return }
+		let legacyContext = ModelContext(legacy)
+		guard let rows = try? legacyContext.fetch(FetchDescriptor<ExcludedItem>()), !rows.isEmpty
+		else { return }
+		let existing = Set(((try? context.fetch(FetchDescriptor<ExcludedItem>())) ?? []).map(\.key))
+		for row in rows where !existing.contains(row.key) {
+			context.insert(ExcludedItem(key: row.key, kind: row.kind, label: row.label))
+		}
+		try? context.save()
 	}
 
 	// MARK: - Blocking

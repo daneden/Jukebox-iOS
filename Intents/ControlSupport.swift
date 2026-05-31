@@ -57,30 +57,39 @@ struct MakeGemsControlIntent: AppIntent {
 
 	func perform() async throws -> some IntentResult {
 		#if os(iOS)
-			if let runway = try? await Self.quickGemsRunway(), !runway.isEmpty {
-				SystemMusicPlayer.shared.queue = .init(for: runway)
-				try? await SystemMusicPlayer.shared.play()
+			guard let runway = try? await Self.quickGemsRunway(), let seed = runway.first else {
+				return .result()
 			}
+			SystemMusicPlayer.shared.queue = .init(for: runway)
+			try? await SystemMusicPlayer.shared.play()
+			// Parity with the app + Siri: log to (shared) History and remember
+			// the seed so the next run steers away from it.
+			AppGroupStore.lastSeedArtist = seed.artistName
+			await HistoryStore.shared.record(
+				name: PlaylistNamer.suggestedName(seedArtist: seed.artistName),
+				seed: SongSnapshot(song: seed),
+				runway: runway.map(SongSnapshot.init(song:))
+			)
 		#endif
 		return .result()
 	}
 
 	#if os(iOS)
-		/// A deliberately-light gems pick that fits a control extension's memory
-		/// budget: two bounded library pools, a simple nostalgia score, a shuffled
-		/// runway. This is NOT the in-app deck — no embeddings, similarity walk,
-		/// energy/decade filters, or exclusions (those need the app). For a
-		/// one-tap Control Center action, "heavily-played but long-dormant" is a
-		/// good-enough surprise.
+		/// A control-extension–sized gems pick that matches the app on the
+		/// behaviours that matter: it reads the shared `ExclusionStore` (removed
+		/// items never resurface), scores with the real `GemScorer` (using the
+		/// shared History recency), caps per artist/album so a prolific artist
+		/// can't dominate, steers away from the previous run's artist, and
+		/// shuffles for tap-to-tap variety. It omits only the embedding-based
+		/// similarity walk, which needs the full app.
 		private static func quickGemsRunway(limit: Int = 20) async throws -> [Song] {
 			var topReq = MusicLibraryRequest<Song>()
 			topReq.sort(by: \.playCount, ascending: false)
-			topReq.limit = 250
+			topReq.limit = 400
 			var oldReq = MusicLibraryRequest<Song>()
 			oldReq.sort(by: \.libraryAddedDate, ascending: true)
-			oldReq.limit = 250
-			// Immutable snapshots: `async let` mustn't capture a mutable var
-			// (an error under Swift 6).
+			oldReq.limit = 400
+			// Immutable snapshots: `async let` mustn't capture a mutable var.
 			let topPlayed = topReq
 			let oldest = oldReq
 
@@ -88,20 +97,36 @@ struct MakeGemsControlIntent: AppIntent {
 			async let oldestResponse = oldest.response()
 			let pool = try await Array(topResponse.items) + Array(oldestResponse.items)
 
-			var seen = Set<MusicItemID>()
-			let now = Date()
-			let scored = pool
-				.filter { seen.insert($0.id).inserted && $0.playParameters != nil }
-				.map { song -> (song: Song, score: Double) in
-					let plays = Double(song.playCount ?? 0)
-					let dormantDays = song.lastPlayedDate.map { now.timeIntervalSince($0) / 86400 } ?? 365
-					return (song, log(plays + 1) * max(0, dormantDays))
-				}
-				.sorted { $0.score > $1.score }
-				.map(\.song)
+			// Shared app data via the App Group.
+			let exclusions = await ExclusionStore.shared.exclusions()
+			let recentPlays = await HistoryStore.shared.recentPlays(within: 14 * 86400)
 
-			// Shuffle within the top so each tap differs, then take a runway.
-			return Array(Array(scored.prefix(80)).shuffled().prefix(limit))
+			var seen = Set<MusicItemID>()
+			let deduped = pool.filter { seen.insert($0.id).inserted && !exclusions.excludes(song: $0) }
+			let ranked = GemScorer(recentPlays: recentPlays).scoreAndRank(deduped).map(\.song)
+
+			// Per-artist (≤3) / per-album (≤2) caps over the scored head.
+			var perArtist: [String: Int] = [:]
+			var perAlbum: [String: Int] = [:]
+			var head: [Song] = []
+			for song in ranked {
+				if perArtist[song.artistName, default: 0] >= 3 { continue }
+				let album = song.albumTitle ?? ""
+				if !album.isEmpty, perAlbum[album, default: 0] >= 2 { continue }
+				head.append(song)
+				perArtist[song.artistName, default: 0] += 1
+				if !album.isEmpty { perAlbum[album, default: 0] += 1 }
+				if head.count >= 80 { break }
+			}
+
+			var shuffled = head.shuffled()
+			// Bias the FIRST pick away from the previous run's artist.
+			if let avoid = AppGroupStore.lastSeedArtist, shuffled.first?.artistName == avoid,
+			   let other = shuffled.firstIndex(where: { $0.artistName != avoid })
+			{
+				shuffled.swapAt(0, other)
+			}
+			return Array(shuffled.prefix(limit))
 		}
 	#endif
 }

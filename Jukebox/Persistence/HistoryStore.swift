@@ -35,12 +35,55 @@ actor HistoryStore {
 	private func ensureLoaded() throws {
 		if container != nil { return }
 		let schema = Schema([HistoryPlaylist.self, HistorySong.self])
-		// Named so this store gets its own sqlite file — see
-		// `EmbeddingStore.ensureLoaded`.
-		let config = ModelConfiguration("history", schema: schema, cloudKitDatabase: .none)
+		// App Group container so the app, its App Intents, and the widget
+		// extension share one history file.
+		let config = AppGroupStore.configuration("history", schema: schema)
 		let c = try ModelContainer(for: schema, configurations: [config])
 		container = c
 		context = ModelContext(c)
+		migrateLegacyHistoryIfNeeded(schema: schema)
+	}
+
+	/// Copy pre-App-Group history into the shared store once. Skips ids
+	/// already present, so it's idempotent and tolerates the extension having
+	/// written a row first.
+	private func migrateLegacyHistoryIfNeeded(schema: Schema) {
+		guard AppGroupStore.needsMigration("history") else { return }
+		AppGroupStore.markMigrated("history")
+		guard let context,
+		      let legacy = try? ModelContainer(
+		      	for: schema,
+		      	configurations: [AppGroupStore.legacyConfiguration("history", schema: schema)]
+		      )
+		else { return }
+		let legacyContext = ModelContext(legacy)
+		guard let rows = try? legacyContext.fetch(FetchDescriptor<HistoryPlaylist>()), !rows.isEmpty
+		else { return }
+		let existing = Set(((try? context.fetch(FetchDescriptor<HistoryPlaylist>())) ?? []).map(\.id))
+		for row in rows where !existing.contains(row.id) {
+			let copy = HistoryPlaylist(
+				id: row.id,
+				playedAt: row.playedAt,
+				name: row.name,
+				seedSongID: row.seedSongID,
+				seedTitle: row.seedTitle,
+				seedArtist: row.seedArtist
+			)
+			copy.feedbackRaw = row.feedbackRaw
+			context.insert(copy)
+			for song in row.songs.sorted(by: { $0.position < $1.position }) {
+				let songCopy = HistorySong(
+					songID: song.songID,
+					title: song.title,
+					artistName: song.artistName,
+					albumTitle: song.albumTitle,
+					position: song.position
+				)
+				songCopy.playlist = copy
+				copy.songs.append(songCopy)
+			}
+		}
+		try? context.save()
 	}
 
 	/// Record a play. If the most recent entry overlaps this runway by
