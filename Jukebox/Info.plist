@@ -2,19 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSUserActivityTypes</key>
-	<array>
-		<string>PlayRandomPlaylistIntent</string>
-	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>me.daneden.Jukebox.libraryEmbedding</string>
+	</array>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>PlayRandomPlaylistIntent</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>processing</string>
 	</array>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Save generated playlist cover art to your photo library.</string>
 </dict>
 </plist>
